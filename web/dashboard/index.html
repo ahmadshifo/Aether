@@ -6,6 +6,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0a1a23" />
     <title>echosight · Dashboard</title>
+    <!-- Member 2: apply the saved light/dark choice before first paint to avoid a flash of the wrong theme. -->
+    <script>
+      try {
+        var saved = localStorage.getItem('echosight-theme');
+        if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

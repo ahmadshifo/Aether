@@ -15,6 +15,34 @@ const NAV = [
   { id: 'status', label: 'System status', icon: 'activity', Page: SystemStatus },
 ];
 
+const THEME_KEY = 'echosight-theme';
+const systemTheme = () => (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+
+function readTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch { /* storage blocked: follow the OS */ }
+  return systemTheme();
+}
+
+// Light/dark theme: follows the OS until the user picks one, then remembers the pick.
+function useTheme() {
+  const [theme, setTheme] = useState(readTheme);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f2f6f7' : '#0a1a23');
+  }, [theme]);
+
+  const toggle = () => {
+    const next = theme === 'light' ? 'dark' : 'light';
+    setTheme(next);
+    try { localStorage.setItem(THEME_KEY, next); } catch { /* not persisted */ }
+  };
+  return [theme, toggle];
+}
+
 function readRoute() {
   const [, page = 'overview', param] = window.location.hash.split('/');
   return { page, param };
@@ -22,6 +50,7 @@ function readRoute() {
 
 export default function App() {
   const [route, setRoute] = useState(readRoute);
+  const [theme, toggleTheme] = useTheme();
   const mainRef = useRef(null);
   const current = NAV.find((item) => item.id === route.page) ?? NAV[0];
 
@@ -72,8 +101,10 @@ export default function App() {
             <p className="foot-name">Team preview</p>
             <p className="foot-sub">Mock data</p>
           </div>
-          <button type="button" className="icon-btn icon-btn-ghost" aria-label="Settings">
-            <Icon name="settings" size={16} />
+          <button type="button" className="icon-btn theme-toggle" onClick={toggleTheme}
+            aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+            title={theme === 'light' ? 'Dark mode' : 'Light mode'}>
+            <Icon name={theme === 'light' ? 'moon' : 'sun'} size={16} />
           </button>
         </div>
       </aside>
