@@ -1,327 +1,383 @@
-
 import { useEffect, useRef, useState } from 'react'
-
-type Phase = 'off' | 'listening' | 'thinking' | 'speaking' | 'ready'
-type Language = 'en' | 'ar'
+import type { MouseEvent } from 'react'
+import HistoryPage from './HistoryPage'
+import EchoIcon from './EchoIcon'
+import { VoiceSession, type Language, type Phase, type HistoryItem } from './voiceSession'
 
 const words = {
   en: {
-    subtitle: 'Your AI visual assistant',
-    camera: 'Live camera',
-    on: 'Camera active',
-    off: 'Camera off',
-    start: 'Start Assistant',
-    stop: 'Stop Assistant',
-    ready: 'Ready to help',
-    listening: 'Listening to your question...',
-    thinking: 'Thinking...',
-    speaking: 'Speaking answer...',
-    again: 'Ready for another question',
-    hint: 'Tap once to activate the camera and microphone',
-    latest: 'Latest answer',
-    demo: 'Demo answer — real AI not connected yet',
-    answer: 'The sign on the door reads Room 205.',
-    privacy: 'Camera and microphone stop when you end the session.',
+    subtitle: 'Your AI visual assistant', camera: 'Live camera', on: 'Live', off: 'Off',
+    ready: 'Ready to help', listening: 'Listening…', hearing: 'I hear you…',
+    processing: 'Thinking…', speaking: 'Speaking…', paused: 'Session paused',
+    welcomeHint: 'Tap Start to open the camera and microphone together.',
+    voiceOnly: 'Camera unavailable — voice only',
+    voiceOnlyHint: 'The camera is off. You can still ask questions by voice.',
+    latest: 'Latest answer', connected: 'Voice assistant', demo: 'Demo',
+    history: 'History', replay: 'Replay answer', language: 'Interface language',
+    home: 'EchoSight home', start: 'Start', starting: 'Starting…', stop: 'Stop',
+    startLabel: 'Start camera and microphone', stopLabel: 'Stop session',
+    transcript: 'You said', cameraFailed: 'Camera unavailable. Voice-only mode is available.',
+    controls: 'Assistant controls', collapse: 'Collapse answer', expand: 'Expand answer',
+    resume: 'Resume session',
   },
   ar: {
-    subtitle: 'مساعدك البصري الذكي',
-    camera: 'الكاميرا المباشرة',
-    on: 'الكاميرا تعمل',
-    off: 'الكاميرا متوقفة',
-    start: 'ابدأ المساعد',
-    stop: 'إيقاف المساعد',
-    ready: 'جاهز للمساعدة',
-    listening: 'أستمع إلى سؤالك...',
-    thinking: 'أفكر...',
-    speaking: 'أنطق الإجابة...',
-    again: 'جاهز لسؤال آخر',
-    hint: 'اضغط مرة واحدة لتشغيل الكاميرا والميكروفون',
-    latest: 'آخر إجابة',
-    demo: 'إجابة تجريبية — الذكاء الاصطناعي غير متصل بعد',
-    answer: 'اللافتة على الباب مكتوب عليها غرفة ٢٠٥.',
-    privacy: 'تتوقف الكاميرا والميكروفون عند إنهاء الجلسة.',
+    subtitle: 'مساعدك البصري الذكي', camera: 'الكاميرا المباشرة', on: 'مباشر', off: 'متوقفة',
+    ready: 'جاهز للمساعدة', listening: 'أستمع إليك…', hearing: 'أسمعك…',
+    processing: 'أفكّر…', speaking: 'أنطق الإجابة…', paused: 'الجلسة متوقفة مؤقتًا',
+    welcomeHint: 'اضغط ابدأ لتشغيل الكاميرا والميكروفون معًا.',
+    voiceOnly: 'الكاميرا غير متاحة — وضع الصوت فقط',
+    voiceOnlyHint: 'الكاميرا متوقفة. لا يزال بإمكانك طرح أسئلة صوتية.',
+    latest: 'آخر إجابة', connected: 'المساعد الصوتي', demo: 'تجريبي',
+    history: 'السجل', replay: 'إعادة سماع الإجابة', language: 'لغة الواجهة',
+    home: 'الصفحة الرئيسية لإيكوسايت', start: 'ابدأ', starting: 'جارٍ البدء…', stop: 'إيقاف',
+    startLabel: 'تشغيل الكاميرا والميكروفون', stopLabel: 'إنهاء الجلسة',
+    transcript: 'ما قلته', cameraFailed: 'الكاميرا غير متاحة. يمكن استخدام الوضع الصوتي فقط.',
+    controls: 'أدوات المساعد', collapse: 'طي الإجابة', expand: 'عرض الإجابة',
+    resume: 'استئناف الجلسة',
   },
+}
+
+const STORE_KEY = 'echosight-local-history-v1'
+function readHistory(): HistoryItem[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(STORE_KEY) ?? '[]')
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is HistoryItem =>
+          item != null && typeof item.question === 'string' && typeof item.answer === 'string'
+          && typeof item.id === 'string' && (item.language === 'en' || item.language === 'ar'))
+      : []
+  } catch { return [] }
+}
+
+async function captureFrame(video: HTMLVideoElement | null): Promise<Blob | null> {
+  if (!video || !video.srcObject || !video.videoWidth || !video.videoHeight) return null
+  const width = Math.min(1024, video.videoWidth)
+  const height = Math.max(1, Math.round(width * video.videoHeight / video.videoWidth))
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  if (!context) return null
+  // Never mirror rear camera footage.
+  context.drawImage(video, 0, 0, width, height)
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.7))
 }
 
 export default function App() {
   const [language, setLanguage] = useState<Language>('en')
-  const [active, setActive] = useState(false)
-  const [phase, setPhase] = useState<Phase>('off')
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [sessionOn, setSessionOn] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [cameraOn, setCameraOn] = useState(false)
+  const [cameraUnavailable, setCameraUnavailable] = useState(false)
+  const [phase, setPhase] = useState<Phase>('idle')
+  const [transcript, setTranscript] = useState('')
   const [answer, setAnswer] = useState('')
+  const [answerIsDemo, setAnswerIsDemo] = useState(false)
+  const [answerCollapsed, setAnswerCollapsed] = useState(true)
   const [error, setError] = useState('')
+  const [history, setHistory] = useState<HistoryItem[]>(readHistory)
 
   const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const timersRef = useRef<number[]>([])
-  const runRef = useRef(0)
-
+  const cameraRef = useRef<MediaStream | null>(null)
+  const cameraRequestRef = useRef(0)
+  const sessionAttemptRef = useRef(0)
+  const requestedSessionRef = useRef(false)
+  const voiceRef = useRef<VoiceSession | null>(null)
   const t = words[language]
 
-  function clearTimers() {
-    timersRef.current.forEach(window.clearTimeout)
-    timersRef.current = []
+  useEffect(() => {
+    document.documentElement.lang = language
+    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
+  }, [language])
+
+  function stopCamera() {
+    cameraRequestRef.current += 1
+    cameraRef.current?.getTracks().forEach(track => track.stop())
+    cameraRef.current = null
+    if (videoRef.current) videoRef.current.srcObject = null
+    setCameraOn(false)
   }
 
-  function stopAssistant() {
-    runRef.current += 1
-    clearTimers()
-
-    window.speechSynthesis?.cancel()
-
-    streamRef.current?.getTracks().forEach((track) => track.stop())
-    streamRef.current = null
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null
-    }
-
-    setActive(false)
-    setPhase('off')
-  }
-
-  function demoAnswer(run: number, lang: Language) {
-    const firstTimer = window.setTimeout(() => {
-      if (runRef.current !== run) return
-
-      setPhase('thinking')
-
-      const secondTimer = window.setTimeout(() => {
-        if (runRef.current !== run) return
-
-        const message = words[lang].answer
-
-        setAnswer(message)
-        setPhase('speaking')
-
-        if (!('speechSynthesis' in window)) {
-          setPhase('ready')
-          return
-        }
-
-        const utterance = new SpeechSynthesisUtterance(message)
-        utterance.lang = lang === 'ar' ? 'ar-SA' : 'en-US'
-        utterance.rate = 0.95
-
-        utterance.onend = () => {
-          if (runRef.current === run) setPhase('ready')
-        }
-
-        utterance.onerror = () => {
-          if (runRef.current === run) setPhase('ready')
-        }
-
-        window.speechSynthesis.cancel()
-        window.speechSynthesis.speak(utterance)
-
-        // Safety fallback if the browser doesn't fire onend.
-        const fallback = window.setTimeout(() => {
-          if (runRef.current === run) setPhase('ready')
-        }, 10000)
-
-        timersRef.current.push(fallback)
-      }, 1200)
-
-      timersRef.current.push(secondTimer)
-    }, 6500)
-
-    timersRef.current.push(firstTimer)
-  }
-
-  async function startAssistant() {
-    setError('')
-    const run = ++runRef.current
-
+  // Existing video-only camera acquisition, shared by the single session button.
+  // The voice session separately owns microphone acquisition/recognition, to
+  // avoid competing microphone tracks on iPhone.
+  async function startCamera(): Promise<boolean> {
+    const request = ++cameraRequestRef.current
     try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('Camera and microphone are unavailable.')
-      }
-
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera unavailable')
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
       })
-
-      if (runRef.current !== run) {
-        stream.getTracks().forEach((track) => track.stop())
-        return
+      if (request !== cameraRequestRef.current) {
+        stream.getTracks().forEach(track => track.stop())
+        return false
       }
-
-      streamRef.current = stream
-
+      cameraRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        videoRef.current.play().catch(() => {})
+        try { await videoRef.current.play() } catch { /* inline video still has a live stream */ }
       }
-
-      setActive(true)
-      setPhase('listening')
-      setAnswer('')
-
-      // Temporary demo: this is NOT real speech detection.
-      demoAnswer(run, language)
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Unable to start assistant.'
-      )
-      setPhase('off')
+      setCameraOn(true)
+      return true
+    } catch {
+      if (request === cameraRequestRef.current) setCameraOn(false)
+      return false
     }
   }
 
   useEffect(() => {
+    const controller = new VoiceSession({
+      onSession: (isOn) => {
+        setSessionOn(isOn)
+        // A denied/failed microphone must never leave the camera recording.
+        if (!isOn && requestedSessionRef.current) {
+          requestedSessionRef.current = false
+          sessionAttemptRef.current += 1
+          stopCamera()
+          setStarting(false)
+        }
+      },
+      onPhase: setPhase,
+      onTranscript: setTranscript,
+      onError: setError,
+      getFrame: () => captureFrame(videoRef.current),
+      onAnswer: (item) => {
+        setAnswer(item.answer)
+        setAnswerIsDemo(Boolean(item.demo))
+        setAnswerCollapsed(true)
+        setHistory(previous => {
+          const updated = [item, ...previous].slice(0, 50)
+          try { localStorage.setItem(STORE_KEY, JSON.stringify(updated)) } catch { /* private mode */ }
+          return updated
+        })
+      },
+    })
+    voiceRef.current = controller
+    const handleVisibility = () => controller.onVisibilityChange()
+    document.addEventListener('visibilitychange', handleVisibility)
     return () => {
-      runRef.current += 1
-      timersRef.current.forEach(window.clearTimeout)
-      streamRef.current?.getTracks().forEach((track) => track.stop())
-      window.speechSynthesis?.cancel()
+      document.removeEventListener('visibilitychange', handleVisibility)
+      controller.stop()
+      if (voiceRef.current === controller) voiceRef.current = null
+      requestedSessionRef.current = false
+      sessionAttemptRef.current += 1
+      cameraRequestRef.current += 1
+      cameraRef.current?.getTracks().forEach(track => track.stop())
+      cameraRef.current = null
     }
   }, [])
 
-  const status = !active
-    ? t.ready
-    : phase === 'listening'
-      ? t.listening
-      : phase === 'thinking'
-        ? t.thinking
-        : phase === 'speaking'
-          ? t.speaking
-          : t.again
+  async function startSession() {
+    if (sessionOn || starting || !voiceRef.current) return
+    const attempt = ++sessionAttemptRef.current
+    requestedSessionRef.current = true
+    setStarting(true)
+    setCameraUnavailable(false)
+    setError('')
+
+    // Both operations start from this one user tap. Browser speech recognition
+    // and camera may still show separate OS permission prompts.
+    void voiceRef.current.start(language)
+    const cameraReady = await startCamera()
+    if (attempt !== sessionAttemptRef.current) return
+
+    if (!voiceRef.current?.isActive) {
+      stopCamera()
+      setStarting(false)
+      return
+    }
+    setCameraUnavailable(!cameraReady)
+    setStarting(false)
+  }
+
+  function stopSession() {
+    requestedSessionRef.current = false
+    sessionAttemptRef.current += 1
+    voiceRef.current?.stop()
+    stopCamera()
+    setCameraUnavailable(false)
+    setStarting(false)
+  }
+
+  function toggleSession() {
+    if (starting) return
+    if (sessionOn) stopSession()
+    else void startSession()
+  }
+
+  function changeLanguage(next: Language) {
+    if (next === language) return
+    setLanguage(next)
+    voiceRef.current?.changeLanguage(next)
+  }
+
+  function openHistory() {
+    voiceRef.current?.pause()
+    setHistoryOpen(true)
+  }
+  function closeHistory() {
+    setHistoryOpen(false)
+    voiceRef.current?.resume()
+  }
+
+  const isActive = sessionOn || starting
+  const showingTranscript = isActive && phase === 'hearing' && Boolean(transcript.trim())
+  const showStageCard = isActive && (showingTranscript || Boolean(answer))
+  const status = starting ? t.starting : t[phase === 'idle' ? 'ready' : phase]
+  const statusIcon = starting || phase === 'processing' ? 'loader'
+    : phase === 'speaking' ? 'volume'
+    : phase === 'listening' || phase === 'hearing' ? 'audio-lines'
+    : phase === 'paused' ? 'mic-off' : 'sparkles'
 
   return (
-    <main
-      dir={language === 'ar' ? 'rtl' : 'ltr'}
-      className="min-h-dvh bg-[#071724] text-white"
-    >
-      <div className="mx-auto flex min-h-dvh max-w-md flex-col px-5 py-6">
-        <header className="mb-7 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              <span className="text-[#43DCD1]">◉</span> EchoSight
-            </h1>
-            <p className="mt-1 text-xs text-[#A3BFCA]">
-              {t.subtitle}
-            </p>
+    <div className="app-shell" dir={language === 'ar' ? 'rtl' : 'ltr'} lang={language}>
+      <div className={`app-container ${isActive ? 'is-active' : ''}`}>
+        <header className="app-header">
+          <div className="brand" aria-label={t.home}>
+            <span className="brand-mark"><EchoIcon name="eye" size={25} /></span>
+            <span className="brand-copy"><strong>EchoSight</strong><span>{t.subtitle}</span></span>
           </div>
-
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setLanguage('en')}
-              aria-pressed={language === 'en'}
-              className={`min-h-11 min-w-11 rounded-xl px-3 ${
-                language === 'en'
-                  ? 'bg-[#087F87] text-white'
-                  : 'bg-[#163144] text-[#A3BFCA]'
-              }`}
-            >
-              EN
-            </button>
-            <button
-              type="button"
-              onClick={() => setLanguage('ar')}
-              aria-pressed={language === 'ar'}
-              className={`min-h-11 min-w-11 rounded-xl px-3 ${
-                language === 'ar'
-                  ? 'bg-[#087F87] text-white'
-                  : 'bg-[#163144] text-[#A3BFCA]'
-              }`}
-            >
-              ع
-            </button>
+          <div className="language-switch" role="group" aria-label={t.language}>
+            <span className={`language-active ${language === 'ar' ? 'is-ar' : ''}`} aria-hidden="true" />
+            <button type="button" className="language-option" aria-pressed={language === 'en'} onClick={() => changeLanguage('en')}>EN</button>
+            <button type="button" className="language-option" aria-pressed={language === 'ar'} onClick={() => changeLanguage('ar')}>AR</button>
           </div>
         </header>
 
-        <section className="rounded-3xl border border-[#24465B] bg-[#10283A] p-4">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 className="font-semibold">{t.camera}</h2>
-            <span className="text-xs text-[#69E0C6]">
-              {active ? '● ' + t.on : t.off}
-            </span>
-          </div>
-
-          <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-[#081B29]">
+        <main className="app-content" id="main-content">
+          <section className={`camera-stage ${cameraOn ? 'has-video' : ''}`} aria-label={t.camera}>
             <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              aria-label={t.camera}
-              className={`h-full w-full object-cover ${
-                active ? 'block' : 'hidden'
-              }`}
+              ref={videoRef} autoPlay muted playsInline aria-label={t.camera}
+              className={`stage-video ${cameraOn ? 'is-visible' : ''}`}
             />
 
-            {!active && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[#8DABB8]">
-                <span className="text-5xl" aria-hidden="true">◎</span>
-                <span className="text-sm">{t.off}</span>
+            {!isActive && (
+              <div className="welcome-stage">
+                <span className="welcome-eye" aria-hidden="true">
+                  <span className="welcome-ring" />
+                  <span className="welcome-ring ring-two" />
+                  <EchoIcon name="eye" size={46} />
+                </span>
+                <h1>{t.ready}</h1>
+                <p>{t.welcomeHint}</p>
               </div>
             )}
-          </div>
-        </section>
 
-        <section className="flex flex-1 flex-col items-center justify-center py-9 text-center">
-          <p
-            role="status"
-            aria-live="polite"
-            className="mb-7 min-h-7 text-lg font-medium text-[#C8E4E9]"
-          >
-            {status}
-          </p>
+            {isActive && !cameraOn && (
+              <div className="voice-only-stage" aria-hidden="true">
+                <EchoIcon name="audio-lines" size={44} />
+                <p>{t.voiceOnlyHint}</p>
+              </div>
+            )}
+
+            {/* One top overlay: the camera chip never changes its location. */}
+            <div className="stage-top-overlay">
+              <span className={`stage-chip ${cameraOn ? 'is-live' : ''}`} aria-label={`${t.camera}: ${cameraOn ? t.on : t.off}`}>
+                <span className="live-dot" aria-hidden="true" />
+                {cameraOn ? t.on : t.off}
+              </span>
+
+              {isActive && (
+                <div className="stage-status-group">
+                  <div className={`stage-status phase-${phase}`} role="status" aria-live="polite" aria-atomic="true">
+                    {phase === 'hearing' ? (
+                      <span className="equalizer" aria-hidden="true"><i /><i /><i /></span>
+                    ) : phase === 'listening' ? (
+                      <span className="listening-dot" aria-hidden="true" />
+                    ) : (
+                      <EchoIcon
+                        name={statusIcon}
+                        size={17}
+                        className={starting || phase === 'processing' ? 'spin-icon' : ''}
+                      />
+                    )}
+                    <span className="stage-status-label">{status}</span>
+                  </div>
+                  {phase === 'paused' && (
+                    <button type="button" className="resume-button" onClick={() => voiceRef.current?.resume()}>
+                      {t.resume}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {isActive && !cameraOn && cameraUnavailable && (
+              <span className="voice-only-chip">{t.voiceOnly}</span>
+            )}
+
+            {/* No answer is shown in idle. While hearing, show the live transcript instead. */}
+            {showStageCard && (
+              <div className={`stage-bottom-overlay ${answerCollapsed ? '' : 'is-expanded'}`}>
+                <section
+                  className={`answer-overlay ${answerCollapsed ? 'is-collapsed' : 'is-expanded'} ${showingTranscript ? 'is-transcript' : ''}`}
+                  aria-label={showingTranscript ? t.transcript : t.latest}
+                  onClick={(event: MouseEvent<HTMLElement>) => {
+                    if (!(event.target as HTMLElement).closest('button')) {
+                      setAnswerCollapsed(v => !v)
+                    }
+                  }}
+                >
+                  <div className="answer-heading">
+                    <span className="answer-heading-icon"><EchoIcon name={showingTranscript ? 'audio-lines' : 'sparkles'} size={17} /></span>
+                    <span className="answer-title">{showingTranscript ? t.transcript : t.latest}</span>
+                    {!showingTranscript && answerIsDemo && <span className="demo-badge">{t.demo}</span>}
+                    <button
+                      type="button" className="answer-chevron-control"
+                      onClick={() => setAnswerCollapsed(v => !v)}
+                      aria-expanded={!answerCollapsed}
+                      aria-label={answerCollapsed ? t.expand : t.collapse}
+                    >
+                      <svg className="answer-chevron" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
+                    </button>
+                    {!showingTranscript && (
+                      <button type="button" className="replay-control" aria-label={t.replay} onClick={() => voiceRef.current?.replay(answer)}>
+                        <EchoIcon name="volume" size={21} />
+                      </button>
+                    )}
+                  </div>
+                  <p className="answer-text" aria-live="polite">
+                    {showingTranscript ? transcript : answer}
+                  </p>
+                </section>
+              </div>
+            )}
+          </section>
+          {error && <p role="alert" className="error-alert">{error}</p>}
+        </main>
+
+        {/* A floating two-row grid keeps the button labels aligned. There is
+            deliberately no fake mute control: voiceSession exposes no mute API. */}
+        <nav className="action-dock" aria-label={t.controls}>
+          <button type="button" className="dock-side dock-history" onClick={openHistory} aria-label={t.history}>
+            <EchoIcon name="history" size={24} />
+          </button>
+          <span className="dock-caption dock-history-caption">{t.history}</span>
 
           <button
             type="button"
-            onClick={active ? stopAssistant : startAssistant}
-            aria-label={active ? t.stop : t.start}
-            className={`flex h-32 w-32 items-center justify-center rounded-full border-4 border-[#7BDAD7] shadow-[0_0_35px_rgba(31,191,185,0.25)] transition active:scale-95 ${
-              active ? 'bg-[#B34255]' : 'bg-[#087F87]'
-            }`}
+            className={`session-button ${isActive ? 'is-on' : ''} ${starting ? 'is-starting' : ''} phase-${phase}`}
+            onClick={toggleSession}
+            aria-label={sessionOn ? t.stopLabel : t.startLabel}
+            aria-pressed={sessionOn}
+            disabled={starting}
           >
-            <span aria-hidden="true" className="text-5xl">
-              {active ? '■' : '🎙'}
-            </span>
+            <span className="session-pulse" aria-hidden="true" />
+            {starting ? <EchoIcon name="loader" size={32} className="spin-icon" />
+              : sessionOn ? <EchoIcon name="stop" size={34} />
+              : <EchoIcon name="eye" size={34} />}
           </button>
+          <span className="dock-caption session-caption">{starting ? t.starting : sessionOn ? t.stop : t.start}</span>
 
-          <h2 className="mt-6 text-2xl font-bold">
-            {active ? t.stop : t.start}
-          </h2>
-
-          <p className="mt-3 max-w-xs text-sm leading-6 text-[#A3BFCA]">
-            {active ? t.privacy : t.hint}
-          </p>
-        </section>
-
-        {answer && (
-          <section
-            aria-label={t.latest}
-            className="mb-5 rounded-2xl border border-[#24465B] bg-[#10283A] p-5"
-          >
-            <h2 className="mb-2 text-xs font-bold uppercase tracking-wider text-[#43DCD1]">
-              {t.latest}
-            </h2>
-            <p className="text-lg leading-7">{answer}</p>
-            <p className="mt-3 text-xs text-[#9CBAC6]">
-              {t.demo}
-            </p>
-          </section>
-        )}
-
-        {error && (
-          <p role="alert" className="mb-4 rounded-xl bg-red-950 p-3 text-sm text-red-200">
-            {error}
-          </p>
-        )}
-
-        <footer className="pb-3 text-center text-xs text-[#789BAA]">
-          EchoSight · Mobile Assistant Prototype
-        </footer>
+          <span className="dock-spacer" aria-hidden="true" />
+          <span className="dock-caption dock-spacer-label" aria-hidden="true">&nbsp;</span>
+        </nav>
       </div>
-    </main>
+      {historyOpen && <HistoryPage language={language} items={history} onBack={closeHistory} />}
+    </div>
   )
 }
