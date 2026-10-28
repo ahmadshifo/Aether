@@ -1,0 +1,13 @@
+# All members: agreed MediaMTX stream naming and media properties; Member 1 owns server implementation.
+version: "1.0"
+stream_path_template: "live/{session_id}"
+publish_protocol: webrtc_whip
+dashboard_read_protocol: webrtc_whep
+processing_read_protocol: rtsp
+target_resolution: [1280, 720]
+target_fps: 15
+preferred_codec: H264
+continuous_microphone_stream: false
+publish_path_template: "/live/{session_id}/whip"
+dashboard_path_template: "/live/{session_id}/whep"
+processor_path_template: "rtsp://MEDIA_HOST:8554/live/{session_id}"

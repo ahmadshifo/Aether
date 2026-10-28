@@ -1,0 +1,10 @@
+{
+  "_comment": "Member 1: installable mobile PWA metadata; add application icons and service-worker registration when implementing offline shell support.",
+  "name": "Visual Assistant",
+  "short_name": "VisualAid",
+  "description": "Accessible live-camera and spoken-question interface for the visual assistant project.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1e3a8a"
+}

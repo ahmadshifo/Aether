@@ -1,0 +1,3 @@
+# Member 1: MediaMTX configuration; add protected publisher/reader paths and network/TLS settings here.
+# Do not enable unauthenticated public streaming without explicit approval.
+# Keep this placeholder until tested server settings can be added safely.

@@ -1,0 +1,248 @@
+# All members: canonical OpenAPI v1 contract; implementations and clients MUST preserve these paths, fields, and response types.
+# Member 1 owns voice endpoints; Member 2 owns ask/history/status; Member 3 owns search/frames.
+openapi: 3.0.3
+info:
+  title: Multimedia Visual Assistant - Shared API
+  version: 1.0.0
+  description: API shapes shared across the independently developed Mobile, Web AI and Multimedia services.
+servers:
+  - url: http://localhost:8002
+    description: Illustrative development host; service origins are configured separately.
+paths:
+  /health:
+    get:
+      summary: Each backend provides a basic health check.
+      responses:
+        '200':
+          description: Service is responding.
+  /api/v1/voice/transcribe:
+    post:
+      summary: Member 1 transcribes a short user audio recording.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio, language]
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                language:
+                  type: string
+                  enum: [en, ar]
+      responses:
+        '200':
+          description: Transcription result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [text, language]
+                properties:
+                  text:
+                    type: string
+                  language:
+                    type: string
+                    enum: [en, ar]
+  /api/v1/voice/synthesize:
+    post:
+      summary: Member 1 synthesizes spoken audio using Azure Speech.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text, language]
+              properties:
+                text:
+                  type: string
+                language:
+                  type: string
+                  enum: [en, ar]
+      responses:
+        '200':
+          description: Synthesized MP3 audio.
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+  /api/v1/ask:
+    post:
+      summary: Member 2 uses retrieved visual evidence to answer recognized question text.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskRequest'
+      responses:
+        '200':
+          description: Grounded answer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AskResponse'
+  /api/v1/search:
+    post:
+      summary: Member 3 searches the stored frames by time and meaning.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        '200':
+          description: Ranked frames; an empty frames array means no match.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [frames]
+                properties:
+                  frames:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SearchFrame'
+  /api/v1/frames:
+    get:
+      summary: Member 3 returns paginated frames for the dashboard timeline.
+      parameters:
+        - {name: session_id, in: query, required: true, schema: {type: string, format: uuid}}
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 20, minimum: 1, maximum: 100}}
+        - {name: cursor, in: query, required: false, schema: {type: string}}
+      responses:
+        '200':
+          description: Saved frames ordered newest-first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [frames, next_cursor]
+                properties:
+                  frames:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Frame'
+                  next_cursor:
+                    type: string
+                    nullable: true
+  /api/v1/frames/{frame_id}/image:
+    get:
+      summary: Member 3 serves a protected stored JPEG by frame ID.
+      parameters:
+        - {name: frame_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: JPEG bytes.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Frame absent, inaccessible or expired.
+  /api/v1/questions:
+    get:
+      summary: Member 2 returns paginated spoken-question history.
+      parameters:
+        - {name: session_id, in: query, required: true, schema: {type: string, format: uuid}}
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 20, minimum: 1, maximum: 100}}
+      responses:
+        '200':
+          description: Questions and answers newest-first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [questions, next_cursor]
+                properties:
+                  questions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/QuestionRecord'
+                  next_cursor:
+                    type: string
+                    nullable: true
+  /api/v1/status:
+    get:
+      summary: Member 2 aggregates streaming, multimedia, and AI status for the dashboard.
+      parameters:
+        - {name: session_id, in: query, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: Status of all three components.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [streaming, multimedia, ai]
+                properties:
+                  streaming: {$ref: '#/components/schemas/ServiceStatus'}
+                  multimedia: {$ref: '#/components/schemas/ServiceStatus'}
+                  ai: {$ref: '#/components/schemas/ServiceStatus'}
+components:
+  schemas:
+    ServiceStatus:
+      type: string
+      enum: [online, connecting, offline, error]
+    AskRequest:
+      type: object
+      required: [session_id, question_id, question, language]
+      properties:
+        session_id: {type: string, format: uuid}
+        question_id: {type: string, format: uuid}
+        question: {type: string}
+        language: {type: string, enum: [en, ar]}
+    AskResponse:
+      type: object
+      required: [question_id, answer, language, uncertain, evidence_frame_ids]
+      properties:
+        question_id: {type: string, format: uuid}
+        answer: {type: string}
+        language: {type: string, enum: [en, ar]}
+        uncertain: {type: boolean}
+        evidence_frame_ids:
+          type: array
+          items: {type: string, format: uuid}
+    SearchRequest:
+      type: object
+      required: [session_id, query, mode, limit]
+      properties:
+        session_id: {type: string, format: uuid}
+        query: {type: string}
+        mode: {type: string, enum: [latest, recent, history]}
+        limit: {type: integer, minimum: 1, maximum: 20}
+    Frame:
+      type: object
+      required: [frame_id, session_id, captured_at, image_url, caption, ocr_text, objects]
+      properties:
+        frame_id: {type: string, format: uuid}
+        session_id: {type: string, format: uuid}
+        captured_at: {type: string, format: date-time}
+        image_url: {type: string}
+        caption: {type: string}
+        ocr_text: {type: string}
+        objects:
+          type: array
+          items: {type: string}
+    SearchFrame:
+      allOf:
+        - $ref: '#/components/schemas/Frame'
+        - type: object
+          required: [relevance_score]
+          properties:
+            relevance_score: {type: number, minimum: 0, maximum: 1}
+    QuestionRecord:
+      type: object
+      required: [question_id, asked_at, question, answer, language]
+      properties:
+        question_id: {type: string, format: uuid}
+        asked_at: {type: string, format: date-time}
+        question: {type: string}
+        answer: {type: string}
+        language: {type: string, enum: [en, ar]}

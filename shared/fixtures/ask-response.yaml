@@ -1,0 +1,7 @@
+# Member 2 -> Member 1: sample answer that the mobile application should display and speak.
+question_id: 2f3a2df0-3da3-446e-a59b-886f14d20dc5
+answer: The sign said Room 205.
+language: en
+uncertain: false
+evidence_frame_ids:
+  - b8b51e4a-32f2-4542-bbb1-cc9e6de18384

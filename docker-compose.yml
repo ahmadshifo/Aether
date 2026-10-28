@@ -1,0 +1,4 @@
+# Integration configuration: all teammates will contribute their own service blocks after independent implementations work.
+# Service owners: voice/media = Member 1, AI/dashboard = Member 2, vision/database = Member 3.
+# A valid empty services map keeps this scaffold parseable without launching unfinished applications.
+services: {}

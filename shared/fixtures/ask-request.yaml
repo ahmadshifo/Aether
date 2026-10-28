@@ -1,0 +1,5 @@
+# Member 1 -> Member 2: simulated question payload for POST /api/v1/ask.
+session_id: 550e8400-e29b-41d4-a716-446655440000
+question_id: 2f3a2df0-3da3-446e-a59b-886f14d20dc5
+question: What was written on the door?
+language: en

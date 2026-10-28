@@ -1,0 +1,5 @@
+# Member 2: Python packages for AI request orchestration, HTTP clients and local question history.
+fastapi
+uvicorn
+httpx
+openai

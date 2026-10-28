@@ -1,0 +1,10 @@
+# Member 3 -> Member 2: sample matching frame record; this is a ranking score, not a confidence probability.
+frames:
+  - frame_id: b8b51e4a-32f2-4542-bbb1-cc9e6de18384
+    session_id: 550e8400-e29b-41d4-a716-446655440000
+    captured_at: '2026-10-27T10:30:05Z'
+    image_url: /api/v1/frames/b8b51e4a-32f2-4542-bbb1-cc9e6de18384/image
+    caption: A door with a room number sign
+    ocr_text: ROOM 205
+    objects: [door, sign]
+    relevance_score: 0.92

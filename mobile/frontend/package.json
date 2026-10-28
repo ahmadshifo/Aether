@@ -1,0 +1,19 @@
+{
+  "_comment": "Member 1: defines React/Vite dependencies and run scripts for the installable mobile web application; JSON uses metadata rather than unsupported comment syntax.",
+  "name": "multimedia-mobile",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "vite": "^7.0.0"
+  }
+}

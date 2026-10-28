@@ -1,0 +1,17 @@
+# Ignore secrets, dependencies, caches, build products and locally stored personal images/audio.
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.log
+.DS_Store
+*.sqlite3
+data/
+recordings/
+stored_frames/

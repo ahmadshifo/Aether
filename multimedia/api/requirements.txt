@@ -1,0 +1,10 @@
+# Member 3: image-processing, multimedia-API and PostgreSQL dependencies; lock versions before final integration.
+fastapi
+uvicorn
+opencv-python-headless
+numpy
+psycopg[binary]
+pgvector
+openai
+mistralai
+httpx

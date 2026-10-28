@@ -1,0 +1,5 @@
+# Member 2 -> Member 3: semantic search request using the shared session identifier and recent mode.
+session_id: 550e8400-e29b-41d4-a716-446655440000
+query: door with room number
+mode: recent
+limit: 5

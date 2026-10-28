@@ -1,0 +1,5 @@
+# Member 1: Python dependencies for the voice backend; pin compatible versions before integration.
+fastapi
+uvicorn
+python-multipart
+azure-cognitiveservices-speech
