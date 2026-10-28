@@ -2,11 +2,11 @@
 const BASE = '/api/v1/auth';
 const OFFLINE = "Can't reach the AI backend. Is it running on port 8002?";
 
-async function call(path, body) {
+async function call(path, body, method = body ? 'POST' : 'GET') {
   let response;
   try {
     response = await fetch(`${BASE}${path}`, {
-      method: body ? 'POST' : 'GET',
+      method,
       credentials: 'same-origin',
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
@@ -32,3 +32,4 @@ export const getCurrentUser = () => call('/me').catch((error) => {
 export const signup = (name, email, password) => call('/signup', { name, email, password });
 export const login = (email, password) => call('/login', { email, password });
 export const logout = () => call('/logout', {});
+export const updateProfile = (name) => call('/me', { name }, 'PATCH');

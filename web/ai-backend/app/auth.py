@@ -49,6 +49,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ProfileUpdate(BaseModel):
+    name: str
+
+
 class User(BaseModel):
     user_id: str
     email: str
@@ -173,11 +177,16 @@ def _too_many_failures(email: str) -> bool:
 
 # ---------- routes ----------
 
-@router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=UserResponse)
-def signup(body: SignupRequest, response: Response) -> UserResponse:
-    name = body.name.strip()
+def _clean_name(name: str) -> str:
+    name = name.strip()
     if not 1 <= len(name) <= 80:
         raise ApiError(400, "invalid_name", "Enter your name (up to 80 characters).")
+    return name
+
+
+@router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=UserResponse)
+def signup(body: SignupRequest, response: Response) -> UserResponse:
+    name = _clean_name(body.name)
     email = _clean_email(body.email)
     _check_password(body.password)
 
@@ -225,3 +234,14 @@ def me(echosight_session: str | None = Cookie(default=None)) -> UserResponse:
     if not user:
         raise ApiError(401, "not_authenticated", "Log in to continue.")
     return UserResponse(user=user)
+
+
+@router.patch("/me", response_model=UserResponse)
+def update_me(body: ProfileUpdate, echosight_session: str | None = Cookie(default=None)) -> UserResponse:
+    user = current_user(echosight_session)
+    if not user:
+        raise ApiError(401, "not_authenticated", "Log in to continue.")
+    name = _clean_name(body.name)
+    with closing(_connect()) as conn, conn:
+        conn.execute("UPDATE users SET name = ? WHERE user_id = ?", (name, user.user_id))
+    return UserResponse(user=user.model_copy(update={"name": name}))

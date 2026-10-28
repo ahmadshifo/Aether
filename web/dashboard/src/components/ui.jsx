@@ -21,6 +21,7 @@ const ICON_PATHS = {
   arrow: <path d="M5 12h14M13 6l6 6-6 6" />,
   sun: (<><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>),
   moon: <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />,
+  user: (<><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>),
   logout: (<><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" /><path d="M10 16l-4-4 4-4M6 12h10" /></>),
   database: (<><ellipse cx="12" cy="5.5" rx="7" ry="2.5" /><path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13" /><path d="M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5" /></>),
 };
@@ -119,10 +120,10 @@ export function PageHeader({ eyebrow, title, subtitle, actions, sparkle = false 
 // The signed-in user ({ user_id, email, name, created_at }), provided by App.
 export const UserContext = createContext(null);
 
-export function Avatar({ name }) {
+export function Avatar({ name, className = '' }) {
   const user = useContext(UserContext);
   const initial = (name ?? user?.name ?? '').trim().charAt(0).toUpperCase() || '?';
-  return <span className="avatar" title={user?.name} aria-hidden="true">{initial}</span>;
+  return <span className={`avatar ${className}`} title={user?.name} aria-hidden="true">{initial}</span>;
 }
 
 export const STATUS_LABELS = { online: 'Online', connecting: 'Connecting', offline: 'Offline', error: 'Error' };

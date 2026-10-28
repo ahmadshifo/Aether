@@ -6,6 +6,7 @@ import AiHistory from './pages/AiHistory.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import LiveCamera from './pages/LiveCamera.jsx';
 import Overview from './pages/Overview.jsx';
+import Profile from './pages/Profile.jsx';
 import SystemStatus from './pages/SystemStatus.jsx';
 import VisualMemory from './pages/VisualMemory.jsx';
 
@@ -15,6 +16,7 @@ const NAV = [
   { id: 'memory', label: 'Visual memory', icon: 'image', Page: VisualMemory },
   { id: 'history', label: 'AI history', icon: 'clock', Page: AiHistory },
   { id: 'status', label: 'System status', icon: 'activity', Page: SystemStatus },
+  { id: 'profile', label: 'Profile', icon: 'user', Page: Profile },
 ];
 
 const THEME_KEY = 'echosight-theme';
@@ -137,11 +139,13 @@ export default function App() {
         </nav>
 
         <div className="sidebar-foot">
-          <Avatar />
-          <div className="foot-who">
-            <p className="foot-name">{user.name}</p>
-            <p className="foot-sub" title={user.email}>{user.email}</p>
-          </div>
+          <a href="#/profile" className="foot-profile" aria-label={`Your profile: ${user.name}`}>
+            <Avatar />
+            <span className="foot-who">
+              <span className="foot-name">{user.name}</span>
+              <span className="foot-sub" title={user.email}>{user.email}</span>
+            </span>
+          </a>
           {AUTH_ENABLED && (
             <button type="button" className="icon-btn logout-btn" onClick={handleLogout}
               aria-label="Log out" title="Log out">
@@ -157,7 +161,9 @@ export default function App() {
       </aside>
 
       <main ref={mainRef} className="main" tabIndex={-1}>
-        <current.Page key={current.id + (route.param ?? '')} param={route.param} />
+        <current.Page key={current.id + (route.param ?? '')} param={route.param}
+          user={user} authEnabled={AUTH_ENABLED} onUserChange={setUser} onLogout={handleLogout}
+          theme={theme} onToggleTheme={toggleTheme} />
       </main>
     </div>
     </UserContext.Provider>
