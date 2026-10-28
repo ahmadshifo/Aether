@@ -98,6 +98,8 @@ export class VoiceSession {
 
   constructor(callbacks: Callbacks) { this.cb = callbacks }
   get isActive() { return this.active }
+  // Share the existing session ID with the camera stream, without altering speech.
+  get sessionIdForStreaming() { return this.sessionId }
 
   private setPhase(phase: Phase) {
     this.phase = phase

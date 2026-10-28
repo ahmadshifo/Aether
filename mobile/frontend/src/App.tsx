@@ -3,6 +3,7 @@ import type { MouseEvent } from 'react'
 import HistoryPage from './HistoryPage'
 import EchoIcon from './EchoIcon'
 import { VoiceSession, type Language, type Phase, type HistoryItem } from './voiceSession'
+import { WhipPublisher } from './whipPublisher'
 
 const words = {
   en: {
@@ -80,6 +81,7 @@ export default function App() {
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const cameraRef = useRef<MediaStream | null>(null)
+  const publisherRef = useRef<WhipPublisher | null>(null)
   const cameraRequestRef = useRef(0)
   const sessionAttemptRef = useRef(0)
   const requestedSessionRef = useRef(false)
@@ -92,6 +94,8 @@ export default function App() {
   }, [language])
 
   function stopCamera() {
+    publisherRef.current?.stop()
+    publisherRef.current = null
     cameraRequestRef.current += 1
     cameraRef.current?.getTracks().forEach(track => track.stop())
     cameraRef.current = null
@@ -107,7 +111,7 @@ export default function App() {
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera unavailable')
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 15 } },
         audio: false,
       })
       if (request !== cameraRequestRef.current) {
@@ -120,6 +124,20 @@ export default function App() {
         try { await videoRef.current.play() } catch { /* inline video still has a live stream */ }
       }
       setCameraOn(true)
+      // Publish the existing camera track: no second camera or mic acquisition.
+      const mediaBase = import.meta.env.VITE_MEDIAMTX_URL?.trim().replace(/\/$/, '')
+      if (mediaBase) {
+        const streamSessionId = voiceRef.current?.sessionIdForStreaming ?? crypto.randomUUID()
+        const publisher = new WhipPublisher()
+        publisherRef.current = publisher
+        void publisher.start(stream, `${mediaBase}/live/${streamSessionId}/whip`).catch((reason: unknown) => {
+          if (publisherRef.current !== publisher) return
+          publisherRef.current = null
+          setError(`MediaMTX streaming failed: ${reason instanceof Error ? reason.message : String(reason)}`)
+        })
+      } else {
+        setError('MediaMTX URL missing: set VITE_MEDIAMTX_URL in .env.local')
+      }
       return true
     } catch {
       if (request === cameraRequestRef.current) setCameraOn(false)
@@ -160,6 +178,8 @@ export default function App() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility)
       controller.stop()
+      publisherRef.current?.stop()
+      publisherRef.current = null
       if (voiceRef.current === controller) voiceRef.current = null
       requestedSessionRef.current = false
       sessionAttemptRef.current += 1
