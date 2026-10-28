@@ -2,7 +2,8 @@
 import FrameTimeline from '../components/FrameTimeline.jsx';
 import LiveStream from '../components/LiveStream.jsx';
 import StatusPanel from '../components/StatusPanel.jsx';
-import { Avatar, Icon, PageHeader, STATUS_LABELS } from '../components/ui.jsx';
+import { useContext } from 'react';
+import { Avatar, Icon, PageHeader, STATUS_LABELS, UserContext } from '../components/ui.jsx';
 import { FRAMES, QUESTIONS, STATUS, STREAM } from '../data/mockData.js';
 
 const RECENT_FRAME_IDS = [
@@ -65,6 +66,7 @@ function AssistantCard({ question }) {
 }
 
 export default function Overview() {
+  const user = useContext(UserContext);
   const recent = RECENT_FRAME_IDS.map((id) => FRAMES.find((frame) => frame.frame_id === id));
   const connection = STATUS.streaming === 'online' ? 'Connected' : STATUS_LABELS[STATUS.streaming];
   const assistant = STATUS.ai === 'online' ? 'Ready' : STATUS_LABELS[STATUS.ai];
@@ -73,7 +75,7 @@ export default function Overview() {
     <>
       <PageHeader
         eyebrow="Monitoring / Overview"
-        title={`${greeting()}, team`}
+        title={`${greeting()}, ${user?.user_id ? user.name.split(' ')[0] : 'team'}`}
         sparkle
         subtitle="One live session. All systems ready to assist."
         actions={(

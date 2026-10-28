@@ -1,5 +1,5 @@
 // Member 2: shared dashboard building blocks: icons, stand-in frame illustrations, page header, status labels and UTC time formatting.
-import { useId } from 'react';
+import { createContext, useContext, useId } from 'react';
 
 const ICON_PATHS = {
   home: (<><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V20h14V9.5" /><path d="M10 20v-6h4v6" /></>),
@@ -21,12 +21,14 @@ const ICON_PATHS = {
   arrow: <path d="M5 12h14M13 6l6 6-6 6" />,
   sun: (<><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>),
   moon: <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />,
+  logout: (<><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" /><path d="M10 16l-4-4 4-4M6 12h10" /></>),
   database: (<><ellipse cx="12" cy="5.5" rx="7" ry="2.5" /><path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13" /><path d="M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5" /></>),
 };
 
 export function Icon({ name, size = 18, ...rest }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+    <svg width={size} height={size} style={{ width: `${size / 16}rem`, height: `${size / 16}rem` }}
+      viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...rest}>
       {ICON_PATHS[name]}
     </svg>
@@ -114,8 +116,13 @@ export function PageHeader({ eyebrow, title, subtitle, actions, sparkle = false 
   );
 }
 
-export function Avatar() {
-  return <span className="avatar" role="img" aria-label="Team preview account">T</span>;
+// The signed-in user ({ user_id, email, name, created_at }), provided by App.
+export const UserContext = createContext(null);
+
+export function Avatar({ name }) {
+  const user = useContext(UserContext);
+  const initial = (name ?? user?.name ?? '').trim().charAt(0).toUpperCase() || '?';
+  return <span className="avatar" title={user?.name} aria-hidden="true">{initial}</span>;
 }
 
 export const STATUS_LABELS = { online: 'Online', connecting: 'Connecting', offline: 'Offline', error: 'Error' };

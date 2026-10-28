@@ -1,7 +1,9 @@
 // Member 2: dashboard shell with the workspace sidebar and hash routes (#/overview, #/memory/{frame_id}, ...).
 import { useEffect, useRef, useState } from 'react';
-import { Avatar, Icon } from './components/ui.jsx';
+import { getCurrentUser, logout } from './auth.js';
+import { Avatar, Icon, UserContext } from './components/ui.jsx';
 import AiHistory from './pages/AiHistory.jsx';
+import AuthPage from './pages/AuthPage.jsx';
 import LiveCamera from './pages/LiveCamera.jsx';
 import Overview from './pages/Overview.jsx';
 import SystemStatus from './pages/SystemStatus.jsx';
@@ -48,11 +50,25 @@ function readRoute() {
   return { page, param };
 }
 
+const AUTH_PAGES = ['login', 'signup'];
+
+// Login is off until the team has the backend and database running: set VITE_AUTH_ENABLED=true in .env to turn it on.
+const AUTH_ENABLED = import.meta.env.VITE_AUTH_ENABLED === 'true';
+const PREVIEW_USER = { user_id: null, email: 'Mock data', name: 'Team preview', created_at: null };
+
 export default function App() {
   const [route, setRoute] = useState(readRoute);
   const [theme, toggleTheme] = useTheme();
+  // undefined = still checking, null = signed out
+  const [user, setUser] = useState(AUTH_ENABLED ? undefined : PREVIEW_USER);
+  const [authError, setAuthError] = useState('');
   const mainRef = useRef(null);
   const current = NAV.find((item) => item.id === route.page) ?? NAV[0];
+
+  useEffect(() => {
+    if (!AUTH_ENABLED) return;
+    getCurrentUser().then(setUser).catch((error) => { setAuthError(error.message); setUser(null); });
+  }, []);
 
   useEffect(() => {
     const onHashChange = () => {
@@ -64,11 +80,36 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
+  const signedOut = user === null;
+  const authMode = route.page === 'signup' ? 'signup' : 'login';
+
   useEffect(() => {
-    document.title = `${current.label} · echosight`;
-  }, [current]);
+    if (user === undefined) return;
+    document.title = signedOut ? `${authMode === 'signup' ? 'Sign up' : 'Log in'} · echosight` : `${current.label} · echosight`;
+  }, [current, user, signedOut, authMode]);
+
+  // Signed in on #/login or #/signup → go to the dashboard; signed out elsewhere → go to #/login.
+  useEffect(() => {
+    if (user && AUTH_PAGES.includes(route.page)) window.location.replace('#/overview');
+    if (signedOut && !AUTH_PAGES.includes(route.page)) window.location.replace('#/login');
+  }, [user, signedOut, route.page]);
+
+  async function handleLogout() {
+    try { await logout(); } catch { /* cookie may already be gone */ }
+    setUser(null);
+  }
+
+  if (user === undefined) return null;
+
+  if (signedOut) {
+    return (
+      <AuthPage key={authMode} mode={authMode} initialError={authError}
+        onSignedIn={(signedIn) => { setAuthError(''); setUser(signedIn); }} />
+    );
+  }
 
   return (
+    <UserContext.Provider value={user}>
     <div className="shell">
       <button type="button" className="skip-link" onClick={() => mainRef.current?.focus()}>
         Skip to content
@@ -97,10 +138,16 @@ export default function App() {
 
         <div className="sidebar-foot">
           <Avatar />
-          <div>
-            <p className="foot-name">Team preview</p>
-            <p className="foot-sub">Mock data</p>
+          <div className="foot-who">
+            <p className="foot-name">{user.name}</p>
+            <p className="foot-sub" title={user.email}>{user.email}</p>
           </div>
+          {AUTH_ENABLED && (
+            <button type="button" className="icon-btn logout-btn" onClick={handleLogout}
+              aria-label="Log out" title="Log out">
+              <Icon name="logout" size={16} />
+            </button>
+          )}
           <button type="button" className="icon-btn theme-toggle" onClick={toggleTheme}
             aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
             title={theme === 'light' ? 'Dark mode' : 'Light mode'}>
@@ -113,5 +160,6 @@ export default function App() {
         <current.Page key={current.id + (route.param ?? '')} param={route.param} />
       </main>
     </div>
+    </UserContext.Provider>
   );
 }
