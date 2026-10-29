@@ -1,0 +1,6 @@
+{
+  "build": {
+    "development": { "developmentClient": true, "distribution": "internal" },
+    "android-local": { "developmentClient": true, "distribution": "internal", "android": { "buildType": "apk" } }
+  }
+}

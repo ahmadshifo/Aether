@@ -1,0 +1,40 @@
+{
+  "name": "echosight-native",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start --go",
+    "start:dev": "expo start --dev-client",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "check:versions": "expo install --check",
+    "check:config": "expo config --type prebuild",
+    "export:check": "expo export --platform all --output-dir dist-check"
+  },
+  "dependencies": {
+    "@config-plugins/react-native-webrtc": "15.0.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "~58.0.21",
+    "expo-build-properties": "~58.0.11",
+    "expo-camera": "~58.0.14",
+    "expo-constants": "~58.0.14",
+    "expo-crypto": "~58.0.7",
+    "expo-dev-client": "~58.0.17",
+    "expo-speech": "~58.0.3",
+    "expo-speech-recognition": "58.0.1",
+    "react": "19.3.0",
+    "react-native": "0.88.1",
+    "react-native-safe-area-context": "~5.10.1",
+    "react-native-svg": "15.16.0",
+    "react-native-webrtc": "155.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/react": "~19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.2"
+  }
+}

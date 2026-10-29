@@ -1,0 +1,14 @@
+node_modules/
+.npm-cache/
+.expo/
+.env*
+!.env.example
+android/
+ios/
+dist*/
+artifacts/
+coverage/
+*.keystore
+*.p12
+*.mobileprovision
+mediamtx.exe
