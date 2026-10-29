@@ -2,9 +2,10 @@
 import FrameTimeline from '../components/FrameTimeline.jsx';
 import LiveStream from '../components/LiveStream.jsx';
 import StatusPanel from '../components/StatusPanel.jsx';
-import { useContext } from 'react';
+import { useContext, useState } from 'react';
 import { Avatar, Icon, PageHeader, STATUS_LABELS, UserContext } from '../components/ui.jsx';
 import { FRAMES, QUESTIONS, STATUS, STREAM } from '../data/mockData.js';
+import { mediaClient } from '../services/mediaClient.js';
 
 const RECENT_FRAME_IDS = [
   'a1e5c9f3-7d2b-4c8e-9a6f-3b0d5e1c7a94',
@@ -67,6 +68,8 @@ function AssistantCard({ question }) {
 
 export default function Overview() {
   const user = useContext(UserContext);
+  // Plays the real stream here too once a session ID was entered on the Live Camera page.
+  const [liveSessionId] = useState(() => mediaClient.savedSessionId());
   const recent = RECENT_FRAME_IDS.map((id) => FRAMES.find((frame) => frame.frame_id === id));
   const connection = STATUS.streaming === 'online' ? 'Connected' : STATUS_LABELS[STATUS.streaming];
   const assistant = STATUS.ai === 'online' ? 'Ready' : STATUS_LABELS[STATUS.ai];
@@ -94,7 +97,7 @@ export default function Overview() {
       </div>
 
       <div className="overview-grid">
-        <LiveStream stream={STREAM} detection={{ label: 'ROOM 205', value: '205' }} />
+        <LiveStream stream={STREAM} sessionId={liveSessionId} detection={{ label: 'ROOM 205', value: '205' }} />
         <div className="side-stack">
           <AssistantCard question={QUESTIONS[0]} />
           <StatusPanel status={STATUS} />
