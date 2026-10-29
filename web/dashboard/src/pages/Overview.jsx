@@ -2,8 +2,9 @@
 import FrameTimeline from '../components/FrameTimeline.jsx';
 import LiveStream from '../components/LiveStream.jsx';
 import StatusPanel from '../components/StatusPanel.jsx';
-import { useContext, useState } from 'react';
+import { useContext } from 'react';
 import { Avatar, Icon, PageHeader, STATUS_LABELS, UserContext } from '../components/ui.jsx';
+import { useLiveSessionId } from '../components/useLiveSessionId.js';
 import { FRAMES, QUESTIONS, STATUS, STREAM } from '../data/mockData.js';
 import { mediaClient } from '../services/mediaClient.js';
 
@@ -68,8 +69,8 @@ function AssistantCard({ question }) {
 
 export default function Overview() {
   const user = useContext(UserContext);
-  // Plays the real stream here too once a session ID was entered on the Live Camera page.
-  const [liveSessionId] = useState(() => mediaClient.savedSessionId());
+  // Plays the phone's live stream here too: a pasted ID from the Live Camera page, or the one found automatically.
+  const liveSessionId = useLiveSessionId(mediaClient.savedSessionId());
   const recent = RECENT_FRAME_IDS.map((id) => FRAMES.find((frame) => frame.frame_id === id));
   const connection = STATUS.streaming === 'online' ? 'Connected' : STATUS_LABELS[STATUS.streaming];
   const assistant = STATUS.ai === 'online' ? 'Ready' : STATUS_LABELS[STATUS.ai];

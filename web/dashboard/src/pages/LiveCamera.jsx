@@ -1,14 +1,16 @@
-// Member 2: full-size live view of Member 1's MediaMTX stream; the phone's session ID is pasted here until MediaMTX can list live streams.
+// Member 2: full-size live view of Member 1's MediaMTX stream; finds the phone's stream by itself, or plays a pasted session ID.
 import { useState } from 'react';
 import LiveStream from '../components/LiveStream.jsx';
 import { Avatar, Icon, PageHeader } from '../components/ui.jsx';
+import { useLiveSessionId } from '../components/useLiveSessionId.js';
 import { STREAM } from '../data/mockData.js';
 import { mediaClient } from '../services/mediaClient.js';
 
 export default function LiveCamera() {
-  const [sessionId, setSessionId] = useState(() => mediaClient.savedSessionId());
-  const [draft, setDraft] = useState(sessionId ?? '');
+  const [manualId, setManualId] = useState(() => mediaClient.savedSessionId());
+  const [draft, setDraft] = useState(manualId ?? '');
   const [error, setError] = useState('');
+  const sessionId = useLiveSessionId(manualId);
 
   const connect = (event) => {
     event.preventDefault();
@@ -19,19 +21,21 @@ export default function LiveCamera() {
     }
     setError('');
     setDraft(id);
-    setSessionId(id);
+    setManualId(id);
     mediaClient.saveSessionId(id);
   };
 
-  const disconnect = () => {
-    setSessionId(null);
+  const useAutomatic = () => {
+    setManualId(null);
     setDraft('');
+    setError('');
     mediaClient.saveSessionId(null);
   };
 
   const facts = [
+    ['Mode', manualId ? 'Pasted session ID' : 'Automatic'],
     ['Protocol', STREAM.protocol],
-    ['Stream path', sessionId ? mediaClient.streamPath(sessionId) : 'Not connected'],
+    ['Stream path', sessionId ? mediaClient.streamPath(sessionId) : 'Waiting for the phone'],
     ['Target resolution', STREAM.resolution],
     ['Frame rate', `${STREAM.fps} fps`],
     ['Codec', STREAM.codec],
@@ -52,18 +56,18 @@ export default function LiveCamera() {
 
           <form className="session-form" onSubmit={connect}>
             <label className="field">
-              Session ID
+              Session ID (optional)
               <input value={draft} onChange={(event) => setDraft(event.target.value)}
-                placeholder="Paste the phone's session ID" spellCheck={false} autoComplete="off"
+                placeholder="Found automatically" spellCheck={false} autoComplete="off"
                 aria-describedby="session-hint" />
               <span id="session-hint" className="field-hint">
-                When the phone starts streaming, the MediaMTX window prints live/&lt;session ID&gt;. Paste that line or just the ID.
+                The phone’s stream is found by itself. To watch a specific one, paste its ID or the MediaMTX live/&lt;session ID&gt; line.
               </span>
             </label>
             {error && <p className="auth-error" role="alert"><Icon name="alert" size={16} />{error}</p>}
             <div className="session-actions">
               <button type="submit" className="btn btn-primary">Connect</button>
-              {sessionId && <button type="button" className="btn" onClick={disconnect}>Disconnect</button>}
+              {manualId && <button type="button" className="btn" onClick={useAutomatic}>Use automatic</button>}
             </div>
           </form>
 
@@ -78,7 +82,7 @@ export default function LiveCamera() {
           {!sessionId && (
             <p className="note">
               <Icon name="alert" size={16} />
-              Showing a mock feed. Paste the session ID above to watch the phone’s camera.
+              Waiting for the phone. Tap Start in the phone app and the live video appears here; a mock feed shows until then.
             </p>
           )}
         </section>

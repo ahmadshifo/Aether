@@ -29,6 +29,22 @@ export const mediaClient = {
     return `live/${sessionId}/whep`;
   },
 
+  // Asks MediaMTX (through the Vite proxy) for the newest online live/<uuid> stream. Null when nothing is
+  // streaming or MediaMTX's stream list is turned off, so the page can fall back to a pasted ID.
+  async findLiveSessionId() {
+    try {
+      const response = await fetch('/v3/paths/list');
+      if (!response.ok) return null;
+      const { items = [] } = await response.json();
+      const live = items
+        .filter((item) => item.ready && item.name?.startsWith('live/'))
+        .sort((a, b) => (b.readyTime ?? '').localeCompare(a.readyTime ?? ''));
+      return live.length ? this.parseSessionId(live[0].name) : null;
+    } catch {
+      return null;
+    }
+  },
+
   savedSessionId() {
     try {
       return window.localStorage.getItem(SESSION_KEY);
