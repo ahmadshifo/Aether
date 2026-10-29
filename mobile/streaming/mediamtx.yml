@@ -1,3 +1,19 @@
-# Member 1: MediaMTX configuration; add protected publisher/reader paths and network/TLS settings here.
-# Do not enable unauthenticated public streaming without explicit approval.
-# Keep this placeholder until tested server settings can be added safely.
+# EchoSight - Local development streaming
+# Video path: live/{session_id}
+
+rtsp: true
+rtspAddress: :8554
+
+rtmp: false
+hls: false
+srt: false
+moq: false
+
+webrtc: true
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcIPsFromInterfaces: true
+
+paths:
+  "~^live/[^/]+$":
+    source: publisher
