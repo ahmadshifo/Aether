@@ -4,12 +4,20 @@ type IconName =
   | 'eye' | 'camera' | 'camera-off' | 'mic' | 'mic-off'
   | 'history' | 'close' | 'arrow-left' | 'arrow-right'
   | 'volume' | 'sparkles' | 'check' | 'loader' | 'radio'
-  | 'circle-help' | 'stop' | 'audio-lines'
+  | 'circle-help' | 'stop' | 'audio-lines' | 'logout' | 'search' | 'more' | 'copy' | 'trash' | 'share' | 'plus' | 'minus'
 
 type Props = SVGProps<SVGSVGElement> & { name: IconName; size?: number }
 
 export default function EchoIcon({ name, size = 22, ...props }: Props) {
   const paths: Record<IconName, ReactNode> = {
+    logout: <><path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M9 12h12m-4-4 4 4-4 4"/></>,
+    search: <><circle cx="10" cy="10" r="6.5"/><path d="m15 15 6 6"/></>,
+    more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
+    copy: <><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/></>,
+    trash: <><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></>,
+    share: <><path d="M12 16V3m-4 4 4-4 4 4M5 11v10h14V11"/></>,
+    plus: <path d="M5 12h14M12 5v14"/>,
+    minus: <path d="M5 12h14"/>,
     eye: <><path d="M2.1 12s3.6-7 9.9-7 9.9 7 9.9 7-3.6 7-9.9 7S2.1 12 2.1 12Z"/><circle cx="12" cy="12" r="3"/></>,
     camera: <><path d="M14.5 4H9.5L7.5 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.5L14.5 4Z"/><circle cx="12" cy="13.5" r="3.3"/></>,
     'camera-off': <><path d="m2 2 20 20M9.5 4h5l2 3H20a2 2 0 0 1 2 2v9a2 2 0 0 1-.7 1.5M4 7h2.2L7.5 5M2 10v8a2 2 0 0 0 2 2h13"/><path d="M10 10a3.4 3.4 0 0 0 4 4"/></>,
