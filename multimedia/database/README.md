@@ -23,6 +23,24 @@ multimedia/database/.venv/Scripts/python multimedia/database/setup.py
 
 Run `setup.py` again after `schema.sql` changes: it adds new tables and keeps existing ones and their rows. `setup.py --check` connects as the app account and lists the tables.
 
+## Start MySQL
+
+MySQL runs as the Windows service `MySQL80` and starts with Windows. If it's stopped, start it from Services, or from an administrator terminal:
+
+```bash
+net start MySQL80
+```
+
+## Demo data
+
+`setup.py --seed` creates the tables like a migrate, then loads demo data:
+
+```bash
+multimedia/database/.venv/Scripts/python multimedia/database/setup.py --seed
+```
+
+The demo data has one user, an ended session and a live session, 4 frames with objects and English, French and Arabic text, 3 questions with the frames they used, and a warning. It uses fixed IDs, so running it again replaces the demo rows instead of adding copies; other rows are left alone. The demo login is `demo@echosight.test` with password `echosight-demo`, for testing only. The image paths point to no real files.
+
 ## Notes
 
 - Services connect as `MYSQL_USER`, which can only read and write rows, not change tables.
