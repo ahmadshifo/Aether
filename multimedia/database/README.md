@@ -10,7 +10,17 @@ One MySQL database for all three members. `schema.sql` holds every table; `setup
 | `questions`, `question_evidence` | Member 2 (answers and the frames they used) |
 | `warnings` | Bonus (warnings given without being asked) |
 
-## Set up
+## Quick start
+
+Copy `.env.example` to `.env` and fill it in (never commit `.env`). Then, from the `multimedia` folder:
+
+```bash
+python setup.py
+```
+
+It creates the database, the tables and the demo data. The first run also installs the MySQL driver into `database/.venv`. Run it again any time; it doesn't add copies.
+
+## Set up by hand
 
 1. Copy `.env.example` to `.env` and set `MYSQL_PASSWORD` to a new password for the app account. Never commit `.env`.
 2. Install the driver and run the setup. It asks for the MySQL `root` password unless `.env` has it.
