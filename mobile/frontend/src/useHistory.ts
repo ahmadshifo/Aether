@@ -1,16 +1,12 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { indexedHistoryStorage, LocalHistoryRepository, RETENTION_MS } from './historyRepository'
-let repository: LocalHistoryRepository | undefined
-export function getHistoryRepository() {
-  if (!repository) {
-    let storage: Storage | undefined
-    try { storage = localStorage } catch { /* private/blocked storage */ }
-    repository = new LocalHistoryRepository(indexedHistoryStorage(), storage)
-  }
-  return repository
+import type { HistoryOwner } from './historyRepository'
+export function createHistoryRepository(owner: HistoryOwner) {
+  let storage: Storage | undefined
+  try { storage = localStorage } catch { /* private/blocked storage */ }
+  return new LocalHistoryRepository(indexedHistoryStorage(owner), storage, owner)
 }
-export function useHistory() {
-  const repo = getHistoryRepository()
+export function useHistory(repo: LocalHistoryRepository) {
   const snapshot = useSyncExternalStore(repo.subscribe, repo.getSnapshot)
   useEffect(() => {
     const expiry = Math.min(...snapshot.items.filter(item => item.createdAt).map(item => Date.parse(item.createdAt!) + RETENTION_MS))

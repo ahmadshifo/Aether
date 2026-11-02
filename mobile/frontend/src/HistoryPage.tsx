@@ -51,6 +51,7 @@ function HistoryCard({ item, language, onDetail, onDelete, onCopy, onReplay, rep
 }) {
   const t = uiCopy[language]
   const start = useRef<{ x: number; y: number } | null>(null)
+  const [expanded, setExpanded] = useState(false)
   return <article className="history-card" onPointerDown={event => {
     if (event.pointerType === 'mouse' || (event.target as HTMLElement).closest('button')) return
     start.current = { x: event.clientX, y: event.clientY }
@@ -60,19 +61,15 @@ function HistoryCard({ item, language, onDetail, onDelete, onCopy, onReplay, rep
     const dx = (event.clientX - origin.x) * (language === 'ar' ? -1 : 1)
     if (dx < -100 && Math.abs(event.clientY - origin.y) < 32) onDelete()
   }}>
-    <div className="history-card-top"><Photo item={item} language={language} />
-      <div className="history-card-meta"><time dateTime={item.createdAt}>{itemTime(item, language)}</time>
+    <div className="history-card-top">
+      <div className="history-card-meta"><time dateTime={item.createdAt}>{itemTime(item, language)}</time><bdi>{item.language.toUpperCase()}</bdi>
         {!item.createdAt && <small>{t.unknownDate}</small>}
         {item.demo && <span className="demo-badge">{t.demo}</span>}
         {item.sample && <small>{t.sample}</small>}
       </div>
     </div>
-    <div className="history-field" lang={item.language} dir={item.language === 'ar' ? 'rtl' : 'ltr'}>
-      <EchoIcon name="mic" size={18} /><h3>{item.question}</h3>
-    </div>
-    <div className="history-field answer-field" lang={item.language} dir={item.language === 'ar' ? 'rtl' : 'ltr'}>
-      <EchoIcon name="sparkles" size={18} /><p>{item.answer}</p>
-    </div>
+    <button className="history-expand" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}><span lang={item.language} dir={item.language === 'ar' ? 'rtl' : 'ltr'}>{item.question}</span><EchoIcon name={expanded ? 'minus' : 'plus'} size={18} /></button>
+    {expanded && <div className="history-answer"><p lang={item.language} dir={item.language === 'ar' ? 'rtl' : 'ltr'}>{item.answer}</p><Photo item={item} language={language} /><p className="fine-print">{item.photo ? t.photoNote : t.noPhoto}</p></div>}
     {item.demo && item.photo && <p className="fine-print">{t.demoNote}</p>}
     <button className="read-more" onClick={onDetail} aria-label={`${t.readMore}: ${item.question}`}>{t.readMore}<EchoIcon name={language === 'ar' ? 'arrow-left' : 'arrow-right'} size={16} /></button>
     <div className="card-actions">
@@ -131,7 +128,7 @@ export default function HistoryPage({ language, active, onBack, items, loading, 
   }
   async function share(item: LocalHistoryItem, includePhoto: boolean) {
     // No URL and no image by default. Construct synchronously within user activation.
-    const data: ShareData = { title: 'EchoSight', text: textFor(item) }
+    const data: ShareData = { title: 'Aether', text: textFor(item) }
     if (includePhoto && item.photo) {
       const file = new File([item.photo], 'echosight-snapshot.jpg', { type: item.photo.type })
       try { if (navigator.canShare?.({ files: [file] })) data.files = [file] } catch { /* text share */ }

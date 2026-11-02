@@ -1,7 +1,7 @@
 import type { ReactNode, SVGProps } from 'react'
 
 type IconName =
-  | 'eye' | 'camera' | 'camera-off' | 'mic' | 'mic-off'
+  | 'home' | 'settings' | 'eye' | 'camera' | 'camera-off' | 'mic' | 'mic-off'
   | 'history' | 'close' | 'arrow-left' | 'arrow-right'
   | 'volume' | 'sparkles' | 'check' | 'loader' | 'radio'
   | 'circle-help' | 'stop' | 'audio-lines' | 'logout' | 'search' | 'more' | 'copy' | 'trash' | 'share' | 'plus' | 'minus'
@@ -10,6 +10,8 @@ type Props = SVGProps<SVGSVGElement> & { name: IconName; size?: number }
 
 export default function EchoIcon({ name, size = 22, ...props }: Props) {
   const paths: Record<IconName, ReactNode> = {
+    home: <><path d="m3 10 9-7 9 7v11h-6v-7H9v7H3Z"/></>,
+    settings: <><path d="M4 6h16M4 12h16M4 18h16"/><rect x="7" y="3" width="4" height="6" rx="1" fill="var(--bg)"/><rect x="14" y="9" width="4" height="6" rx="1" fill="var(--bg)"/><rect x="6" y="15" width="4" height="6" rx="1" fill="var(--bg)"/></>,
     logout: <><path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M9 12h12m-4-4 4 4-4 4"/></>,
     search: <><circle cx="10" cy="10" r="6.5"/><path d="m15 15 6 6"/></>,
     more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,

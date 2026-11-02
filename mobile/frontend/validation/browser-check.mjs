@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 const packagePath = process.env.PLAYWRIGHT_PATH || 'C:/Users/user/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs'
 const { chromium } = await import(pathToFileURL(packagePath).href)
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true })
-const output = new URL('./screenshots/', import.meta.url)
+const artifacts = await mkdtemp(join(tmpdir(), 'echosight-history-check-'))
+const output = pathToFileURL(`${artifacts}/screenshots/`)
 await mkdir(output, { recursive: true })
 const checks = []
 const failures = []
@@ -24,7 +27,15 @@ async function setup(width = 390, height = 844, options = {}) {
   const context = await browser.newContext({ viewport: { width, height }, locale: 'en-US', timezoneId: 'Asia/Beirut', serviceWorkers: 'block' })
   await context.route('**/*', async route => {
     const url = new URL(route.request().url())
+    // Fonts are intentionally blocked in this isolated fallback-font matrix.
+    if (['fonts.googleapis.com', 'fonts.gstatic.com'].includes(url.hostname)) return route.abort()
     if (url.origin !== base) { failures.push(`Unexpected network request: ${url.origin}`); return route.abort() }
+    if (url.pathname === '/api/v1/auth/me') return route.fulfill({ json: { user: { user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', name: 'Synthetic A', email: 'a@example.test', created_at: '2026-11-02T00:00:00Z' } } })
+    // Test-only instrumentation is injected into isolated browser responses, never app source.
+    if (url.pathname === '/src/useHistory.ts') {
+      const response = await route.fetch()
+      return route.fulfill({ response, body: (await response.text()).replace('return new LocalHistoryRepository(', 'return window.__testRepository = new LocalHistoryRepository(') })
+    }
     if (url.pathname === '/src/App.tsx') {
       const response = await route.fetch()
       const source = (await response.text()).replaceAll('import.meta.env.VITE_VOICE_API_BASE_URL', options.voiceService ? "'test-voice-service'" : "''")
@@ -67,8 +78,9 @@ async function setup(width = 390, height = 844, options = {}) {
   lastPage = page
   page.on('pageerror', error => failures.push(error.message))
   await page.goto(base)
-  await page.getByRole('button', { name: 'Start camera and microphone', exact: true }).waitFor()
-  if (options.storage !== 'delayed') await page.evaluate(async () => (await import(performance.getEntriesByType('resource').find(entry => new URL(entry.name).pathname === '/src/useHistory.ts').name)).getHistoryRepository().settled())
+  await page.getByRole('button', { name: 'Get started', exact: true }).click()
+  await page.locator('.home-screen').waitFor()
+  if (options.storage !== 'delayed') await page.evaluate(async () => window.__testRepository.settled())
   return { context, page }
 }
 async function shot(page, name) {
@@ -79,22 +91,27 @@ async function shot(page, name) {
 }
 async function seed(page) {
   await page.evaluate(async () => {
-    const { getHistoryRepository } = await import(performance.getEntriesByType('resource').find(entry => new URL(entry.name).pathname === '/src/useHistory.ts').name)
     const { historyFixtures } = await import('/src/historyFixtures.ts')
-    const repo = getHistoryRepository()
+    const repo = window.__testRepository
     historyFixtures().reverse().forEach(item => repo.upsert(item))
     await repo.settled()
   })
 }
 async function callback(page, phase, language) {
-  await page.evaluate(({ phase, language }) => {
+  await page.evaluate(async ({ phase, language }) => {
     const voice = window.__voice
     voice.cb.onError('')
     voice.cb.onPhase(phase)
     if (phase === 'hearing') voice.cb.onTranscript(language === 'ar' ? 'ماذا يوجد أمامي؟' : 'What is in front of me?')
-    if (phase === 'speaking') voice.cb.onAnswer({ id: 'state-answer', question: 'Sample question', answer: language === 'ar' ? 'إجابة تجريبية طويلة. '.repeat(40) : 'A clearly labeled sample answer for layout inspection. '.repeat(35), time: 'Test', language, demo: true })
+    if (phase === 'speaking') { await voice.cb.getFrame(); voice.cb.onAnswer({ id: 'state-answer', question: 'Sample question', answer: language === 'ar' ? 'إجابة تجريبية طويلة. '.repeat(40) : 'A clearly labeled sample answer for layout inspection. '.repeat(35), time: 'Test', language, demo: true }) }
   }, { phase, language })
 }
+async function leaveAssistant(page, ar = false) {
+  if (!await page.locator('.assistant-screen').isVisible()) return
+  await page.getByRole('button', { name: ar ? 'العودة إلى الرئيسية' : 'Back to Home', exact: true }).click()
+  if (await page.getByRole('dialog').isVisible()) await page.getByRole('dialog').getByRole('button', { name: ar ? 'إيقاف والعودة للرئيسية' : 'Stop and go Home', exact: true }).click()
+}
+async function settings(page, ar = false) { await page.getByRole('navigation').getByRole('button', { name: ar ? 'الإعدادات' : 'Settings', exact: true }).click() }
 try {
   if (!process.env.EDGES_ONLY) for (const [width, height] of [[360, 640], [390, 844], [768, 1024], [1280, 800]]) {
     for (const language of ['en', 'ar']) {
@@ -104,8 +121,8 @@ try {
       if (ar) await page.getByRole('button', { name: 'AR', exact: true }).click()
       const history = page.getByRole('button', { name: ar ? 'السجل' : 'History', exact: true })
       await shot(page, `${prefix}-idle`)
-      const center = await page.locator('.session-button').boundingBox()
-      const shell = await page.locator('.action-dock').boundingBox()
+      const center = await page.locator('.assistant-tab').boundingBox()
+      const shell = await page.locator('.tab-bar').boundingBox()
       assert.ok(Math.abs(center.x + center.width / 2 - shell.x - shell.width / 2) < 2)
       await history.click()
       await shot(page, `${prefix}-empty`)
@@ -122,27 +139,29 @@ try {
       await page.getByRole('button', { name: ar ? 'تكبير' : 'Zoom in', exact: true }).click()
       await shot(page, `${prefix}-zoom`)
       await page.keyboard.press('Escape'); await page.keyboard.press('Escape')
+      await settings(page, ar)
       await page.getByRole('button', { name: ar ? 'تسجيل الخروج' : 'Sign out', exact: true }).click()
       await shot(page, `${prefix}-signout`)
       await page.keyboard.press('Escape')
+      await history.click()
       await page.getByRole('button', { name: ar ? 'خيارات السجل' : 'History options' }).click()
       await page.getByRole('button', { name: ar ? 'مسح الكل' : 'Clear all', exact: true }).click()
       await shot(page, `${prefix}-clear`)
       await page.getByRole('button', { name: ar ? 'إلغاء' : 'Cancel', exact: true }).click()
       await page.evaluate(() => { window.__holdCamera = true })
-      await page.locator('.session-button').click() // Idle History: return Home + exactly one immediate start.
+      await page.locator('.assistant-tab').click() // Idle History: return Home + exactly one immediate start.
       await shot(page, `${prefix}-starting`)
       await page.evaluate(() => { window.__releaseCamera(); window.__holdCamera = false })
-      await page.locator('.session-button:not(:disabled)').waitFor()
+      await page.locator('.hold-button').waitFor()
       for (const phase of ['listening', 'hearing', 'processing', 'speaking', 'paused']) {
         await callback(page, phase, language)
         await shot(page, `${prefix}-${phase}`)
       }
-      await page.getByRole('button', { name: ar ? 'عرض الإجابة' : 'Expand answer' }).click()
+      await page.locator('.receipt-paper').scrollIntoViewIfNeeded()
       await shot(page, `${prefix}-long-answer`)
       await page.evaluate(() => window.__voice.cb.onError('MediaMTX streaming failed: simulated connection failure'))
       await shot(page, `${prefix}-error`)
-      assert.equal(await page.locator('.stage-chip').innerText(), ar ? 'معاينة فقط' : 'Preview only')
+      assert.equal(await page.locator('.stage-chip').first().innerText(), ar ? 'معاينة الكاميرا' : 'Camera preview')
       await context.close()
     }
   }
@@ -152,25 +171,28 @@ try {
   await page.getByRole('button', { name: 'History', exact: true }).click()
   await page.getByRole('button', { name: 'History', exact: true }).click()
   assert.equal(await page.evaluate(() => window.__metrics.pauses), initial.pauses + 1)
-  await page.locator('.session-button').click()
-  await page.locator('.session-button:not(:disabled)').waitFor()
+  await page.locator('.assistant-tab').click()
+  await page.locator('.hold-button').waitFor()
   assert.equal(await page.evaluate(() => window.__metrics.starts), 1)
   await page.evaluate(() => window.__voice.cb.onError(''))
+  await leaveAssistant(page)
   await page.getByRole('button', { name: 'History', exact: true }).click()
   await seed(page)
+  await settings(page)
   const beforeSignout = await page.evaluate(() => ({ metrics: structuredClone(window.__metrics), storage: JSON.stringify(localStorage) }))
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
-  await page.getByRole('dialog').getByRole('button', { name: 'Sign out', exact: true }).click()
-  assert.match(await page.locator('.app-toast').innerText(), /Signed out \(demo\)/)
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
   const afterSignout = await page.evaluate(() => ({ metrics: structuredClone(window.__metrics), storage: JSON.stringify(localStorage) }))
   assert.deepEqual(afterSignout, beforeSignout)
-  await page.getByRole('button', { name: 'Dismiss notification' }).click()
+  await page.getByRole('button', { name: 'History', exact: true }).click()
   assert.equal(await page.locator('video').evaluate((element, old) => element === old, originalVideo), true)
   const replays = await page.evaluate(() => window.__metrics.replays.length)
+  // Exercise the existing active replay guard through isolated test view state.
+  await page.evaluate(() => { window.__voice.isActive = true; window.__voice.cb.onSession(true) })
   await page.getByRole('button', { name: 'Replay', exact: true }).first().click({ force: true })
   assert.equal(await page.evaluate(() => window.__metrics.replays.length), replays)
   assert.match(await page.locator('.history-toast').innerText(), /Stop the session/)
-  await page.getByRole('button', { name: 'Stop session', exact: true }).click()
+  await page.evaluate(() => window.__voice.stop())
   await page.getByRole('button', { name: 'Replay', exact: true }).first().click()
   assert.equal(await page.evaluate(() => window.__metrics.replays.length), replays + 1)
   const count = await page.locator('.history-card').count()
@@ -204,27 +226,28 @@ try {
   assert.match(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), /Read more/)
   await page.getByRole('button', { name: 'AR', exact: true }).click()
   assert.equal(await page.evaluate(() => window.__metrics.created), initial.created)
-  await page.getByRole('button', { name: 'إعادة الاستماع', exact: true }).first().click({ force: true })
+  await page.getByRole('button', { name: 'إغلاق الإشعار', exact: true }).click()
+  await page.getByRole('button', { name: 'إعادة الاستماع', exact: true }).first().evaluate(button => button.click())
   assert.match(await page.locator('.history-toast').innerText(), /بلغة مختلفة/)
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
   await shot(page, 'large-text-rtl-history')
   await page.getByRole('button', { name: 'العودة إلى الرئيسية', exact: true }).click()
   await shot(page, 'large-text-rtl-home')
-  assert.equal(await page.locator('.welcome-ring').first().evaluate(element => getComputedStyle(element).animationName), 'none')
+  assert.equal(await page.locator('.playing-card').first().evaluate(element => getComputedStyle(element).animationName), 'none')
   await page.evaluate(() => { document.documentElement.style.fontSize = '' })
   await page.reload()
   await page.getByRole('button', { name: 'History', exact: true }).click()
-  await page.locator('.history-card img').first().waitFor()
+  await page.locator('.history-expand').first().click(); await page.locator('.history-card img').first().waitFor()
   assert.equal(await page.locator('.history-card').count(), count)
   await page.getByRole('button', { name: 'History options' }).click()
   await page.getByRole('button', { name: 'Clear all', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Clear all', exact: true }).click()
-  await page.evaluate(async () => (await import(performance.getEntriesByType('resource').find(entry => new URL(entry.name).pathname === '/src/useHistory.ts').name)).getHistoryRepository().settled())
+  await page.evaluate(async () => window.__testRepository.settled())
   await page.reload()
   await page.getByRole('button', { name: 'History', exact: true }).click()
   await page.getByText('No questions yet', { exact: true }).waitFor()
-  checks.push('Interactions: stable camera/controller; Start once; mock signout inert; replay guards; delete/undo; clipboard/share fallback; focus; reload photos; clear persists; reduced motion')
+  checks.push('Interactions: stable camera/controller; Start once; logout Cancel inert; replay guards; delete/undo; clipboard/share fallback; focus; reload photos; clear persists; reduced motion')
   await context.close()
   for (const language of ['en', 'ar']) {
     const ar = language === 'ar'
@@ -240,8 +263,8 @@ try {
     const blocked = await setup(360, 640, { storage: 'blocked', cameraDenied: true })
     const p = blocked.page
     if (ar) await p.getByRole('button', { name: 'AR', exact: true }).click()
-    await p.locator('.session-button').click()
-    await p.locator('.voice-only-chip').waitFor()
+    await p.locator('.assistant-tab').click()
+    await p.locator('.voice-only-stage').waitFor()
     await shot(p, `edge-${language}-voice-only`)
     await p.evaluate(() => { window.__voice.stop(); window.__voice.cb.onError('Microphone permission denied (test).') })
     await p.getByRole('button', { name: ar ? 'إعادة محاولة البدء' : 'Retry Start', exact: true }).waitFor()
@@ -249,6 +272,7 @@ try {
     const starts = await p.evaluate(() => window.__metrics.starts)
     await p.getByRole('button', { name: ar ? 'إعادة محاولة البدء' : 'Retry Start', exact: true }).click()
     assert.equal(await p.evaluate(() => window.__metrics.starts), starts + 1)
+    await leaveAssistant(p, ar)
     await p.getByRole('button', { name: ar ? 'السجل' : 'History', exact: true }).click()
     await seed(p)
     await p.locator('.storage-alert').waitFor()
@@ -281,13 +305,13 @@ try {
     await p.setViewportSize({ width: 390, height: 500 })
     await p.getByRole('searchbox').focus()
     await shot(p, `edge-${language}-keyboard-sized-viewport`)
-    const dock = await p.locator('.action-dock').boundingBox()
+    const dock = await p.locator('.tab-bar').boundingBox()
     assert.ok(dock.y + dock.height <= 500)
     await p.setViewportSize({ width: 360, height: 640 })
     await p.evaluate(() => { document.documentElement.style.fontSize = '200%' })
     await shot(p, `edge-${language}-large-history`)
     await p.getByRole('button', { name: ar ? 'العودة إلى الرئيسية' : 'Back to Home', exact: true }).click()
-    await p.locator('.session-button').click()
+    await p.locator('.assistant-tab').click()
     await shot(p, `edge-${language}-large-home`)
     const shortTargets = await p.locator('button:visible').evaluateAll(buttons => buttons.filter(button => { const r = button.getBoundingClientRect(); return r.width < 48 || r.height < 48 }).map(button => button.outerHTML))
     assert.deepEqual(shortTargets, [])
@@ -308,12 +332,13 @@ try {
   await service.page.getByRole('button', { name: 'Replay', exact: true }).first().click({ force: true })
   assert.match(await service.page.locator('.history-toast').innerText(), /current voice service/)
   assert.equal(await service.page.evaluate(() => window.__metrics.replays.length), 0)
-  await service.page.locator('.session-button').click()
-  await service.page.getByText('Preview only', { exact: true }).waitFor()
-  await service.page.getByRole('button', { name: 'History', exact: true }).click()
+  await service.page.locator('.assistant-tab').click()
+  await service.page.getByText('Camera preview', { exact: true }).waitFor()
+  // A cancelled Back preserves the stream and its failure state.
   await service.page.getByRole('button', { name: 'Back to Home', exact: true }).click()
+  await service.page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
   await service.page.evaluate(() => window.__voice.cb.onError(''))
-  assert.equal(await service.page.locator('.stage-chip').innerText(), 'Preview only')
+  assert.equal(await service.page.locator('.stage-chip').first().innerText(), 'Camera preview')
   await shot(service.page, 'stream-failure-survives-voice-error-reset')
   await service.context.close()
   checks.push('Edge interactions: loading, denied storage, text fallback, voice only, permission Retry, RTL swipe vs vertical scroll, long no-photo detail, Copy success, Share cancellation, selected deletion, keyboard-sized viewport, 200% text, 48px controls, isolated preview')
@@ -325,6 +350,6 @@ try {
   }
 }
 await browser.close()
-await writeFile(new URL(process.env.EDGES_ONLY ? './browser-edge-results.json' : './browser-results.json', import.meta.url), JSON.stringify({ checks, failures }, null, 2))
-console.log(JSON.stringify({ checks: checks.length, failures }, null, 2))
+await writeFile(join(artifacts, process.env.EDGES_ONLY ? 'browser-edge-results.json' : 'browser-results.json'), JSON.stringify({ checks, failures }, null, 2))
+console.log(JSON.stringify({ checks: checks.length, failures, artifacts }, null, 2))
 if (failures.length) process.exitCode = 1

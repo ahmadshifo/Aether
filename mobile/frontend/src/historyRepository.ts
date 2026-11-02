@@ -12,9 +12,17 @@ type StoredHistory = { revision: number; items: LocalHistoryItem[] }
 export interface HistoryStorage { read(): Promise<StoredHistory | null>; write(value: StoredHistory): Promise<void> }
 export const LEGACY_KEY = 'echosight-local-history-v1'
 export const TEXT_KEY = 'echosight-local-history-v2'
+export type HistoryOwner = Readonly<{ source: string; userId: string }>
+export function historyNamespace(owner: HistoryOwner) {
+  if (!owner.source || !owner.userId) throw new Error('Verified History owner required')
+  return `echosight-history-account-v1:${encodeURIComponent(owner.source)}:${encodeURIComponent(owner.userId)}`
+}
 export const RETENTION_MS = 24 * 60 * 60 * 1000
 const MAX_PHOTO_BYTES = 1_500_000
 const MAX_TOTAL_BYTES = 20_000_000
+// Serialize retired and replacement instances of the same owner in this tab.
+// No records, credentials or cross-owner work are shared by this coordination map.
+const ownerWrites = new Map<string, Promise<void>>()
 
 export function validItems(value: unknown): LocalHistoryItem[] {
   if (!Array.isArray(value)) return []
@@ -40,11 +48,12 @@ export function boundItems(items: LocalHistoryItem[], now = Date.now()): LocalHi
     })
 }
 
-export function indexedHistoryStorage(): HistoryStorage {
+export function indexedHistoryStorage(owner: HistoryOwner): HistoryStorage {
+  const databaseName = historyNamespace(owner)
   let connection: Promise<IDBDatabase> | undefined
   function db() {
     return connection ??= new Promise((resolve, reject) => {
-      const request = indexedDB.open('echosight-history', 1)
+      const request = indexedDB.open(databaseName, 1)
       request.onupgradeneeded = () => request.result.createObjectStore('history')
       request.onerror = () => reject(request.error)
       request.onblocked = () => reject(new Error('History storage blocked'))
@@ -85,25 +94,31 @@ export class LocalHistoryRepository {
   private writeScheduled = false
   private storage: HistoryStorage
   private text: Pick<Storage, 'getItem' | 'setItem'> | undefined
+  readonly owner: HistoryOwner | null
+  private textKey: string
+  private disposed = false
   readonly ready: Promise<void>
 
-  constructor(storage: HistoryStorage, text?: Pick<Storage, 'getItem' | 'setItem'>) {
+  constructor(storage: HistoryStorage, text?: Pick<Storage, 'getItem' | 'setItem'>, owner: HistoryOwner | null = null) {
     this.storage = storage
     this.text = text
+    this.owner = owner ? Object.freeze({ source: owner.source, userId: owner.userId }) : null
+    this.textKey = this.owner ? historyNamespace(this.owner) : TEXT_KEY
     let initial: LocalHistoryItem[] = []
     let fallback: StoredHistory | null = null
     let failed = false
     try {
-      fallback = JSON.parse(text?.getItem(TEXT_KEY) ?? 'null') as StoredHistory | null
-      initial = validItems(fallback?.items ?? JSON.parse(text?.getItem(LEGACY_KEY) ?? '[]'))
+      fallback = JSON.parse(text?.getItem(this.textKey) ?? 'null') as StoredHistory | null
+      initial = validItems(fallback?.items ?? (this.owner ? [] : JSON.parse(text?.getItem(LEGACY_KEY) ?? '[]')))
       this.revision = typeof fallback?.revision === 'number' ? fallback.revision : 0
     } catch { failed = true }
     this.snapshot = { items: boundItems(initial), loading: true, error: failed }
     this.ready = this.hydrate(fallback)
   }
   getSnapshot = () => this.snapshot
-  subscribe = (callback: () => void) => { this.listeners.add(callback); return () => { this.listeners.delete(callback) } }
+  subscribe = (callback: () => void) => { if (!this.disposed) this.listeners.add(callback); return () => { this.listeners.delete(callback) } }
   private publish(items: LocalHistoryItem[], loading = this.snapshot.loading, error = this.snapshot.error) {
+    if (this.disposed) return
     this.snapshot = { items, loading, error }
     this.listeners.forEach(callback => callback())
   }
@@ -111,6 +126,7 @@ export class LocalHistoryRepository {
     let items = this.snapshot.items
     let failed = this.snapshot.error
     try {
+      if (this.owner) await ownerWrites.get(this.textKey)
       const stored = await this.storage.read()
       if (stored && stored.revision >= (fallback?.revision ?? 0)) {
         items = validItems(stored.items)
@@ -123,17 +139,18 @@ export class LocalHistoryRepository {
         }))
       }
     } catch { failed = true }
+    if (this.disposed) return
     for (const operation of this.journal) items = operation(items)
     this.journal = []
     this.publish(boundItems(items), false, failed)
     this.schedulePersist()
   }
   private schedulePersist() {
-    if (this.writeScheduled) return
+    if (this.disposed || this.writeScheduled) return
     this.writeScheduled = true
     queueMicrotask(() => {
       this.writeScheduled = false
-      this.persist()
+      if (!this.disposed) this.persist()
     })
   }
   private persist() {
@@ -142,10 +159,12 @@ export class LocalHistoryRepository {
     let textFailed = false
     try {
       if (!this.text) throw new Error('Text storage unavailable')
-      this.text.setItem(TEXT_KEY, JSON.stringify({ ...value, items: textItems }))
-      this.text.setItem(LEGACY_KEY, JSON.stringify(textItems))
+      this.text.setItem(this.textKey, JSON.stringify({ ...value, items: textItems }))
+      // Only the legacy/test adapter can access global keys. Personal stores never do.
+      if (!this.owner) this.text.setItem(LEGACY_KEY, JSON.stringify(textItems))
     } catch { textFailed = true }
-    this.queue = this.queue.then(async () => {
+    const preceding = this.owner ? ownerWrites.get(this.textKey) ?? this.queue : this.queue
+    this.queue = preceding.then(async () => {
       try { await this.storage.write(value) }
       catch {
         // Retry without image payloads. Answers and speech never wait for persistence.
@@ -155,8 +174,14 @@ export class LocalHistoryRepository {
       }
       if (value.revision === this.revision) this.publish(this.snapshot.items, false, textFailed)
     })
+    if (this.owner) {
+      const queued = this.queue
+      ownerWrites.set(this.textKey, queued)
+      void queued.then(() => { if (ownerWrites.get(this.textKey) === queued) ownerWrites.delete(this.textKey) })
+    }
   }
   private mutate(operation: (items: LocalHistoryItem[]) => LocalHistoryItem[]) {
+    if (this.disposed) return
     if (this.snapshot.loading) this.journal.push(operation)
     this.publish(boundItems(operation(this.snapshot.items)))
     if (!this.snapshot.loading) this.schedulePersist()
@@ -180,6 +205,13 @@ export class LocalHistoryRepository {
     if (boundItems(this.snapshot.items).length !== this.snapshot.items.length) this.mutate(items => items)
   }
   async settled() { await this.ready; await this.queue }
+  dispose() {
+    if (this.disposed) return
+    if (this.writeScheduled && !this.snapshot.loading) this.persist()
+    this.disposed = true
+    this.listeners.clear(); this.journal = []
+    this.snapshot = { items: [], loading: false, error: false }
+  }
 }
 
 export function dateGroup(item: LocalHistoryItem, now = new Date()): 'today' | 'yesterday' | 'earlier' {
