@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
-import type { MouseEvent } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import HistoryPage from './HistoryPage'
 import EchoIcon from './EchoIcon'
-import { VoiceSession, type Language, type Phase, type HistoryItem } from './voiceSession'
+import { VoiceSession, type Language, type Phase } from './voiceSession'
 import { WhipPublisher } from './whipPublisher'
+import Modal from './Modal'
+import { uiCopy } from './uiCopy'
+import { useHistory } from './useHistory'
+import { SnapshotBridge } from './snapshotBridge'
 
 const words = {
   en: {
@@ -38,18 +41,6 @@ const words = {
   },
 }
 
-const STORE_KEY = 'echosight-local-history-v1'
-function readHistory(): HistoryItem[] {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(STORE_KEY) ?? '[]')
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is HistoryItem =>
-          item != null && typeof item.question === 'string' && typeof item.answer === 'string'
-          && typeof item.id === 'string' && (item.language === 'en' || item.language === 'ar'))
-      : []
-  } catch { return [] }
-}
-
 async function captureFrame(video: HTMLVideoElement | null): Promise<Blob | null> {
   if (!video || !video.srcObject || !video.videoWidth || !video.videoHeight) return null
   const width = Math.min(1024, video.videoWidth)
@@ -64,20 +55,39 @@ async function captureFrame(video: HTMLVideoElement | null): Promise<Blob | null
   return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.7))
 }
 
+const HistoryPreview = import.meta.env.DEV ? lazy(() => import('./HistoryPreview')) : null
 export default function App() {
+  if (HistoryPreview && new URLSearchParams(location.search).get('preview') === 'history') {
+    return <Suspense fallback={null}><HistoryPreview /></Suspense>
+  }
+  return <AssistantApp />
+}
+
+function AssistantApp() {
   const [language, setLanguage] = useState<Language>('en')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [sessionOn, setSessionOn] = useState(false)
   const [starting, setStarting] = useState(false)
   const [cameraOn, setCameraOn] = useState(false)
+  const [streamStatus, setStreamStatus] = useState<'off' | 'connecting' | 'live' | 'failed'>('off')
   const [cameraUnavailable, setCameraUnavailable] = useState(false)
   const [phase, setPhase] = useState<Phase>('idle')
   const [transcript, setTranscript] = useState('')
   const [answer, setAnswer] = useState('')
+  const [answerLanguage, setAnswerLanguage] = useState<Language>('en')
   const [answerIsDemo, setAnswerIsDemo] = useState(false)
   const [answerCollapsed, setAnswerCollapsed] = useState(true)
   const [error, setError] = useState('')
-  const [history, setHistory] = useState<HistoryItem[]>(readHistory)
+  const history = useHistory()
+  const repository = history.repository
+  const [signOutOpen, setSignOutOpen] = useState(false)
+  const [toast, setToast] = useState('')
+  const snapshotRef = useRef(new SnapshotBridge())
+  const languageRef = useRef(language)
+  const transcriptRef = useRef('')
+  const historyOpenRef = useRef(false)
+  const historyButtonRef = useRef<HTMLButtonElement>(null)
+  const contentRef = useRef<HTMLElement>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const cameraRef = useRef<MediaStream | null>(null)
@@ -87,6 +97,7 @@ export default function App() {
   const requestedSessionRef = useRef(false)
   const voiceRef = useRef<VoiceSession | null>(null)
   const t = words[language]
+  const u = uiCopy[language]
 
   useEffect(() => {
     document.documentElement.lang = language
@@ -101,6 +112,7 @@ export default function App() {
     cameraRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
     setCameraOn(false)
+    setStreamStatus('off')
   }
 
   // Existing video-only camera acquisition, shared by the single session button.
@@ -130,12 +142,17 @@ export default function App() {
         const streamSessionId = voiceRef.current?.sessionIdForStreaming ?? crypto.randomUUID()
         const publisher = new WhipPublisher()
         publisherRef.current = publisher
-        void publisher.start(stream, `${mediaBase}/live/${streamSessionId}/whip`).catch((reason: unknown) => {
+        setStreamStatus('connecting')
+        void publisher.start(stream, `${mediaBase}/live/${streamSessionId}/whip`).then(() => {
+          if (publisherRef.current === publisher) setStreamStatus('live')
+        }).catch((reason: unknown) => {
           if (publisherRef.current !== publisher) return
           publisherRef.current = null
+          setStreamStatus('failed')
           setError(`MediaMTX streaming failed: ${reason instanceof Error ? reason.message : String(reason)}`)
         })
       } else {
+        setStreamStatus('failed')
         setError('MediaMTX URL missing: set VITE_MEDIAMTX_URL in .env.local')
       }
       return true
@@ -146,9 +163,11 @@ export default function App() {
   }
 
   useEffect(() => {
+    const snapshots = snapshotRef.current
     const controller = new VoiceSession({
       onSession: (isOn) => {
         setSessionOn(isOn)
+        if (!isOn) snapshotRef.current.cancel()
         // A denied/failed microphone must never leave the camera recording.
         if (!isOn && requestedSessionRef.current) {
           requestedSessionRef.current = false
@@ -157,25 +176,33 @@ export default function App() {
           setStarting(false)
         }
       },
-      onPhase: setPhase,
-      onTranscript: setTranscript,
-      onError: setError,
-      getFrame: () => captureFrame(videoRef.current),
+      onPhase: (next) => {
+        if (next === 'paused') snapshotRef.current.cancel()
+        else if (next !== 'processing') snapshotRef.current.discard()
+        setPhase(next)
+      },
+      onTranscript: (text) => { transcriptRef.current = text; setTranscript(text) },
+      onError: (text) => { if (text) snapshotRef.current.discard(); setError(text) },
+      getFrame: () => snapshotRef.current.capture(
+        () => captureFrame(videoRef.current), controller.sessionIdForStreaming,
+        transcriptRef.current, languageRef.current,
+      ),
       onAnswer: (item) => {
         setAnswer(item.answer)
+        setAnswerLanguage(item.language)
         setAnswerIsDemo(Boolean(item.demo))
         setAnswerCollapsed(true)
-        setHistory(previous => {
-          const updated = [item, ...previous].slice(0, 50)
-          try { localStorage.setItem(STORE_KEY, JSON.stringify(updated)) } catch { /* private mode */ }
-          return updated
-        })
+        repository.upsert(snapshotRef.current.consume(item, controller.sessionIdForStreaming))
       },
     })
     voiceRef.current = controller
-    const handleVisibility = () => controller.onVisibilityChange()
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') snapshotRef.current.cancel()
+      controller.onVisibilityChange()
+    }
     document.addEventListener('visibilitychange', handleVisibility)
     return () => {
+      snapshots.cancel()
       document.removeEventListener('visibilitychange', handleVisibility)
       controller.stop()
       publisherRef.current?.stop()
@@ -187,15 +214,17 @@ export default function App() {
       cameraRef.current?.getTracks().forEach(track => track.stop())
       cameraRef.current = null
     }
-  }, [])
+  }, [repository])
 
   async function startSession() {
-    if (sessionOn || starting || !voiceRef.current) return
+    if (sessionOn || starting || requestedSessionRef.current || !voiceRef.current) return
     const attempt = ++sessionAttemptRef.current
     requestedSessionRef.current = true
     setStarting(true)
     setCameraUnavailable(false)
     setError('')
+    setAnswer('')
+    snapshotRef.current.reset()
 
     // Both operations start from this one user tap. Browser speech recognition
     // and camera may still show separate OS permission prompts.
@@ -213,6 +242,7 @@ export default function App() {
   }
 
   function stopSession() {
+    snapshotRef.current.cancel()
     requestedSessionRef.current = false
     sessionAttemptRef.current += 1
     voiceRef.current?.stop()
@@ -224,25 +254,44 @@ export default function App() {
   function toggleSession() {
     if (starting) return
     if (sessionOn) stopSession()
-    else void startSession()
+    else {
+      if (historyOpenRef.current) closeHistory()
+      void startSession()
+    }
   }
 
   function changeLanguage(next: Language) {
     if (next === language) return
+    snapshotRef.current.reset()
+    languageRef.current = next
     setLanguage(next)
     voiceRef.current?.changeLanguage(next)
+    // The new persistent header is usable on History. Keep that screen's pause
+    // after the public language setter schedules recognition for the new locale.
+    if (historyOpenRef.current) {
+      snapshotRef.current.cancel()
+      voiceRef.current?.pause()
+    }
   }
 
   function openHistory() {
+    if (historyOpenRef.current) return
+    historyOpenRef.current = true
+    snapshotRef.current.cancel()
     voiceRef.current?.pause()
     setHistoryOpen(true)
   }
   function closeHistory() {
+    historyOpenRef.current = false
     setHistoryOpen(false)
     voiceRef.current?.resume()
+    contentRef.current?.scrollTo({ top: 0 })
+    historyButtonRef.current?.focus()
   }
 
   const isActive = sessionOn || starting
+  const streamFailed = streamStatus === 'failed' || error.startsWith('MediaMTX')
+  const cameraLabel = !cameraOn ? t.off : streamFailed ? u.streamIssue : streamStatus === 'connecting' ? u.streamConnecting : t.on
   const showingTranscript = isActive && phase === 'hearing' && Boolean(transcript.trim())
   const showStageCard = isActive && (showingTranscript || Boolean(answer))
   const status = starting ? t.starting : t[phase === 'idle' ? 'ready' : phase]
@@ -266,7 +315,8 @@ export default function App() {
           </div>
         </header>
 
-        <main className="app-content" id="main-content">
+        <main ref={contentRef} className="app-content" id="main-content">
+          <div className="home-screen" hidden={historyOpen}>
           <section className={`camera-stage ${cameraOn ? 'has-video' : ''}`} aria-label={t.camera}>
             <video
               ref={videoRef} autoPlay muted playsInline aria-label={t.camera}
@@ -288,15 +338,15 @@ export default function App() {
             {isActive && !cameraOn && (
               <div className="voice-only-stage" aria-hidden="true">
                 <EchoIcon name="audio-lines" size={44} />
-                <p>{t.voiceOnlyHint}</p>
+                <p>{starting ? u.preparing : t.voiceOnlyHint}</p>
               </div>
             )}
 
             {/* One top overlay: the camera chip never changes its location. */}
             <div className="stage-top-overlay">
-              <span className={`stage-chip ${cameraOn ? 'is-live' : ''}`} aria-label={`${t.camera}: ${cameraOn ? t.on : t.off}`}>
+              <span className={`stage-chip ${cameraOn && streamStatus === 'live' && !streamFailed ? 'is-live' : ''}`} aria-label={`${t.camera}: ${cameraLabel}`}>
                 <span className="live-dot" aria-hidden="true" />
-                {cameraOn ? t.on : t.off}
+                {cameraLabel}
               </span>
 
               {isActive && (
@@ -334,11 +384,6 @@ export default function App() {
                 <section
                   className={`answer-overlay ${answerCollapsed ? 'is-collapsed' : 'is-expanded'} ${showingTranscript ? 'is-transcript' : ''}`}
                   aria-label={showingTranscript ? t.transcript : t.latest}
-                  onClick={(event: MouseEvent<HTMLElement>) => {
-                    if (!(event.target as HTMLElement).closest('button')) {
-                      setAnswerCollapsed(v => !v)
-                    }
-                  }}
                 >
                   <div className="answer-heading">
                     <span className="answer-heading-icon"><EchoIcon name={showingTranscript ? 'audio-lines' : 'sparkles'} size={17} /></span>
@@ -355,25 +400,35 @@ export default function App() {
                       </svg>
                     </button>
                     {!showingTranscript && (
-                      <button type="button" className="replay-control" aria-label={t.replay} onClick={() => voiceRef.current?.replay(answer)}>
+                      <button type="button" className="replay-control" aria-label={t.replay} aria-disabled={answerLanguage !== language} onClick={() => {
+                        if (answerLanguage !== language) setToast(u.replayLanguage)
+                        else voiceRef.current?.replay(answer)
+                      }}>
                         <EchoIcon name="volume" size={21} />
                       </button>
                     )}
                   </div>
-                  <p className="answer-text" aria-live="polite">
+                  <p className="answer-text" aria-live={showingTranscript ? 'off' : 'polite'} lang={showingTranscript ? language : answerLanguage} dir={(showingTranscript ? language : answerLanguage) === 'ar' ? 'rtl' : 'ltr'} tabIndex={answerCollapsed ? undefined : 0}>
                     {showingTranscript ? transcript : answer}
                   </p>
                 </section>
               </div>
             )}
           </section>
-          {error && <p role="alert" className="error-alert">{error}</p>}
+          {error && <div role="alert" className="error-alert"><strong>{u.errorTitle}</strong><p>{u.errorHint}</p><p dir="auto">{error}</p>
+            {!isActive && <button className="text-button" onClick={() => void startSession()}>{u.retry}</button>}
+          </div>}
+          </div>
+          <HistoryPage language={language} active={historyOpen} items={history.items} loading={history.loading} error={history.error}
+            repository={history.repository} onBack={closeHistory} sessionActive={isActive}
+            serviceReplayUnavailable={Boolean(import.meta.env.VITE_VOICE_API_BASE_URL?.trim())}
+            onReplay={item => voiceRef.current?.replay(item.answer)} />
         </main>
 
         {/* A floating two-row grid keeps the button labels aligned. There is
             deliberately no fake mute control: voiceSession exposes no mute API. */}
         <nav className="action-dock" aria-label={t.controls}>
-          <button type="button" className="dock-side dock-history" onClick={openHistory} aria-label={t.history}>
+          <button ref={historyButtonRef} type="button" className="dock-side dock-history" onClick={openHistory} aria-label={t.history} aria-current={historyOpen ? 'page' : undefined}>
             <EchoIcon name="history" size={24} />
           </button>
           <span className="dock-caption dock-history-caption">{t.history}</span>
@@ -393,11 +448,20 @@ export default function App() {
           </button>
           <span className="dock-caption session-caption">{starting ? t.starting : sessionOn ? t.stop : t.start}</span>
 
-          <span className="dock-spacer" aria-hidden="true" />
-          <span className="dock-caption dock-spacer-label" aria-hidden="true">&nbsp;</span>
+          <button type="button" className="dock-side dock-signout" aria-label={u.signOut} onClick={() => setSignOutOpen(true)}><EchoIcon name="logout" size={24} /></button>
+          <span className="dock-caption dock-signout-caption">{u.signOut}</span>
         </nav>
+        {toast && <div className="app-toast"><p role="status">{toast}</p><button className="icon-control" aria-label={u.dismiss} onClick={() => setToast('')}><EchoIcon name="close" size={18} /></button></div>}
       </div>
-      {historyOpen && <HistoryPage language={language} items={history} onBack={closeHistory} />}
+      {signOutOpen && <Modal title={u.signOutTitle} closeLabel={u.close} onClose={() => setSignOutOpen(false)}>
+        <p>{u.signOutBody}</p><p className="demo-note">{u.demoAccount}</p>
+        <div className="confirmation-actions"><button className="text-button" onClick={() => setSignOutOpen(false)}>{u.cancel}</button>
+          <button className="text-button danger-button" onClick={() => {
+            // Future real-login callback belongs here only after separate authorization.
+            // Demo confirmation intentionally performs no session, auth or storage action.
+            setSignOutOpen(false); setToast(u.signedOut)
+          }}>{u.signOut}</button></div>
+      </Modal>}
     </div>
   )
 }

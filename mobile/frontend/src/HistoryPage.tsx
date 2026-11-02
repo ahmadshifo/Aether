@@ -1,124 +1,206 @@
 import { useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import EchoIcon from './EchoIcon'
-import type { HistoryItem, Language } from './voiceSession'
+import Modal from './Modal'
+import { dateGroup, itemTime, searchHistory, RETENTION_MS } from './historyRepository'
+import type { LocalHistoryItem, LocalHistoryRepository } from './historyRepository'
+import type { Language } from './voiceSession'
+import { uiCopy } from './uiCopy'
 
-type Props = { language: Language; onBack: () => void; items: HistoryItem[] }
-
-// UI placeholders only. Member 2's /api/v1/questions replaces these later.
-const samples: Record<Language, HistoryItem[]> = {
-  en: [
-    { id: '1', language: 'en', question: 'What was written on the door?', answer: 'The sign on the door reads Room 205.', time: 'Sample conversation 1' },
-    { id: '2', language: 'en', question: 'What is in front of me?', answer: 'There is a chair in front of you.', time: 'Sample conversation 2' },
-  ],
-  ar: [
-    { id: '1', language: 'ar', question: 'ماذا كُتب على الباب؟', answer: 'اللافتة على الباب مكتوب عليها غرفة ٢٠٥.', time: 'محادثة تجريبية ١' },
-    { id: '2', language: 'ar', question: 'ماذا يوجد أمامي؟', answer: 'يوجد كرسي أمامك.', time: 'محادثة تجريبية ٢' },
-  ],
+type Props = {
+  language: Language; active: boolean; onBack: () => void; items: LocalHistoryItem[]
+  loading: boolean; error: boolean; repository: LocalHistoryRepository
+  onReplay: (item: LocalHistoryItem) => void; sessionActive: boolean; serviceReplayUnavailable?: boolean
+}
+function usePhoto(photo?: Blob) {
+  const [url, setUrl] = useState('')
+  useEffect(() => {
+    const next = photo ? URL.createObjectURL(photo) : ''
+    // Synchronize a browser resource, including revocation on replacement/unmount.
+    queueMicrotask(() => setUrl(next))
+    return () => { if (next) URL.revokeObjectURL(next) }
+  }, [photo])
+  return url
+}
+function Photo({ item, language, onZoom }: { item: LocalHistoryItem; language: Language; onZoom?: () => void }) {
+  const url = usePhoto(item.photo)
+  const t = uiCopy[language]
+  const content = url ? <img src={url} alt={item.sample ? t.sample : t.photoAlt} />
+    : <span className="photo-placeholder"><EchoIcon name="camera-off" size={28} /><span>{t.noPhoto}</span></span>
+  return onZoom && url ? <button className="history-photo zoom-trigger" onClick={onZoom} aria-label={t.zoom}>{content}</button>
+    : <div className="history-photo">{content}</div>
+}
+function Zoom({ item, language, onClose }: { item: LocalHistoryItem; language: Language; onClose: () => void }) {
+  const [scale, setScale] = useState(1)
+  const url = usePhoto(item.photo)
+  const t = uiCopy[language]
+  return <Modal title={t.zoomTitle} closeLabel={t.close} onClose={onClose} className="zoom-modal">
+    <div className="zoom-controls">
+      <button className="icon-control" aria-label={t.zoomOut} disabled={scale <= 1} onClick={() => setScale(s => Math.max(1, s - .5))}><EchoIcon name="minus" /></button>
+      <button className="text-button" onClick={() => setScale(1)}>{t.zoomReset}</button>
+      <button className="icon-control" aria-label={t.zoomIn} disabled={scale >= 3} onClick={() => setScale(s => Math.min(3, s + .5))}><EchoIcon name="plus" /></button>
+      <output aria-live="polite">{new Intl.NumberFormat(language, { style: 'percent' }).format(scale)}</output>
+    </div>
+    <div className="zoom-viewport" tabIndex={0} aria-label={t.zoomTitle}>
+      {url && <img src={url} alt={item.sample ? t.sample : t.photoAlt} style={{ width: `${scale * 100}%` }} />}
+    </div>
+  </Modal>
+}
+function HistoryCard({ item, language, onDetail, onDelete, onCopy, onReplay, replayReason }: {
+  item: LocalHistoryItem; language: Language; onDetail: () => void; onDelete: () => void
+  onCopy: () => void; onReplay: () => void; replayReason: string
+}) {
+  const t = uiCopy[language]
+  const start = useRef<{ x: number; y: number } | null>(null)
+  return <article className="history-card" onPointerDown={event => {
+    if (event.pointerType === 'mouse' || (event.target as HTMLElement).closest('button')) return
+    start.current = { x: event.clientX, y: event.clientY }
+  }} onPointerCancel={() => { start.current = null }} onPointerUp={event => {
+    const origin = start.current; start.current = null
+    if (!origin) return
+    const dx = (event.clientX - origin.x) * (language === 'ar' ? -1 : 1)
+    if (dx < -100 && Math.abs(event.clientY - origin.y) < 32) onDelete()
+  }}>
+    <div className="history-card-top"><Photo item={item} language={language} />
+      <div className="history-card-meta"><time dateTime={item.createdAt}>{itemTime(item, language)}</time>
+        {!item.createdAt && <small>{t.unknownDate}</small>}
+        {item.demo && <span className="demo-badge">{t.demo}</span>}
+        {item.sample && <small>{t.sample}</small>}
+      </div>
+    </div>
+    <div className="history-field" lang={item.language} dir={item.language === 'ar' ? 'rtl' : 'ltr'}>
+      <EchoIcon name="mic" size={18} /><h3>{item.question}</h3>
+    </div>
+    <div className="history-field answer-field" lang={item.language} dir={item.language === 'ar' ? 'rtl' : 'ltr'}>
+      <EchoIcon name="sparkles" size={18} /><p>{item.answer}</p>
+    </div>
+    {item.demo && item.photo && <p className="fine-print">{t.demoNote}</p>}
+    <button className="read-more" onClick={onDetail} aria-label={`${t.readMore}: ${item.question}`}>{t.readMore}<EchoIcon name={language === 'ar' ? 'arrow-left' : 'arrow-right'} size={16} /></button>
+    <div className="card-actions">
+      <button onClick={onReplay} aria-disabled={!!replayReason}><EchoIcon name="volume" size={18} />{t.replay}</button>
+      <button onClick={onCopy}><EchoIcon name="copy" size={18} />{t.copy}</button>
+      <button className="danger-text" onClick={onDelete}><EchoIcon name="trash" size={18} />{t.delete}</button>
+    </div>
+  </article>
 }
 
-export default function HistoryPage({ language, onBack, items }: Props) {
+export default function HistoryPage({ language, active, onBack, items, loading, error, repository, onReplay, sessionActive, serviceReplayUnavailable = false }: Props) {
+  const t = uiCopy[language]
+  const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const dialogRef = useRef<HTMLElement>(null)
-  const closeRef = useRef<HTMLButtonElement>(null)
-  const isArabic = language === 'ar'
-  const copy = isArabic
-    ? { title: 'سجل المحادثات', subtitle: 'الأسئلة والإجابات السابقة', detail: 'تفاصيل الإجابة', question: 'السؤال', answer: 'الإجابة', back: 'عودة إلى السجل', close: 'إغلاق السجل', sample: items.length ? 'تم حفظ المحادثات على هذا الجهاز فقط.' : 'بيانات تجريبية — سيتم ربط السجل بالخادم لاحقاً.', expand: 'عرض التفاصيل' }
-    : { title: 'Conversation history', subtitle: 'Past questions and answers', detail: 'Answer details', question: 'QUESTION', answer: 'ANSWER', back: 'Back to history', close: 'Close history', sample: items.length ? 'Conversations saved on this device only.' : 'Sample history — server integration comes later.', expand: 'View details' }
-
-  const visible = items.length ? items : samples[language]
-  const selected = visible.find((item) => item.id === selectedId)
-
+  const [zoom, setZoom] = useState(false)
+  const [menu, setMenu] = useState(false)
+  const [clearOpen, setClearOpen] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [fallback, setFallback] = useState<{ text: string; language: Language } | null>(null)
+  const [undo, setUndo] = useState<{ item: LocalHistoryItem; index: number; beforeId?: string; afterId?: string } | null>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const menuButton = useRef<HTMLButtonElement>(null)
+  const selected = items.find(item => item.id === selectedId)
+  const visible = searchHistory(items, query)
+  useEffect(() => { if (active) heading.current?.focus() }, [active])
   useEffect(() => {
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    closeRef.current?.focus()
-    function handleEscape(event: globalThis.KeyboardEvent) {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        if (selectedId) setSelectedId(null)
-        else onBack()
-      }
+    if (!undo?.item.createdAt) return
+    // Ordinary Undo has no timer. Only the existing privacy retention deadline can end it.
+    const timer = window.setTimeout(() => { setUndo(null); setNotice('') }, Math.max(0, Date.parse(undo.item.createdAt) + RETENTION_MS - Date.now()))
+    return () => window.clearTimeout(timer)
+  }, [undo])
+  const replayReason = (item: LocalHistoryItem) => sessionActive ? t.replayActive : item.language !== language ? t.replayLanguage : serviceReplayUnavailable ? t.replayService : ''
+  function replay(item: LocalHistoryItem) {
+    const reason = replayReason(item)
+    if (reason) setNotice(reason)
+    else onReplay(item)
+  }
+  function remove(item: LocalHistoryItem) {
+    const index = items.findIndex(row => row.id === item.id)
+    setUndo({ item, index, beforeId: items[index + 1]?.id, afterId: items[index - 1]?.id })
+    repository.remove(item.id)
+    if (selectedId === item.id) { setZoom(false); setSelectedId(null) }
+    setNotice(t.deleted)
+  }
+  function textFor(item: LocalHistoryItem) {
+    const copy = uiCopy[item.language]
+    return `${item.demo ? `${copy.demoNote}\n\n` : ''}${copy.question}: ${item.question}\n\n${copy.answer}: ${item.answer}\n\n${itemTime(item, language)}`
+  }
+  async function copy(item: LocalHistoryItem) {
+    const text = textFor(item)
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
+      await navigator.clipboard.writeText(text)
+      setNotice(t.copied)
+    } catch { setFallback({ text, language: item.language }) }
+  }
+  async function share(item: LocalHistoryItem, includePhoto: boolean) {
+    // No URL and no image by default. Construct synchronously within user activation.
+    const data: ShareData = { title: 'EchoSight', text: textFor(item) }
+    if (includePhoto && item.photo) {
+      const file = new File([item.photo], 'echosight-snapshot.jpg', { type: item.photo.type })
+      try { if (navigator.canShare?.({ files: [file] })) data.files = [file] } catch { /* text share */ }
     }
-    window.addEventListener('keydown', handleEscape)
-    return () => {
-      window.removeEventListener('keydown', handleEscape)
-      previouslyFocused?.focus()
-    }
-  }, [onBack, selectedId])
-
-  function handleDialogKeys(event: ReactKeyboardEvent<HTMLElement>) {
-    if (event.key !== 'Tab') return
-    const controls = dialogRef.current?.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
-    )
-    if (!controls?.length) return
-    const first = controls[0]
-    const last = controls[controls.length - 1]
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
+    try {
+      if (!navigator.share) { setFallback({ text: data.text!, language: item.language }); return }
+      await navigator.share(data)
+    } catch (reason) {
+      if (reason instanceof DOMException && reason.name === 'AbortError') return
+      setNotice(t.shareFailed)
+      setFallback({ text: data.text!, language: item.language })
     }
   }
-
-  return (
-    <div className="sheet-layer" dir={isArabic ? 'rtl' : 'ltr'}>
-      <button type="button" className="sheet-scrim" onClick={onBack} aria-label={copy.close} tabIndex={-1} />
-      <section
-        ref={dialogRef}
-        className="history-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="history-heading"
-        onKeyDown={handleDialogKeys}
-      >
-        <div className="sheet-grabber" aria-hidden="true" />
-        <header className="sheet-header">
-          <div className="sheet-heading-group">
-            <p className="eyebrow">ECHOSIGHT</p>
-            <h2 id="history-heading">{selected ? copy.detail : copy.title}</h2>
-            {!selected && <p className="sheet-subtitle">{copy.subtitle}</p>}
-          </div>
-          <button ref={closeRef} type="button" className="icon-control sheet-close" onClick={onBack} aria-label={copy.close}>
-            <EchoIcon name="close" />
-          </button>
-        </header>
-        <div className="sheet-scroll">
-          {selected ? (
-            <>
-              <button className="history-back" type="button" onClick={() => setSelectedId(null)}>
-                <EchoIcon name={isArabic ? 'arrow-right' : 'arrow-left'} size={18} />
-                {copy.back}
-              </button>
-              <div className="history-detail">
-                <p className="eyebrow">{selected.time}</p>
-                <p className="history-field-label">{copy.question}</p>
-                <p className="history-full-question">{selected.question}</p>
-                <div className="history-rule" />
-                <p className="history-field-label">{copy.answer}</p>
-                <p className="history-full-answer">{selected.answer}</p>
-              </div>
-            </>
-          ) : (
-            <div className="history-items">
-              {visible.map((item) => (
-                <button key={item.id} className="history-item" type="button" onClick={() => setSelectedId(item.id)} aria-label={`${copy.expand}: ${item.question}`}>
-                  <span className="history-item-icon"><EchoIcon name="history" size={20} /></span>
-                  <span className="history-item-content">
-                    <span className="history-item-date">{item.time}</span>
-                    <span className="history-item-question">{item.question}</span>
-                    <span className="history-item-answer">{item.answer}</span>
-                  </span>
-                  <EchoIcon name={isArabic ? 'arrow-left' : 'arrow-right'} size={18} className="history-chevron" />
-                </button>
-              ))}
-            </div>
-          )}
-          <p className="history-disclaimer">{copy.sample}</p>
-        </div>
-      </section>
+  return <section className="history-screen" hidden={!active} aria-labelledby="history-heading">
+    <header className="history-header">
+      <button className="icon-control" onClick={onBack} aria-label={t.back}><EchoIcon name={language === 'ar' ? 'arrow-right' : 'arrow-left'} /></button>
+      <h1 ref={heading} id="history-heading" tabIndex={-1}>{t.history}</h1>
+      <div className="history-menu" onKeyDown={event => { if (event.key === 'Escape') { setMenu(false); menuButton.current?.focus() } }}>
+        <button ref={menuButton} className="icon-control" aria-label={t.more} aria-expanded={menu} onClick={() => setMenu(value => !value)}><EchoIcon name="more" /></button>
+        {menu && <div className="menu-popover"><button className="danger-text" disabled={!items.length || loading} onClick={() => { setMenu(false); setClearOpen(true) }}><EchoIcon name="trash" size={18} />{t.clear}</button></div>}
+      </div>
+    </header>
+    <p className="history-privacy">{t.local}{items.some(item => !item.createdAt) && <> {t.legacy}</>}</p>
+    <div className="history-search"><EchoIcon name="search" size={20} />
+      <input type="search" value={query} onChange={event => setQuery(event.target.value)} aria-label={t.search} placeholder={t.searchPlaceholder} />
+      {query && <button className="icon-control" onClick={() => setQuery('')} aria-label={t.clearSearch}><EchoIcon name="close" size={18} /></button>}
     </div>
-  )
+    {error && <p className="storage-alert" role="status">{t.storageError}</p>}
+    {loading ? <div className="history-loading" role="status"><p>{t.loading}</p><div className="skeleton" /><div className="skeleton" /></div>
+      : !visible.length ? <div className="history-empty"><span className="empty-eye"><EchoIcon name="eye" size={40} /></span>
+        <h2>{items.length ? t.noResults : t.emptyTitle}</h2><p>{items.length ? t.noResultsHint : t.emptyBody}</p>
+        <button className="text-button" onClick={items.length ? () => setQuery('') : onBack}>{items.length ? t.clearSearch : t.backStart}</button>
+      </div> : <div className="history-groups">{(['today', 'yesterday', 'earlier'] as const).map(group => {
+        const grouped = visible.filter(item => dateGroup(item) === group)
+        return grouped.length ? <section key={group} aria-labelledby={`group-${group}`}><h2 className="group-title" id={`group-${group}`}>{t[group]} <span>{new Intl.NumberFormat(language).format(grouped.length)}</span></h2>
+          <ul className="history-list">{grouped.map(item => <li key={item.id}><HistoryCard item={item} language={language} replayReason={replayReason(item)}
+            onDetail={() => setSelectedId(item.id)} onDelete={() => remove(item)} onCopy={() => void copy(item)} onReplay={() => replay(item)} /></li>)}</ul>
+        </section> : null
+      })}</div>}
+    {(notice || undo) && <div className="history-toast"><p role={selected ? undefined : 'status'}>{notice}</p>
+      {undo && <button className="text-button" onClick={() => { repository.restore(undo.item, undo.index, undo.beforeId, undo.afterId); setUndo(null); setNotice(t.restored) }}>{t.undo}</button>}
+      <button className="icon-control" aria-label={t.dismiss} onClick={() => { setNotice(''); setUndo(null) }}><EchoIcon name="close" size={18} /></button>
+    </div>}
+    {selected && active && <Modal title={t.detail} closeLabel={t.close} onClose={() => { setSelectedId(null); setZoom(false) }} className="detail-modal">
+      <Photo item={selected} language={language} onZoom={() => setZoom(true)} />
+      <p className="fine-print">{selected.sample ? t.sample : selected.photo ? t.photoNote : t.noPhoto}</p>
+      <time className="detail-time" dateTime={selected.createdAt}>{itemTime(selected, language)}</time>
+      {selected.demo && <p className="demo-note">{t.demoNote}</p>}
+      <div className="detail-content" lang={selected.language} dir={selected.language === 'ar' ? 'rtl' : 'ltr'}>
+        <h3>{uiCopy[selected.language].question}</h3><p className="detail-question">{selected.question}</p>
+        <h3>{uiCopy[selected.language].answer}</h3><p>{selected.answer}</p>
+      </div>
+      <div className="detail-actions">
+        <button className="text-button" aria-disabled={!!replayReason(selected)} onClick={() => replay(selected)}><EchoIcon name="volume" size={20} />{t.replay}</button>
+        <button className="text-button" onClick={() => void copy(selected)}><EchoIcon name="copy" size={20} />{t.copy}</button>
+        <button className="text-button" onClick={() => void share(selected, false)}><EchoIcon name="share" size={20} />{t.share}</button>
+        {selected.photo && <button className="text-button" onClick={() => void share(selected, true)}>{t.sharePhoto}</button>}
+        <button className="text-button danger-text" onClick={() => remove(selected)}><EchoIcon name="trash" size={20} />{t.delete}</button>
+      </div>
+      <p className="fine-print">{replayReason(selected)} {t.playback}</p>
+      {notice && <p role="status">{notice}</p>}
+    </Modal>}
+    {zoom && selected && active && <Zoom item={selected} language={language} onClose={() => setZoom(false)} />}
+    {clearOpen && <Modal title={t.clearTitle} closeLabel={t.close} onClose={() => setClearOpen(false)}>
+      <p>{t.clearBody}</p><div className="confirmation-actions"><button className="text-button" onClick={() => setClearOpen(false)}>{t.cancel}</button>
+        <button className="text-button danger-button" onClick={() => { repository.clear(); setUndo(null); setSelectedId(null); setClearOpen(false); setQuery(''); setNotice(t.cleared) }}>{t.clear}</button></div>
+    </Modal>}
+    {fallback && <Modal title={t.copyFallback} closeLabel={t.close} onClose={() => setFallback(null)}>
+      <p>{t.copyHelp}</p><textarea className="copy-fallback" readOnly aria-label={t.copyFallback} lang={fallback.language} dir={fallback.language === 'ar' ? 'rtl' : 'ltr'} value={fallback.text} onFocus={event => event.target.select()} />
+    </Modal>}
+  </section>
 }
