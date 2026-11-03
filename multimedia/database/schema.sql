@@ -13,10 +13,12 @@ CREATE TABLE IF NOT EXISTS users (
     created_at         DATETIME(3)  NOT NULL
 );
 
--- One row per login; only a hash of the cookie token is stored.
+-- One row per login (the refresh session behind the short-lived JWT); only a hash of the cookie token is stored.
+-- expires_at slides forward with use (idle limit); created_at caps the whole login (absolute limit).
 CREATE TABLE IF NOT EXISTS login_sessions (
     token_hash CHAR(64)    NOT NULL PRIMARY KEY,
     user_id    CHAR(36)    NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     expires_at DATETIME(3) NOT NULL,
     INDEX login_sessions_expires_idx (expires_at),
     CONSTRAINT login_sessions_user_fk FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE

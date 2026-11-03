@@ -23,6 +23,10 @@ SCHEMA_PATH = HERE / "schema.sql"
 NAME_RE = re.compile(r"^[A-Za-z0-9_]{1,32}$")  # database and user names go into SQL unquoted, so only these characters
 APP_HOSTS = ("localhost", "127.0.0.1")
 APP_GRANTS = "SELECT, INSERT, UPDATE, DELETE"
+# Columns added after a table was first created: CREATE TABLE IF NOT EXISTS leaves existing tables as they are.
+ADDED_COLUMNS = [
+    ("login_sessions", "created_at", "DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) AFTER user_id"),
+]
 
 
 def load_env() -> dict[str, str]:
@@ -72,6 +76,17 @@ def list_tables(conn: pymysql.Connection) -> None:
     print(f"{len(tables)} tables.")
 
 
+def add_missing_columns(cur, database: str) -> None:
+    for table, column, definition in ADDED_COLUMNS:
+        cur.execute(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s",
+            (database, table, column),
+        )
+        if not cur.fetchone()[0]:
+            cur.execute(f"ALTER TABLE `{table}` ADD COLUMN `{column}` {definition}")
+            print(f"Added {table}.{column}.")
+
+
 def setup(env: dict[str, str]) -> None:
     database = setting(env, "MYSQL_DATABASE", name=True)
     app_user = setting(env, "MYSQL_USER", name=True)
@@ -90,6 +105,7 @@ def setup(env: dict[str, str]) -> None:
         cur.execute(f"USE `{database}`")
         for statement in schema_statements():
             cur.execute(statement)
+        add_missing_columns(cur, database)
     print(f"Database {database} is ready; services connect as {app_user}.")
     check(env)
 

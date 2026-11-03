@@ -5,3 +5,5 @@ httpx
 openai
 # MySQL driver for accounts in the shared database; [rsa] adds what MySQL 8's default login method needs.
 PyMySQL[rsa]
+# Signs and checks the short-lived login token (JWT).
+PyJWT

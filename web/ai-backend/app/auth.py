@@ -1,4 +1,11 @@
-"""Member 2: email + password accounts for the web dashboard: signup, login, logout and current user, stored in the shared MySQL database."""
+"""Member 2: email + password accounts for the web dashboard and the phone: signup, login, logout and current user.
+
+Sessions are a short-lived JWT plus a refresh session stored in the shared MySQL database:
+- echosight_access: a signed JWT (HS256, 15 minutes). Each request is checked by its signature alone.
+- echosight_session: a random refresh token; only its hash is stored in login_sessions. When the JWT has expired,
+  it quietly issues a new one. It ends after 8 hours without use, or 7 days after login, whichever comes first.
+Logout deletes the refresh session, so a stolen JWT stops working within 15 minutes at most.
+"""
 
 import hashlib
 import hmac
@@ -11,8 +18,9 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import jwt
 import pymysql
-from fastapi import APIRouter, Cookie, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 
 
@@ -28,9 +36,16 @@ def _load_env_file() -> None:
 
 _load_env_file()
 
-SESSION_COOKIE = "echosight_session"
-SESSION_DAYS = 7
+ACCESS_COOKIE = "echosight_access"
+SESSION_COOKIE = "echosight_session"  # the refresh token; same name as before, so existing logins keep working
+ACCESS_TTL = timedelta(minutes=float(os.getenv("AUTH_ACCESS_MINUTES", "15")))
+IDLE_TTL = timedelta(hours=float(os.getenv("AUTH_IDLE_HOURS", "8")))
+MAX_TTL = timedelta(days=float(os.getenv("AUTH_MAX_DAYS", "7")))
 COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "false").lower() == "true"  # true once served over HTTPS
+
+# Without a JWT_SECRET, a random one is used: tokens then stop at restart, and the refresh session reissues them.
+JWT_SECRET = os.getenv("JWT_SECRET") or secrets.token_urlsafe(48)
+JWT_ALGORITHM = "HS256"
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PASSWORD_MIN, PASSWORD_MAX = 8, 128
@@ -95,7 +110,7 @@ def init_db() -> None:
     # The tables come from multimedia/database/schema.sql; fail at startup with a clear message if they're missing.
     try:
         with closing(_connect()) as conn, conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM users JOIN login_sessions USING (user_id) LIMIT 0")
+            cur.execute("SELECT u.user_id, s.created_at FROM users u JOIN login_sessions s USING (user_id) LIMIT 0")
     except (ApiError, pymysql.err.MySQLError) as error:
         raise RuntimeError(
             "Auth needs the shared MySQL database: set MYSQL_* in web/ai-backend/.env "
@@ -116,7 +131,7 @@ def _user(row: dict) -> User:
     return User(user_id=row["user_id"], email=row["email"], name=row["name"], created_at=_iso(row["created_at"]))
 
 
-# ---------- passwords and sessions ----------
+# ---------- passwords ----------
 
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
@@ -137,34 +152,87 @@ def verify_password(password: str, stored: str) -> bool:
 _DUMMY_HASH = hash_password(secrets.token_urlsafe(16))
 
 
+# ---------- tokens and sessions ----------
+
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def _start_session(cur: pymysql.cursors.Cursor, response: Response, user_id: str) -> None:
-    token = secrets.token_urlsafe(32)
-    cur.execute("DELETE FROM login_sessions WHERE expires_at < %s", (_now(),))
-    cur.execute(
-        "INSERT INTO login_sessions (token_hash, user_id, expires_at) VALUES (%s, %s, %s)",
-        (_token_hash(token), user_id, _now() + timedelta(days=SESSION_DAYS)),
-    )
+def _set_cookie(response: Response, name: str, value: str, max_age: timedelta) -> None:
     response.set_cookie(
-        SESSION_COOKIE, token, max_age=SESSION_DAYS * 86400,
+        name, value, max_age=int(max_age.total_seconds()),
         httponly=True, samesite="lax", secure=COOKIE_SECURE, path="/",
     )
 
 
-def current_user(token: str | None) -> User | None:
+def _issue_access_token(response: Response, user_id: str) -> None:
+    issued = datetime.now(timezone.utc)
+    token = jwt.encode(
+        {"sub": user_id, "typ": "access", "iat": issued, "exp": issued + ACCESS_TTL},
+        JWT_SECRET, algorithm=JWT_ALGORITHM,
+    )
+    _set_cookie(response, ACCESS_COOKIE, token, ACCESS_TTL)
+
+
+def _start_session(cur: pymysql.cursors.Cursor, response: Response, user_id: str) -> None:
+    token = secrets.token_urlsafe(32)
+    now = _now()
+    cur.execute("DELETE FROM login_sessions WHERE expires_at < %s OR created_at < %s", (now, now - MAX_TTL))
+    cur.execute(
+        "INSERT INTO login_sessions (token_hash, user_id, created_at, expires_at) VALUES (%s, %s, %s, %s)",
+        (_token_hash(token), user_id, now, now + IDLE_TTL),
+    )
+    _set_cookie(response, SESSION_COOKIE, token, MAX_TTL)
+    _issue_access_token(response, user_id)
+
+
+def _user_id_from_access_token(token: str | None) -> str | None:
     if not token:
         return None
+    try:
+        claims = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM], options={"require": ["exp", "sub"]})
+    except jwt.InvalidTokenError:  # expired, tampered with, or signed with another secret
+        return None
+    return claims["sub"] if claims.get("typ") == "access" else None
+
+
+def _refresh(token: str | None, response: Response) -> str | None:
+    """A valid refresh session gets a new 15-minute JWT and another 8 idle hours (never past 7 days from login)."""
+    if not token:
+        return None
+    now = _now()
     with closing(_connect()) as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT u.* FROM login_sessions s JOIN users u ON u.user_id = s.user_id "
-            "WHERE s.token_hash = %s AND s.expires_at > %s",
-            (_token_hash(token), _now()),
+            "SELECT user_id, created_at FROM login_sessions WHERE token_hash = %s AND expires_at > %s AND created_at > %s",
+            (_token_hash(token), now, now - MAX_TTL),
         )
         row = cur.fetchone()
-    return _user(row) if row else None
+        if not row:
+            return None
+        cur.execute(
+            "UPDATE login_sessions SET expires_at = %s WHERE token_hash = %s",
+            (min(now + IDLE_TTL, row["created_at"] + MAX_TTL), _token_hash(token)),
+        )
+    _issue_access_token(response, row["user_id"])
+    return row["user_id"]
+
+
+def signed_in_user_id(request: Request, response: Response) -> str:
+    """FastAPI dependency: the signed-in user's ID from the JWT, refreshed from the session when it has expired."""
+    user_id = _user_id_from_access_token(request.cookies.get(ACCESS_COOKIE)) or _refresh(request.cookies.get(SESSION_COOKIE), response)
+    if not user_id:
+        raise ApiError(401, "not_authenticated", "Log in to continue.")
+    return user_id
+
+
+def current_user(user_id: str = Depends(signed_in_user_id)) -> User:
+    """FastAPI dependency: the signed-in user's account."""
+    with closing(_connect()) as conn, conn.cursor() as cur:
+        cur.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+    if not row:  # the account was deleted while its token was still valid
+        raise ApiError(401, "not_authenticated", "Log in to continue.")
+    return _user(row)
 
 
 # ---------- validation ----------
@@ -187,14 +255,14 @@ def _too_many_failures(email: str) -> bool:
     return len(recent) >= MAX_FAILURES
 
 
-# ---------- routes ----------
-
 def _clean_name(name: str) -> str:
     name = name.strip()
     if not 1 <= len(name) <= 80:
         raise ApiError(400, "invalid_name", "Enter your name (up to 80 characters).")
     return name
 
+
+# ---------- routes ----------
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=UserResponse)
 def signup(body: SignupRequest, response: Response) -> UserResponse:
@@ -237,26 +305,22 @@ def login(body: LoginRequest, response: Response) -> UserResponse:
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(response: Response, echosight_session: str | None = Cookie(default=None)) -> None:
-    if echosight_session:
+def logout(request: Request, response: Response) -> None:
+    refresh = request.cookies.get(SESSION_COOKIE)
+    if refresh:
         with closing(_connect()) as conn, conn.cursor() as cur:
-            cur.execute("DELETE FROM login_sessions WHERE token_hash = %s", (_token_hash(echosight_session),))
+            cur.execute("DELETE FROM login_sessions WHERE token_hash = %s", (_token_hash(refresh),))
+    response.delete_cookie(ACCESS_COOKIE, path="/")
     response.delete_cookie(SESSION_COOKIE, path="/")
 
 
 @router.get("/me", response_model=UserResponse)
-def me(echosight_session: str | None = Cookie(default=None)) -> UserResponse:
-    user = current_user(echosight_session)
-    if not user:
-        raise ApiError(401, "not_authenticated", "Log in to continue.")
+def me(user: User = Depends(current_user)) -> UserResponse:
     return UserResponse(user=user)
 
 
 @router.patch("/me", response_model=UserResponse)
-def update_me(body: ProfileUpdate, echosight_session: str | None = Cookie(default=None)) -> UserResponse:
-    user = current_user(echosight_session)
-    if not user:
-        raise ApiError(401, "not_authenticated", "Log in to continue.")
+def update_me(body: ProfileUpdate, user: User = Depends(current_user)) -> UserResponse:
     name = _clean_name(body.name)
     with closing(_connect()) as conn, conn.cursor() as cur:
         cur.execute("UPDATE users SET name = %s WHERE user_id = %s", (name, user.user_id))
