@@ -1,7 +1,7 @@
 """Shared database: create the EchoSight MySQL database, its app account and every member's tables from multimedia/database/.env.
 
 Run once, and again after schema.sql changes (existing tables are kept):
-    python multimedia/database/setup.py            # uses the admin account, asks for its password if .env leaves it empty
+    python multimedia/database/setup.py            # uses MYSQL_USER (or MYSQL_ADMIN_USER when one is set)
     python multimedia/database/setup.py --seed     # the same, then loads the demo data below (safe to run again)
     python multimedia/database/setup.py --check    # connects as the app account and lists the tables
 """
@@ -91,8 +91,12 @@ def setup(env: dict[str, str]) -> None:
     database = setting(env, "MYSQL_DATABASE", name=True)
     app_user = setting(env, "MYSQL_USER", name=True)
     app_password = setting(env, "MYSQL_PASSWORD")
-    admin_user = setting(env, "MYSQL_ADMIN_USER", name=True)
-    admin_password = env.get("MYSQL_ADMIN_PASSWORD") or getpass.getpass(f"MySQL password for {admin_user}: ")
+    # No separate admin: without MYSQL_ADMIN_USER, setup uses the same login as the services.
+    if env.get("MYSQL_ADMIN_USER"):
+        admin_user = setting(env, "MYSQL_ADMIN_USER", name=True)
+        admin_password = env.get("MYSQL_ADMIN_PASSWORD") or getpass.getpass(f"MySQL password for {admin_user}: ")
+    else:
+        admin_user, admin_password = app_user, app_password
 
     with connect(env, admin_user, admin_password) as conn, conn.cursor() as cur:
         cur.execute(f"CREATE DATABASE IF NOT EXISTS `{database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci")
