@@ -1,21 +1,33 @@
-"""Member 2: email + password accounts for the web dashboard: signup, login, logout and current user, stored in SQLite."""
+"""Member 2: email + password accounts for the web dashboard: signup, login, logout and current user, stored in the shared MySQL database."""
 
 import hashlib
 import hmac
 import os
 import re
 import secrets
-import sqlite3
 import time
 import uuid
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pymysql
 from fastapi import APIRouter, Cookie, Response, status
 from pydantic import BaseModel
 
-DB_PATH = Path(os.getenv("AUTH_DB_PATH", Path(__file__).resolve().parent.parent / "data" / "users.sqlite3"))
+
+def _load_env_file() -> None:
+    # uvicorn doesn't read .env, so settings not already in the environment come from web/ai-backend/.env.
+    path = Path(__file__).resolve().parent.parent / ".env"
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            key, sep, value = line.strip().partition("=")
+            if sep and key and not key.startswith("#"):
+                os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_env_file()
+
 SESSION_COOKIE = "echosight_session"
 SESSION_DAYS = 7
 COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "false").lower() == "true"  # true once served over HTTPS
@@ -23,6 +35,7 @@ COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "false").lower() == "true"  # tr
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PASSWORD_MIN, PASSWORD_MAX = 8, 128
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**14, 8, 1
+DUPLICATE_KEY = 1062  # MySQL error code for a UNIQUE violation
 
 # Simple brute-force guard: at most 5 failed logins per email in 15 minutes (per server process).
 MAX_FAILURES, FAILURE_WINDOW = 5, 15 * 60
@@ -66,43 +79,41 @@ class UserResponse(BaseModel):
 
 # ---------- storage ----------
 
-def _connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _connect() -> pymysql.connections.Connection:
+    try:
+        return pymysql.connect(
+            host=os.getenv("MYSQL_HOST", "127.0.0.1"), port=int(os.getenv("MYSQL_PORT", "3306")),
+            user=os.getenv("MYSQL_USER", ""), password=os.getenv("MYSQL_PASSWORD", ""),
+            database=os.getenv("MYSQL_DATABASE", "echosight"),
+            charset="utf8mb4", cursorclass=pymysql.cursors.DictCursor, autocommit=True,
+        )
+    except pymysql.err.OperationalError:
+        raise ApiError(503, "database_unavailable", "Can't reach the database. Is MySQL running?") from None
 
 
 def init_db() -> None:
-    with closing(_connect()) as conn, conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                user_id TEXT PRIMARY KEY,
-                email TEXT NOT NULL UNIQUE,
-                name TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS sessions (
-                token_hash TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-                expires_at TEXT NOT NULL
-            );
-            """
-        )
+    # The tables come from multimedia/database/schema.sql; fail at startup with a clear message if they're missing.
+    try:
+        with closing(_connect()) as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM users JOIN login_sessions USING (user_id) LIMIT 0")
+    except (ApiError, pymysql.err.MySQLError) as error:
+        raise RuntimeError(
+            "Auth needs the shared MySQL database: set MYSQL_* in web/ai-backend/.env "
+            "and run `python setup.py` in the multimedia folder."
+        ) from error
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    # Naive UTC: the schema stores every time as UTC in DATETIME(3).
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _iso(moment: datetime) -> str:
-    return moment.isoformat(timespec="seconds").replace("+00:00", "Z")
+    return moment.isoformat(timespec="seconds") + "Z"
 
 
-def _user(row: sqlite3.Row) -> User:
-    return User(user_id=row["user_id"], email=row["email"], name=row["name"], created_at=row["created_at"])
+def _user(row: dict) -> User:
+    return User(user_id=row["user_id"], email=row["email"], name=row["name"], created_at=_iso(row["created_at"]))
 
 
 # ---------- passwords and sessions ----------
@@ -130,12 +141,12 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def _start_session(conn: sqlite3.Connection, response: Response, user_id: str) -> None:
+def _start_session(cur: pymysql.cursors.Cursor, response: Response, user_id: str) -> None:
     token = secrets.token_urlsafe(32)
-    conn.execute("DELETE FROM sessions WHERE expires_at < ?", (_iso(_now()),))
-    conn.execute(
-        "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
-        (_token_hash(token), user_id, _iso(_now() + timedelta(days=SESSION_DAYS))),
+    cur.execute("DELETE FROM login_sessions WHERE expires_at < %s", (_now(),))
+    cur.execute(
+        "INSERT INTO login_sessions (token_hash, user_id, expires_at) VALUES (%s, %s, %s)",
+        (_token_hash(token), user_id, _now() + timedelta(days=SESSION_DAYS)),
     )
     response.set_cookie(
         SESSION_COOKIE, token, max_age=SESSION_DAYS * 86400,
@@ -146,12 +157,13 @@ def _start_session(conn: sqlite3.Connection, response: Response, user_id: str) -
 def current_user(token: str | None) -> User | None:
     if not token:
         return None
-    with closing(_connect()) as conn:
-        row = conn.execute(
-            "SELECT u.* FROM sessions s JOIN users u ON u.user_id = s.user_id "
-            "WHERE s.token_hash = ? AND s.expires_at > ?",
-            (_token_hash(token), _iso(_now())),
-        ).fetchone()
+    with closing(_connect()) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT u.* FROM login_sessions s JOIN users u ON u.user_id = s.user_id "
+            "WHERE s.token_hash = %s AND s.expires_at > %s",
+            (_token_hash(token), _now()),
+        )
+        row = cur.fetchone()
     return _user(row) if row else None
 
 
@@ -190,16 +202,19 @@ def signup(body: SignupRequest, response: Response) -> UserResponse:
     email = _clean_email(body.email)
     _check_password(body.password)
 
-    user = User(user_id=str(uuid.uuid4()), email=email, name=name, created_at=_iso(_now()))
-    with closing(_connect()) as conn, conn:
+    created_at = _now()
+    user = User(user_id=str(uuid.uuid4()), email=email, name=name, created_at=_iso(created_at))
+    with closing(_connect()) as conn, conn.cursor() as cur:
         try:
-            conn.execute(
-                "INSERT INTO users (user_id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)",
-                (user.user_id, user.email, user.name, hash_password(body.password), user.created_at),
+            cur.execute(
+                "INSERT INTO users (user_id, email, name, password_hash, created_at) VALUES (%s, %s, %s, %s, %s)",
+                (user.user_id, user.email, user.name, hash_password(body.password), created_at),
             )
-        except sqlite3.IntegrityError:
+        except pymysql.err.IntegrityError as error:
+            if error.args[0] != DUPLICATE_KEY:
+                raise
             raise ApiError(409, "email_taken", "An account with this email already exists.") from None
-        _start_session(conn, response, user.user_id)
+        _start_session(cur, response, user.user_id)
     return UserResponse(user=user)
 
 
@@ -209,22 +224,23 @@ def login(body: LoginRequest, response: Response) -> UserResponse:
     if _too_many_failures(email):
         raise ApiError(429, "too_many_attempts", "Too many failed attempts. Try again in 15 minutes.")
 
-    with closing(_connect()) as conn, conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    with closing(_connect()) as conn, conn.cursor() as cur:
+        cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+        row = cur.fetchone()
         password_ok = verify_password(body.password, row["password_hash"] if row else _DUMMY_HASH)
         if not row or not password_ok:
             _failures.setdefault(email, []).append(time.monotonic())
             raise ApiError(401, "invalid_credentials", "Email or password is incorrect.")
         _failures.pop(email, None)
-        _start_session(conn, response, row["user_id"])
+        _start_session(cur, response, row["user_id"])
     return UserResponse(user=_user(row))
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(response: Response, echosight_session: str | None = Cookie(default=None)) -> None:
     if echosight_session:
-        with closing(_connect()) as conn, conn:
-            conn.execute("DELETE FROM sessions WHERE token_hash = ?", (_token_hash(echosight_session),))
+        with closing(_connect()) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM login_sessions WHERE token_hash = %s", (_token_hash(echosight_session),))
     response.delete_cookie(SESSION_COOKIE, path="/")
 
 
@@ -242,6 +258,6 @@ def update_me(body: ProfileUpdate, echosight_session: str | None = Cookie(defaul
     if not user:
         raise ApiError(401, "not_authenticated", "Log in to continue.")
     name = _clean_name(body.name)
-    with closing(_connect()) as conn, conn:
-        conn.execute("UPDATE users SET name = ? WHERE user_id = ?", (name, user.user_id))
+    with closing(_connect()) as conn, conn.cursor() as cur:
+        cur.execute("UPDATE users SET name = %s WHERE user_id = %s", (name, user.user_id))
     return UserResponse(user=user.model_copy(update={"name": name}))
