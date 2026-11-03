@@ -1,5 +1,8 @@
 // Member 2: calls the AI backend's /api/v1/auth endpoints; Vite proxies them to :8002 so the session cookie stays same-origin.
 const BASE = '/api/v1/auth';
+
+// Login is on by default; set VITE_AUTH_ENABLED=false in .env to preview the dashboard with mock data and no backend.
+export const AUTH_ENABLED = import.meta.env.VITE_AUTH_ENABLED !== 'false';
 const OFFLINE = "Can't reach the AI backend. Is it running on port 8002?";
 
 async function call(path, body, method = body ? 'POST' : 'GET') {

@@ -1,22 +1,26 @@
-// Member 2: picks the stream to watch: a pasted session ID when there is one, otherwise whatever phone is live in MediaMTX.
+// Member 2: the stream to watch: the signed-in account's live session (from the AI backend),
+// or, with login switched off, whatever phone is live in MediaMTX.
 import { useEffect, useState } from 'react';
+import { AUTH_ENABLED } from '../auth.js';
 import { mediaClient } from '../services/mediaClient.js';
+import { streamsClient } from '../services/streamsClient.js';
 
 const FIND_EVERY_MS = 3000;
 
-export function useLiveSessionId(manualId) {
-  const [foundId, setFoundId] = useState(null);
+export const findLiveSessionId = () => (AUTH_ENABLED ? streamsClient.activeSessionId() : mediaClient.findLiveSessionId());
+
+// undefined until the first check, then the live session ID or null. Keeps checking, so the phone's Stop and Start are picked up.
+export function useLiveSessionId() {
+  const [sessionId, setSessionId] = useState(undefined);
 
   useEffect(() => {
-    if (manualId) return undefined;
     let cancelled = false;
     let timer;
 
-    // Keeps checking, so a new ID after the phone taps Stop and Start is picked up too.
     const look = async () => {
-      const id = await mediaClient.findLiveSessionId();
+      const id = await findLiveSessionId();
       if (cancelled) return;
-      setFoundId(id);
+      setSessionId(id);
       timer = window.setTimeout(look, FIND_EVERY_MS);
     };
 
@@ -25,7 +29,7 @@ export function useLiveSessionId(manualId) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [manualId]);
+  }, []);
 
-  return manualId ?? foundId;
+  return sessionId;
 }

@@ -1,79 +1,60 @@
-// Member 2: full-size live view of Member 1's MediaMTX stream: finds the phone's stream by itself, or plays a pasted session ID.
-import { useState } from 'react';
+// Member 2: full-size live view of the phone's camera. Connect finds the stream this account's phone is publishing: no link needed.
+import { useContext, useEffect, useRef, useState } from 'react';
+import { AUTH_ENABLED } from '../auth.js';
 import LiveStream from '../components/LiveStream.jsx';
-import { DynamicButton, MagneticDropZone, useScramble } from '../components/ui/index.js';
-import { Icon, PageHeader, formatShortTime } from '../components/ui.jsx';
-import { useLiveSessionId } from '../components/useLiveSessionId.js';
+import { DynamicButton, MagneticDropZone, ScrambleText } from '../components/ui/index.js';
+import { Icon, PageHeader, UserContext, formatShortTime } from '../components/ui.jsx';
+import { findLiveSessionId, useLiveSessionId } from '../components/useLiveSessionId.js';
 import { QUESTIONS, STREAM } from '../data/mockData.js';
-import { mediaClient } from '../services/mediaClient.js';
 
-const BUTTON_STATE = { idle: 'idle', connecting: 'busy', waiting: 'busy', live: 'done' };
+const BUTTON_STATE = { idle: 'busy', connecting: 'busy', waiting: 'busy', live: 'done' };
 
 export default function LiveCamera() {
-  const [manualId, setManualId] = useState(() => mediaClient.savedSessionId());
-  const automatic = useLiveSessionId(manualId);
-  const [pickedId, setPickedId] = useState(null);
-  const [stopped, setStopped] = useState(false);
-  const candidate = pickedId ?? automatic;
-  const sessionId = stopped ? null : candidate;
-
+  const user = useContext(UserContext);
+  const liveId = useLiveSessionId();
+  const [watching, setWatching] = useState(null); // the session being played; null = not connected
+  const [looking, setLooking] = useState(false);
   const [streamState, setStreamState] = useState('idle');
-  const [draft, setDraft] = useState('');
-  const [reveal, setReveal] = useState({ text: '', key: 0 });
-  const [finding, setFinding] = useState(false);
-  const [error, setError] = useState('');
-  const scramble = useScramble(reveal.text, { runKey: reveal.key, charset: 'hex', step: 1.2, tick: 40, keepPrefix: 5 });
-
-  // The field shows the session being watched until someone types their own.
-  const shownPath = draft || (candidate ? `live/${candidate}` : '');
-  const value = reveal.text && !scramble.settled ? scramble.shown : shownPath;
+  const [notice, setNotice] = useState('');
+  const [revealKey, setRevealKey] = useState(0);
+  const watchingRef = useRef(null);
+  watchingRef.current = watching;
   const question = QUESTIONS[0];
 
-  async function find() {
-    setFinding(true);
-    setError('');
-    const id = await mediaClient.findLiveSessionId();
-    setFinding(false);
+  // Follow the phone while connected: a new session after Stop and Start is picked up; Stop disconnects.
+  useEffect(() => {
+    const current = watchingRef.current;
+    if (!current || liveId === undefined) return;
+    if (liveId === null) {
+      setWatching(null);
+      setNotice('The phone stopped streaming. Press Connect when it starts again.');
+    } else if (liveId !== current) {
+      setWatching(liveId);
+      setRevealKey((n) => n + 1);
+    }
+  }, [liveId]);
+
+  async function connect() {
+    if (watching) {
+      setWatching(null);
+      setNotice('');
+      return;
+    }
+    setLooking(true);
+    setNotice('');
+    const id = await findLiveSessionId();
+    setLooking(false);
     if (!id) {
-      setError('No phone is streaming right now. Tap Start in the phone app, then try again.');
+      setNotice(AUTH_ENABLED
+        ? `Your phone isn't streaming yet. Open the Aether app, signed in as ${user.email}, press Start, then press Connect.`
+        : 'No phone is streaming yet. Press Start in the Aether app, then press Connect.');
       return;
     }
-    const path = `live/${id}`;
-    setDraft(path);
-    setReveal((r) => ({ text: path, key: r.key + 1 }));
-    setPickedId(id);
-    setStopped(false);
+    setWatching(id);
+    setRevealKey((n) => n + 1);
   }
 
-  function connect() {
-    // Connecting or connected: the same button disconnects.
-    if (sessionId && streamState !== 'idle') {
-      setStopped(true);
-      return;
-    }
-    const id = mediaClient.parseSessionId(shownPath);
-    if (!id) {
-      setError('That doesn’t look like a session ID. Press Find stream, or paste live/<session ID>.');
-      return;
-    }
-    setError('');
-    setStopped(false);
-    if (id !== candidate) {
-      setPickedId(null);
-      setManualId(id);
-      mediaClient.saveSessionId(id);
-    }
-  }
-
-  function useAutomatic() {
-    setManualId(null);
-    setPickedId(null);
-    setDraft('');
-    setError('');
-    setStopped(false);
-    mediaClient.saveSessionId(null);
-  }
-
+  const buttonState = looking ? 'busy' : watching ? BUTTON_STATE[streamState] : 'idle';
   const facts = [
     ['Protocol', STREAM.protocol],
     ['Resolution', STREAM.resolution],
@@ -87,7 +68,8 @@ export default function LiveCamera() {
 
       <div className="grid grid-live">
         <section className="card section section-tight live-panel" aria-label="Live stream">
-          <LiveStream sessionId={sessionId} aspect="16x10" full onState={setStreamState} />
+          <LiveStream sessionId={watching} aspect="16x10" full onState={setStreamState}
+            idleText={AUTH_ENABLED ? 'Press Connect to watch the phone’s camera.' : undefined} />
           <div className="under-stage">
             <span>
               <span className="label">Last question · {formatShortTime(question.asked_at)}</span>
@@ -101,26 +83,24 @@ export default function LiveCamera() {
           <section className="card section" aria-labelledby="session-title">
             <h2 id="session-title" className="card-title">Stream session</h2>
             <div className="session-field inset">
-              <label htmlFor="session-path" className="sr-only">Stream path or session ID</label>
-              <input id="session-path" className="session-input" value={value} spellCheck={false} autoComplete="off"
-                placeholder="live/<session ID>" readOnly={Boolean(reveal.text) && !scramble.settled}
-                onChange={(event) => { setDraft(event.target.value); setReveal((r) => ({ text: '', key: r.key })); }} />
-              <button type="button" className="btn btn-sm" onClick={find} disabled={finding}>
-                <Icon name="refresh" size={15} strokeWidth="2" />{finding ? 'Finding…' : 'Find stream'}
-              </button>
+              {watching ? (
+                <ScrambleText className="session-path" text={`live/${watching}`} runKey={revealKey}
+                  charset="hex" step={1.2} tick={40} keepPrefix={5} />
+              ) : (
+                <span className="session-path muted">{liveId ? 'Your phone is streaming' : 'Waiting for your phone'}</span>
+              )}
             </div>
-            <span className="sr-only" aria-live="polite">{reveal.text ? `Found ${reveal.text}` : ''}</span>
-            {error && <p className="form-error" role="alert"><Icon name="alert" size={16} />{error}</p>}
-            <DynamicButton state={BUTTON_STATE[streamState]} onClick={connect}
+            {notice && <p className="note" role="status"><Icon name="alert" size={16} />{notice}</p>}
+            <DynamicButton state={buttonState} onClick={connect}
               labels={{ idle: 'Connect', busy: 'Connecting…', done: 'Connected' }} />
+            <p className="hint">
+              Sign in to the Aether app on the phone with this same account and press Start. Connect then shows its camera here.
+            </p>
             <dl className="facts">
               {facts.map(([term, detail]) => (
                 <div key={term} className="inset"><dt className="label">{term}</dt><dd>{detail}</dd></div>
               ))}
             </dl>
-            {manualId && (
-              <button type="button" className="btn self-start" onClick={useAutomatic}>Use automatic</button>
-            )}
           </section>
 
           <section className="card section section-tight" aria-labelledby="drop-title">

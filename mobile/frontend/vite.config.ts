@@ -16,6 +16,8 @@ const authProxy: Record<string, ProxyOptions> = {
       proxy.on('proxyRes', response => { response.headers['cache-control'] = 'no-store' })
     },
   },
+  // Member 2: Start/Stop tell the AI backend which stream this account publishes, for the web dashboard's Connect.
+  '^/api/v1/streams(?:/|$)': { target: authTarget },
 }
 
 export default defineConfig({

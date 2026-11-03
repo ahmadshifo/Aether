@@ -64,8 +64,9 @@ function useLiveClock(running) {
 }
 
 // aspect: '16x9' (Overview) or '16x10' (Live camera). full adds the MIC ON and privacy chips.
-// onState gets 'idle' (no session), 'connecting', 'waiting' or 'live'.
-export default function LiveStream({ sessionId = null, aspect = '16x9', full = false, onState }) {
+// onState gets 'idle' (no session), 'connecting', 'waiting' or 'live'. idleText replaces the stand-in scene's
+// fake LIVE feed with a message when there's no stream (used once real accounts are on).
+export default function LiveStream({ sessionId = null, aspect = '16x9', full = false, idleText, onState }) {
   const videoRef = useRef(null);
   const { state, setState, message } = useWhepStream(sessionId, videoRef);
   const playing = Boolean(sessionId) && state === 'live';
@@ -96,7 +97,14 @@ export default function LiveStream({ sessionId = null, aspect = '16x9', full = f
         </div>
       )}
 
-      {(playing || !sessionId) && (
+      {!sessionId && idleText && (
+        <div className="stage-overlay" role="status">
+          <LogoTraceLoader size={56} strokeWidth={1.2} />
+          <p>{idleText}</p>
+        </div>
+      )}
+
+      {(playing || (!sessionId && !idleText)) && (
         <span className="stage-chip chip-tl"><LiveDot />LIVE {sessionId ? clock : MOCK_CLOCK}</span>
       )}
       {full && <span className="stage-chip chip-tr">MIC ON</span>}

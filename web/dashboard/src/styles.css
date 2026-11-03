@@ -334,7 +334,11 @@ img, svg, video { display: block; }
 .under-stage { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 6px; }
 .under-stage > span { display: flex; flex-direction: column; gap: 2px; }
 .last-question { font-size: 16px; font-weight: 500; }
-.session-field { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; }
+.session-field { display: flex; align-items: center; gap: 8px; padding: 6px 14px; }
+.session-path {
+  flex: 1; min-width: 0; height: 40px; display: flex; align-items: center; overflow: hidden;
+  font-family: var(--font-mono); font-size: 13px; white-space: nowrap; text-overflow: ellipsis;
+}
 .session-input {
   flex: 1; min-width: 0; height: 40px; padding: 0; border: 0; background: transparent; color: var(--ink);
   font-family: var(--font-mono); font-size: 13px; text-overflow: ellipsis;

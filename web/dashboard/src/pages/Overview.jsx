@@ -1,5 +1,6 @@
 // Member 2: overview: live stream with the text it just read, latest answer slip, system health and recently remembered frames.
 import { useContext, useState } from 'react';
+import { AUTH_ENABLED } from '../auth.js';
 import LiveStream from '../components/LiveStream.jsx';
 import { Barcode, LogoTraceLoader, ReceiptPrinter, ScrambleText, Stamp } from '../components/ui/index.js';
 import {
@@ -7,7 +8,6 @@ import {
 } from '../components/ui.jsx';
 import { useLiveSessionId } from '../components/useLiveSessionId.js';
 import { FRAMES, QUESTIONS, SESSION_ID, STATUS, sceneFor } from '../data/mockData.js';
-import { mediaClient } from '../services/mediaClient.js';
 
 const RECENT = [
   ['a1e5c9f3-7d2b-4c8e-9a6f-3b0d5e1c7a94', -1.5],
@@ -46,8 +46,8 @@ function AnswerSlip({ question, evidence }) {
 
 export default function Overview() {
   const user = useContext(UserContext);
-  // Plays the phone's live stream here too: a pasted ID from the Live camera page, or the one found automatically.
-  const liveSessionId = useLiveSessionId(mediaClient.savedSessionId());
+  // Plays this account's phone stream here as soon as the phone presses Start.
+  const liveSessionId = useLiveSessionId() ?? null;
   const latest = QUESTIONS[0];
   const evidence = FRAMES.filter((frame) => latest.evidence_frame_ids.includes(frame.frame_id));
   const readText = evidence.find((frame) => frame.ocr_text)?.ocr_text ?? '';
@@ -89,7 +89,8 @@ export default function Overview() {
             <h2 id="live-title" className="card-title">Live stream</h2>
             <a href="#/live" className="btn">Open full view</a>
           </div>
-          <LiveStream sessionId={liveSessionId} aspect="16x9" />
+          <LiveStream sessionId={liveSessionId} aspect="16x9"
+            idleText={AUTH_ENABLED ? 'Your phone isn’t streaming. Press Start in the Aether app.' : undefined} />
           <div className="ocr-panel inset">
             <span>
               <span className="label">Text read just now</span>

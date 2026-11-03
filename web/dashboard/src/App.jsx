@@ -1,6 +1,6 @@
 // Member 2: dashboard shell: the Option B sidebar and hash routes (#/overview, #/memory/{frame_id}, ...).
 import { useEffect, useRef, useState } from 'react';
-import { getCurrentUser, logout } from './auth.js';
+import { AUTH_ENABLED, getCurrentUser, logout } from './auth.js';
 import { Avatar, Icon, UserContext } from './components/ui.jsx';
 import { Mark, Wordmark } from './components/ui/index.js';
 import { STATUS } from './data/mockData.js';
@@ -55,8 +55,6 @@ function readRoute() {
 
 const AUTH_PAGES = ['login', 'signup'];
 
-// Login is on by default; set VITE_AUTH_ENABLED=false in .env to preview the dashboard with mock data and no backend.
-const AUTH_ENABLED = import.meta.env.VITE_AUTH_ENABLED !== 'false';
 const PREVIEW_USER = { user_id: null, email: 'Mock data · login off', name: 'Team preview', created_at: null };
 
 export default function App() {

@@ -3,6 +3,7 @@ import HistoryPage from './HistoryPage'
 import EchoIcon from './EchoIcon'
 import { VoiceSession, type Language, type Phase } from './voiceSession'
 import { WhipPublisher } from './whipPublisher'
+import { reportStreamStart, reportStreamStop } from './streamRegistry'
 import Modal from './Modal'
 import { uiCopy } from './uiCopy'
 import { useHistory } from './useHistory'
@@ -61,6 +62,8 @@ function AssistantApp({ auth, session, authorized, repository, language, setLang
   const videoRef = useRef<HTMLVideoElement>(null)
   const cameraRef = useRef<MediaStream | null>(null)
   const publisherRef = useRef<WhipPublisher | null>(null)
+  // The live/<id> this account is publishing, so Stop can tell the web dashboard it ended.
+  const streamSessionRef = useRef<string | null>(null)
   const cameraRequestRef = useRef(0)
   const sessionAttemptRef = useRef(0)
   const requestedSessionRef = useRef(false)
@@ -78,7 +81,13 @@ function AssistantApp({ auth, session, authorized, repository, language, setLang
     document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
   }, [language])
 
+  function reportStopped() {
+    if (streamSessionRef.current) reportStreamStop(streamSessionRef.current)
+    streamSessionRef.current = null
+  }
+
   function stopCamera() {
+    reportStopped()
     publisherRef.current?.stop()
     publisherRef.current = null
     cameraRequestRef.current += 1
@@ -119,7 +128,11 @@ function AssistantApp({ auth, session, authorized, repository, language, setLang
         publisherRef.current = publisher
         setStreamStatus('connecting')
         void publisher.start(stream, `${mediaBase}/live/${streamSessionId}/whip`).then(() => {
-          if (publisherRef.current === publisher) setStreamStatus('live')
+          if (publisherRef.current !== publisher) return
+          setStreamStatus('live')
+          // The web dashboard's Connect finds this stream through the signed-in account.
+          streamSessionRef.current = streamSessionId
+          reportStreamStart(streamSessionId)
         }).catch((reason: unknown) => {
           if (publisherRef.current !== publisher) return
           publisherRef.current = null
@@ -191,6 +204,7 @@ function AssistantApp({ auth, session, authorized, repository, language, setLang
       snapshots.cancel()
       document.removeEventListener('visibilitychange', handleVisibility)
       controller.stop()
+      reportStopped()
       publisherRef.current?.stop()
       publisherRef.current = null
       if (voiceRef.current === controller) voiceRef.current = null
