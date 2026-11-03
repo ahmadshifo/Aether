@@ -4,13 +4,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0a1a23" />
-    <title>echosight · Dashboard</title>
-    <!-- Member 2: apply the saved light/dark choice before first paint to avoid a flash of the wrong theme. -->
+    <meta name="theme-color" content="#FCFCFC" />
+    <title>Aether · Dashboard</title>
+    <!-- Member 2: apply a saved dark choice before first paint; light is the design's default. -->
     <script>
       try {
-        var saved = localStorage.getItem('echosight-theme');
-        if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+        if (localStorage.getItem('echosight-theme') === 'dark') document.documentElement.dataset.theme = 'dark';
       } catch (e) {}
     </script>
   </head>

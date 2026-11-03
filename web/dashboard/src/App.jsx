@@ -1,7 +1,9 @@
-// Member 2: dashboard shell with the workspace sidebar and hash routes (#/overview, #/memory/{frame_id}, ...).
+// Member 2: dashboard shell: the Option B sidebar and hash routes (#/overview, #/memory/{frame_id}, ...).
 import { useEffect, useRef, useState } from 'react';
 import { getCurrentUser, logout } from './auth.js';
 import { Avatar, Icon, UserContext } from './components/ui.jsx';
+import { Mark, Wordmark } from './components/ui/index.js';
+import { STATUS } from './data/mockData.js';
 import AiHistory from './pages/AiHistory.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import LiveCamera from './pages/LiveCamera.jsx';
@@ -14,37 +16,36 @@ const NAV = [
   { id: 'overview', label: 'Overview', icon: 'home', Page: Overview },
   { id: 'live', label: 'Live camera', icon: 'video', Page: LiveCamera },
   { id: 'memory', label: 'Visual memory', icon: 'image', Page: VisualMemory },
-  { id: 'history', label: 'AI history', icon: 'clock', Page: AiHistory },
+  { id: 'history', label: 'AI history', icon: 'chat', Page: AiHistory },
   { id: 'status', label: 'System status', icon: 'activity', Page: SystemStatus },
   { id: 'profile', label: 'Profile', icon: 'user', Page: Profile },
 ];
 
 const THEME_KEY = 'echosight-theme';
-const systemTheme = () => (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
 
 function readTheme() {
   try {
-    const saved = localStorage.getItem(THEME_KEY);
-    if (saved === 'light' || saved === 'dark') return saved;
-  } catch { /* storage blocked: follow the OS */ }
-  return systemTheme();
+    return localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
 }
 
-// Light/dark theme: follows the OS until the user picks one, then remembers the pick.
+// Light is the design; dark is only used when picked on the Profile page, and the pick is remembered.
 function useTheme() {
-  const [theme, setTheme] = useState(readTheme);
+  const [theme, setThemeState] = useState(readTheme);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f2f6f7' : '#0a1a23');
+    if (theme === 'dark') document.documentElement.dataset.theme = 'dark';
+    else delete document.documentElement.dataset.theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#111111' : '#FCFCFC');
   }, [theme]);
 
-  const toggle = () => {
-    const next = theme === 'light' ? 'dark' : 'light';
-    setTheme(next);
+  const setTheme = (next) => {
+    setThemeState(next);
     try { localStorage.setItem(THEME_KEY, next); } catch { /* not persisted */ }
   };
-  return [theme, toggle];
+  return [theme, setTheme];
 }
 
 function readRoute() {
@@ -54,13 +55,13 @@ function readRoute() {
 
 const AUTH_PAGES = ['login', 'signup'];
 
-// Login is off until the team has the backend and database running: set VITE_AUTH_ENABLED=true in .env to turn it on.
-const AUTH_ENABLED = import.meta.env.VITE_AUTH_ENABLED === 'true';
-const PREVIEW_USER = { user_id: null, email: 'Mock data', name: 'Team preview', created_at: null };
+// Login is on by default; set VITE_AUTH_ENABLED=false in .env to preview the dashboard with mock data and no backend.
+const AUTH_ENABLED = import.meta.env.VITE_AUTH_ENABLED !== 'false';
+const PREVIEW_USER = { user_id: null, email: 'Mock data · login off', name: 'Team preview', created_at: null };
 
 export default function App() {
   const [route, setRoute] = useState(readRoute);
-  const [theme, toggleTheme] = useTheme();
+  const [theme, setTheme] = useTheme();
   // undefined = still checking, null = signed out
   const [user, setUser] = useState(AUTH_ENABLED ? undefined : PREVIEW_USER);
   const [authError, setAuthError] = useState('');
@@ -87,7 +88,7 @@ export default function App() {
 
   useEffect(() => {
     if (user === undefined) return;
-    document.title = signedOut ? `${authMode === 'signup' ? 'Sign up' : 'Log in'} · echosight` : `${current.label} · echosight`;
+    document.title = signedOut ? `${authMode === 'signup' ? 'Sign up' : 'Log in'} · Aether` : `${current.label} · Aether`;
   }, [current, user, signedOut, authMode]);
 
   // Signed in on #/login or #/signup → go to the dashboard; signed out elsewhere → go to #/login.
@@ -110,62 +111,62 @@ export default function App() {
     );
   }
 
+  const streaming = STATUS.streaming === 'online';
+
   return (
     <UserContext.Provider value={user}>
-    <div className="shell">
       <button type="button" className="skip-link" onClick={() => mainRef.current?.focus()}>
         Skip to content
       </button>
-
-      <aside className="sidebar">
-        <a href="#/overview" className="brand" aria-label="echosight home">
-          <span className="brand-mark"><Icon name="eye" size={20} /></span>
-          <span className="brand-name">echosight</span>
-        </a>
-
-        <nav aria-label="Workspace">
-          <p className="nav-heading">Workspace</p>
-          <ul className="nav-list">
-            {NAV.map((item) => (
-              <li key={item.id}>
-                <a href={`#/${item.id}`} className="nav-link"
-                  aria-current={item.id === current.id ? 'page' : undefined}>
-                  <Icon name={item.icon} />
-                  {item.label}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-
-        <div className="sidebar-foot">
-          <a href="#/profile" className="foot-profile" aria-label={`Your profile: ${user.name}`}>
-            <Avatar />
-            <span className="foot-who">
-              <span className="foot-name">{user.name}</span>
-              <span className="foot-sub" title={user.email}>{user.email}</span>
-            </span>
+      <div className="shell">
+        <aside className="sidebar card">
+          <a href="#/overview" className="brand" aria-label="Aether home">
+            <Mark />
+            <Wordmark />
           </a>
-          {AUTH_ENABLED && (
-            <button type="button" className="icon-btn logout-btn" onClick={handleLogout}
-              aria-label="Log out" title="Log out">
-              <Icon name="logout" size={16} />
-            </button>
-          )}
-          <button type="button" className="icon-btn theme-toggle" onClick={toggleTheme}
-            aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-            title={theme === 'light' ? 'Dark mode' : 'Light mode'}>
-            <Icon name={theme === 'light' ? 'moon' : 'sun'} size={16} />
-          </button>
-        </div>
-      </aside>
 
-      <main ref={mainRef} className="main" tabIndex={-1}>
-        <current.Page key={current.id + (route.param ?? '')} param={route.param}
-          user={user} authEnabled={AUTH_ENABLED} onUserChange={setUser} onLogout={handleLogout}
-          theme={theme} onToggleTheme={toggleTheme} />
-      </main>
-    </div>
+          <nav className="nav" aria-label="Workspace">
+            <p className="label">Workspace</p>
+            <ul>
+              {NAV.map((item) => (
+                <li key={item.id}>
+                  <a href={`#/${item.id}`} className="nav-link" aria-current={item.id === current.id ? 'page' : undefined}>
+                    <span className="nav-tile"><Icon name={item.icon} /></span>
+                    {item.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
+          <a href="#/live" className={`stream-card inset${streaming ? '' : ' is-off'}`}>
+            <span className="label"><span className="dot" />{streaming ? 'Phone streaming' : 'Phone offline'}</span>
+            <span className="stream-card-text">Watch what the phone sees</span>
+            <span className="btn btn-sm">Open live camera</span>
+          </a>
+
+          <div className="sidebar-foot">
+            <a href="#/profile" className="foot-profile" aria-label={`Your profile: ${user.name}`}>
+              <Avatar />
+              <span className="foot-who">
+                <span className="foot-name">{user.name}</span>
+                <span className="foot-email" title={user.email}>{user.email}</span>
+              </span>
+            </a>
+            {AUTH_ENABLED && (
+              <button type="button" className="foot-logout" onClick={handleLogout} aria-label="Log out" title="Log out">
+                <Icon name="logout" size={17} />
+              </button>
+            )}
+          </div>
+        </aside>
+
+        <main ref={mainRef} className="main" tabIndex={-1}>
+          <current.Page key={current.id + (route.param ?? '')} param={route.param}
+            user={user} authEnabled={AUTH_ENABLED} onUserChange={setUser} onLogout={handleLogout}
+            theme={theme} onThemeChange={setTheme} />
+        </main>
+      </div>
     </UserContext.Provider>
   );
 }

@@ -1,17 +1,24 @@
-// Member 2: overview page with connection/memory/AI summary, live feed, latest answer, health and recent frames.
-import FrameTimeline from '../components/FrameTimeline.jsx';
+// Member 2: overview: live stream with the text it just read, latest answer slip, system health and recently remembered frames.
+import { useContext, useState } from 'react';
 import LiveStream from '../components/LiveStream.jsx';
-import StatusPanel from '../components/StatusPanel.jsx';
-import { useContext } from 'react';
-import { Avatar, Icon, PageHeader, STATUS_LABELS, UserContext } from '../components/ui.jsx';
+import { Barcode, LogoTraceLoader, ReceiptPrinter, ScrambleText, Stamp } from '../components/ui/index.js';
+import {
+  PageHeader, SceneArt, STATUS_LABELS, StatusPill, UserContext, formatTime, frameTitle, signText,
+} from '../components/ui.jsx';
 import { useLiveSessionId } from '../components/useLiveSessionId.js';
-import { FRAMES, QUESTIONS, STATUS, STREAM } from '../data/mockData.js';
+import { FRAMES, QUESTIONS, SESSION_ID, STATUS, sceneFor } from '../data/mockData.js';
 import { mediaClient } from '../services/mediaClient.js';
 
-const RECENT_FRAME_IDS = [
-  'a1e5c9f3-7d2b-4c8e-9a6f-3b0d5e1c7a94',
-  '7b3f9d1e-6c2a-4e5b-8f0d-1a9c3e7b5d28',
-  'b8b51e4a-32f2-4542-bbb1-cc9e6de18384',
+const RECENT = [
+  ['a1e5c9f3-7d2b-4c8e-9a6f-3b0d5e1c7a94', -1.5],
+  ['7b3f9d1e-6c2a-4e5b-8f0d-1a9c3e7b5d28', 1],
+  ['b8b51e4a-32f2-4542-bbb1-cc9e6de18384', -0.5],
+];
+
+const SERVICES = [
+  { key: 'streaming', name: 'Stream', owner: 'Member 1 · MediaMTX' },
+  { key: 'multimedia', name: 'Memory', owner: 'Member 3 · Multimedia API' },
+  { key: 'ai', name: 'AI', owner: 'Member 2 · AI backend' },
 ];
 
 function greeting(hour = new Date().getHours()) {
@@ -20,91 +27,128 @@ function greeting(hour = new Date().getHours()) {
   return 'Good evening';
 }
 
-function StatCard({ label, value, icon, tone }) {
+function AnswerSlip({ question, evidence }) {
   return (
-    <div className="card stat-card">
-      <div>
-        <p className="stat-label">{label}</p>
-        <p className="stat-value">{value}</p>
-      </div>
-      <span className={`icon-tile tile-${tone}`}><Icon name={icon} size={20} /></span>
+    <div className="receipt">
+      <div className="receipt-row"><span>Aether · Answer slip</span><span>{formatTime(question.asked_at)}</span></div>
+      <span className="receipt-muted">Session {SESSION_ID.slice(0, 8)}</span>
+      <span className="receipt-rule" />
+      <span lang={question.language} dir="auto">Q&nbsp; {question.question}</span>
+      <span lang={question.language} dir="auto">A&nbsp; {question.answer}</span>
+      <span className="receipt-rule" />
+      <div className="receipt-row"><span>Language</span><span>{question.language.toUpperCase()}</span></div>
+      <div className="receipt-row"><span>Confidence</span><span>{question.uncertain ? 'Not sure' : 'Sure'}</span></div>
+      <div className="receipt-row"><span>Evidence</span><span>{evidence} frame{evidence === 1 ? '' : 's'}</span></div>
+      <Barcode />
     </div>
-  );
-}
-
-// Highlights the OCR text the answer quotes, so the dashboard shows what the evidence said.
-function HighlightedAnswer({ answer, ocr }) {
-  const at = ocr ? answer.indexOf(ocr) : -1;
-  if (at === -1) return answer;
-  return (
-    <>
-      {answer.slice(0, at)}<mark className="ocr-hit">{ocr}</mark>{answer.slice(at + ocr.length)}
-    </>
-  );
-}
-
-function AssistantCard({ question }) {
-  const evidence = FRAMES.filter((frame) => question.evidence_frame_ids.includes(frame.frame_id));
-  return (
-    <section className="card assistant-card" aria-labelledby="assistant-title">
-      <div className="card-head">
-        <h2 id="assistant-title" className="card-title with-icon ai-title">
-          <Icon name="sparkle" size={18} />AI assistant
-        </h2>
-        <span className="muted-sm">Just now</span>
-      </div>
-      <p className="label">Latest question</p>
-      <p className="qa-question" lang={question.language} dir="auto">“{question.question}”</p>
-      <p className="label">Answer</p>
-      <p className="qa-answer" lang={question.language} dir="auto">
-        <HighlightedAnswer answer={question.answer} ocr={evidence[0]?.ocr_text} />
-      </p>
-      <p className="muted-sm with-icon assistant-foot">
-        <Icon name="image" size={14} />
-        Based on {evidence.length} stored frame{evidence.length === 1 ? '' : 's'}
-      </p>
-    </section>
   );
 }
 
 export default function Overview() {
   const user = useContext(UserContext);
-  // Plays the phone's live stream here too: a pasted ID from the Live Camera page, or the one found automatically.
+  // Plays the phone's live stream here too: a pasted ID from the Live camera page, or the one found automatically.
   const liveSessionId = useLiveSessionId(mediaClient.savedSessionId());
-  const recent = RECENT_FRAME_IDS.map((id) => FRAMES.find((frame) => frame.frame_id === id));
-  const connection = STATUS.streaming === 'online' ? 'Connected' : STATUS_LABELS[STATUS.streaming];
-  const assistant = STATUS.ai === 'online' ? 'Ready' : STATUS_LABELS[STATUS.ai];
+  const latest = QUESTIONS[0];
+  const evidence = FRAMES.filter((frame) => latest.evidence_frame_ids.includes(frame.frame_id));
+  const readText = evidence.find((frame) => frame.ocr_text)?.ocr_text ?? '';
+  const recent = RECENT.map(([id, tilt]) => ({ frame: FRAMES.find((frame) => frame.frame_id === id), tilt }));
+  const [readKey, setReadKey] = useState(0);
+  const [checkKey, setCheckKey] = useState(0);
+  const [checking, setChecking] = useState(false);
+
+  const check = () => {
+    setCheckKey((n) => n + 1);
+    setChecking(true);
+    window.setTimeout(() => setChecking(false), 1100);
+  };
 
   return (
     <>
       <PageHeader
         eyebrow="Monitoring / Overview"
         title={`${greeting()}, ${user?.user_id ? user.name.split(' ')[0] : 'team'}`}
-        sparkle
-        subtitle="One live session. All systems ready to assist."
-        actions={(
-          <>
-            <span className="pill pill-session"><span className="dot dot-online" aria-hidden="true" />Session active</span>
-            <button type="button" className="icon-btn" aria-label="Notifications"><Icon name="bell" /></button>
-            <Avatar />
-          </>
-        )}
+        subtitle="One live session. Everything the phone sees and hears shows up here."
+        actions={<span className="pill pill-ok"><span className="dot" />Session active</span>}
       />
 
-      <div className="stat-row">
-        <StatCard label="Live connection" value={connection} icon="wifi" tone="green" />
-        <StatCard label="Saved frames" value={FRAMES.length} icon="image" tone="teal" />
-        <StatCard label="AI assistant" value={assistant} icon="sparkle" tone="purple" />
+      <section className="stat-row" aria-label="Summary">
+        <div className="card stat">
+          <span className="label">Live connection</span>
+          <p className="stat-value">{STATUS.streaming === 'online' ? 'Connected' : STATUS_LABELS[STATUS.streaming]}</p>
+        </div>
+        <div className="card stat"><span className="label">Saved frames</span><p className="stat-value">{FRAMES.length}</p></div>
+        <div className="card stat">
+          <span className="label">Assistant</span>
+          <p className="stat-value">{STATUS.ai === 'online' ? 'Ready' : STATUS_LABELS[STATUS.ai]}</p>
+        </div>
+      </section>
+
+      <div className="grid grid-overview">
+        <section className="card section" aria-labelledby="live-title">
+          <div className="card-head">
+            <h2 id="live-title" className="card-title">Live stream</h2>
+            <a href="#/live" className="btn">Open full view</a>
+          </div>
+          <LiveStream sessionId={liveSessionId} aspect="16x9" />
+          <div className="ocr-panel inset">
+            <span>
+              <span className="label">Text read just now</span>
+              <ScrambleText className="ocr-text" text={readText} runKey={readKey} />
+            </span>
+            <button type="button" className="btn" onClick={() => setReadKey((n) => n + 1)}>Read again</button>
+          </div>
+        </section>
+
+        <div className="stack">
+          <section className="card section section-tight" aria-labelledby="answer-title">
+            <div className="card-head">
+              <h2 id="answer-title" className="card-title">Latest answer</h2>
+              <span className="label">Just now · {latest.language.toUpperCase()}</span>
+            </div>
+            <p className="answer-q" lang={latest.language} dir="auto">“{latest.question}”</p>
+            <p className="answer-a" lang={latest.language} dir="auto">{latest.answer}</p>
+            <ReceiptPrinter><AnswerSlip question={latest} evidence={evidence.length} /></ReceiptPrinter>
+          </section>
+
+          <section className="card section section-tight" aria-labelledby="health-title">
+            <div className="card-head">
+              <span className="with-icon">
+                <LogoTraceLoader runKey={checkKey} />
+                <h2 id="health-title" className="card-title">System health</h2>
+              </span>
+              <button type="button" className="btn" onClick={check} disabled={checking}>
+                {checking ? 'Checking…' : 'Check again'}
+              </button>
+            </div>
+            <ul className="list" aria-live="polite">
+              {SERVICES.map((service) => (
+                <li key={service.key} className="service-row inset">
+                  <span><strong className="service-name">{service.name}</strong><span className="service-owner">{service.owner}</span></span>
+                  <StatusPill status={STATUS[service.key]} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
       </div>
 
-      <div className="overview-grid">
-        <LiveStream stream={STREAM} sessionId={liveSessionId} detection={{ label: 'ROOM 205', value: '205' }} />
-        <div className="side-stack">
-          <AssistantCard question={QUESTIONS[0]} />
-          <StatusPanel status={STATUS} />
+      <section className="card section" aria-labelledby="recent-title">
+        <div className="card-head">
+          <h2 id="recent-title" className="card-title">Recently remembered</h2>
+          <a href="#/memory" className="btn">View all {FRAMES.length}</a>
         </div>
-        <FrameTimeline frames={recent} />
-      </div>
+        <ul className="stamps">
+          {recent.map(({ frame, tilt }) => (
+            <li key={frame.frame_id}>
+              <Stamp href={`#/memory/${frame.frame_id}`} tilt={tilt}
+                label={`${frameTitle(frame)} at ${formatTime(frame.captured_at)}`}
+                caption={<><span>{frameTitle(frame)}</span><span>{formatTime(frame.captured_at)}</span></>}>
+                <SceneArt scene={sceneFor(frame)} sign={signText(frame.ocr_text)} />
+              </Stamp>
+            </li>
+          ))}
+        </ul>
+      </section>
     </>
   );
 }

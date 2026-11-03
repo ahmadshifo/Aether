@@ -1,165 +1,117 @@
-// Member 2: searchable timeline of saved frames with OCR text, object labels and frame details (data from Member 3's API).
+// Member 2: saved frames fanned as playing cards, searchable by caption, read text and objects (data from Member 3's API).
 import { useMemo, useState } from 'react';
-import { Avatar, Icon, PageHeader, SceneArt, formatDateTime, formatTime, signNumber } from '../components/ui.jsx';
+import { PlayingCards, Segmented } from '../components/ui/index.js';
+import { Icon, PageHeader, SceneArt, formatDate, formatTime, signText } from '../components/ui.jsx';
 import { FRAMES, sceneFor } from '../data/mockData.js';
 
 // Same windows as the search modes in api-v1.yaml.
 const RANGES = [
   { value: 'latest', label: 'Latest', seconds: 10 },
-  { value: 'recent', label: 'Last 2 minutes', seconds: 120 },
+  { value: 'recent', label: 'Last 2 min', seconds: 120 },
   { value: 'history', label: 'Whole session', seconds: Infinity },
 ];
-const PAGE_SIZE = 3;
+const HAND_SIZE = 7;
+const blurry = (frame) => /blur/i.test(frame.caption);
 
+// Every word must appear in the caption, the read text or the objects.
 function matches(frame, query) {
-  if (!query) return true;
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const haystack = [frame.caption, frame.ocr_text, ...frame.objects].join(' ').toLowerCase();
-  return query.toLowerCase().split(/\s+/).every((word) => haystack.includes(word));
+  return words.every((word) => haystack.includes(word));
 }
 
-function exportLog(frames) {
-  const blob = new Blob([JSON.stringify({ frames }, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const link = Object.assign(document.createElement('a'), { href: url, download: 'visual-memory-log.json' });
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-function FrameDetails({ frame }) {
-  if (!frame) {
-    return (
-      <aside className="card details">
-        <p className="label">Selected frame</p>
-        <p className="muted-sm">Pick a saved moment to see what was recognised.</p>
-      </aside>
-    );
-  }
+function Card({ frame }) {
   return (
-    <aside className="card details" aria-labelledby="details-title">
-      <p className="label label-first">Selected frame</p>
-      <h2 id="details-title" className="card-title">Frame details</h2>
-      <div className="details-stage">
-        <SceneArt scene={sceneFor(frame)} sign={signNumber(frame.ocr_text)} label={frame.caption} />
-      </div>
-
-      <p className="label">Scene summary</p>
-      <p className="qa-answer">{frame.caption}.</p>
-
-      <p className="label">Text recognized</p>
-      {frame.ocr_text
-        ? <span className="chip chip-ocr"><Icon name="file" size={14} />{frame.ocr_text}</span>
-        : <p className="muted-sm">No text found in this frame.</p>}
-
-      <p className="label">Detected objects</p>
-      <ul className="chips">
-        {frame.objects.map((object) => <li key={object} className="chip">{object}</li>)}
-      </ul>
-
-      <p className="muted-sm with-icon details-time">
-        <Icon name="clock" size={14} />
-        <time dateTime={frame.captured_at}>{formatDateTime(frame.captured_at)}</time>
-      </p>
-    </aside>
+    <>
+      <span className="card-corner"><span>{formatTime(frame.captured_at)}</span><span>{frame.ocr_text ? 'TXT' : 'OBJ'}</span></span>
+      <span className="card-art"><SceneArt scene={sceneFor(frame)} sign={signText(frame.ocr_text)} blur={blurry(frame)} /></span>
+      <span className="card-caption">{frame.caption}</span>
+    </>
   );
 }
 
 export default function VisualMemory({ param }) {
   const [query, setQuery] = useState('');
-  const [range, setRange] = useState('recent');
-  const [visible, setVisible] = useState(PAGE_SIZE);
+  const [range, setRange] = useState('history');
   const [selectedId, setSelectedId] = useState(param ?? FRAMES[0].frame_id);
 
   const results = useMemo(() => {
     const newest = Math.max(...FRAMES.map((frame) => Date.parse(frame.captured_at)));
     const { seconds } = RANGES.find((option) => option.value === range);
     return FRAMES.filter((frame) => newest - Date.parse(frame.captured_at) <= seconds * 1000)
-      .filter((frame) => matches(frame, query.trim()));
+      .filter((frame) => matches(frame, query));
   }, [query, range]);
 
-  const shown = results.slice(0, visible);
   const selected = results.find((frame) => frame.frame_id === selectedId) ?? results[0];
+  // Up to 7 cards in the hand, kept around the selected frame.
+  const at = Math.max(0, results.indexOf(selected));
+  const start = Math.min(Math.max(0, at - Math.floor(HAND_SIZE / 2)), Math.max(0, results.length - HAND_SIZE));
+  const hand = results.slice(start, start + HAND_SIZE);
+  const step = (direction) => {
+    if (!results.length) return;
+    setSelectedId(results[(at + direction + results.length) % results.length].frame_id);
+  };
+  const count = results.length > HAND_SIZE
+    ? `Showing ${HAND_SIZE} of ${results.length}`
+    : `${results.length} of ${FRAMES.length} frames`;
 
   return (
     <>
-      <PageHeader
-        eyebrow="Memory / Saved frames"
-        title="Visual memory"
-        subtitle="Search the scenes the camera has seen."
-        actions={(
-          <>
-            <button type="button" className="btn" onClick={() => exportLog(results)}>
-              <Icon name="file" size={16} />Export log
-            </button>
-            <Avatar />
-          </>
-        )}
-      />
+      <PageHeader eyebrow="Memory / Saved frames" title="Visual memory" subtitle="Thumb through the scenes the camera kept." />
 
       <div className="card search-bar" role="search">
-        <Icon name="search" size={18} className="search-icon" />
+        <Icon name="search" />
         <label htmlFor="memory-search" className="sr-only">Search saved frames</label>
-        <input id="memory-search" type="search" placeholder="Search scenes, objects, or sign text…"
-          value={query} onChange={(event) => { setQuery(event.target.value); setVisible(PAGE_SIZE); }} />
-        <div className="select-wrap">
-          <Icon name="filter" size={15} />
-          <label htmlFor="memory-range" className="sr-only">Time range</label>
-          <select id="memory-range" value={range}
-            onChange={(event) => { setRange(event.target.value); setVisible(PAGE_SIZE); }}>
-            {RANGES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </div>
+        <input id="memory-search" className="search-input" type="search" value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search scenes, objects or sign text — try “door” or “exit”" />
+        <Segmented label="Time range" options={RANGES} value={range} onChange={setRange} />
       </div>
 
-      <div className="memory-grid">
-        <section className="card" aria-labelledby="moments-title">
-          <div className="card-head">
-            <h2 id="moments-title" className="card-title">Saved moments</h2>
-            <span className="muted-sm" aria-live="polite">
-              {results.length === FRAMES.length
-                ? `${FRAMES.length} frames in this session`
-                : `${results.length} of ${FRAMES.length} frames`}
-            </span>
+      <section className="card section section-tight" aria-labelledby="hand-title">
+        <div className="card-head">
+          <div>
+            <h2 id="hand-title" className="card-title">Saved moments</h2>
+            <span className="label" aria-live="polite">{count}</span>
           </div>
+          <div className="btn-row">
+            <button type="button" className="btn btn-icon" aria-label="Previous frame" onClick={() => step(-1)} disabled={!results.length}>
+              <Icon name="left" size={16} strokeWidth="2" />
+            </button>
+            <button type="button" className="btn btn-icon" aria-label="Next frame" onClick={() => step(1)} disabled={!results.length}>
+              <Icon name="right" size={16} strokeWidth="2" />
+            </button>
+          </div>
+        </div>
+        {results.length === 0 ? (
+          <p className="empty">Nothing in memory matches “{query}”.</p>
+        ) : (
+          <PlayingCards items={hand} selectedId={selected.frame_id} onSelect={setSelectedId} label="Saved frames"
+            getId={(frame) => frame.frame_id} getLabel={(frame) => `Frame ${formatTime(frame.captured_at)}: ${frame.caption}`}
+            renderCard={(frame) => <Card frame={frame} />} />
+        )}
+      </section>
 
-          {results.length === 0 ? (
-            <p className="empty-state">Nothing in memory matches “{query}”.</p>
-          ) : (
-            <ul className="moments">
-              {shown.map((frame) => {
-                const isSelected = frame.frame_id === selected?.frame_id;
-                return (
-                  <li key={frame.frame_id}>
-                    <button type="button" className="moment" aria-pressed={isSelected}
-                      onClick={() => setSelectedId(frame.frame_id)}>
-                      <span className="moment-stage">
-                        <SceneArt scene={sceneFor(frame)} sign={signNumber(frame.ocr_text)} />
-                      </span>
-                      {isSelected && <span className="moment-check"><Icon name="check" size={14} /></span>}
-                      <span className="moment-body">
-                        <span className="moment-title">{frame.caption}</span>
-                        <span className="moment-meta">
-                          {formatTime(frame.captured_at)} · {frame.ocr_text ? 'OCR detected' : 'Objects detected'}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-              {visible < results.length && (
-                <li>
-                  <button type="button" className="moment more-tile" onClick={() => setVisible((n) => n + PAGE_SIZE + 1)}>
-                    <Icon name="image" size={24} />
-                    <span className="moment-title">More frames</span>
-                    <span className="moment-meta with-icon">Load next page<Icon name="arrow" size={13} /></span>
-                  </button>
-                </li>
-              )}
+      {selected && (
+        <section className="card frame-detail" aria-labelledby="frame-title">
+          <span className="frame-detail-stage">
+            <SceneArt scene={sceneFor(selected)} sign={signText(selected.ocr_text)} blur={blurry(selected)} label={selected.caption} />
+          </span>
+          <div className="frame-detail-body">
+            <span className="label">Selected frame · {formatTime(selected.captured_at)}</span>
+            <h2 id="frame-title" className="card-title">{selected.caption}</h2>
+            <span className="label">Text recognized</span>
+            {selected.ocr_text
+              ? <span className="chip-ink">{selected.ocr_text}</span>
+              : <p className="muted">No text found in this frame.</p>}
+            <span className="label">Detected objects</span>
+            <ul className="chips">
+              {selected.objects.map((object) => <li key={object} className="chip">{object}</li>)}
             </ul>
-          )}
+            <span className="label frame-detail-foot">{formatDate(selected.captured_at)} · deleted after 24 h</span>
+          </div>
         </section>
-
-        <FrameDetails frame={selected} />
-      </div>
+      )}
     </>
   );
 }

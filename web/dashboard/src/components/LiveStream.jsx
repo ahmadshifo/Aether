@@ -1,15 +1,11 @@
-// Member 2: plays Member 1's MediaMTX stream over WebRTC/WHEP when a session ID is set; otherwise shows the mock scene.
+// Member 2: plays Member 1's MediaMTX stream over WebRTC/WHEP when a session ID is set; otherwise shows the stand-in scene.
 import { useEffect, useRef, useState } from 'react';
 import { mediaClient } from '../services/mediaClient.js';
-import { Icon, SceneArt } from './ui.jsx';
+import { LiveDot, LogoTraceLoader } from './ui/index.js';
+import { SceneArt } from './ui.jsx';
 
 const RETRY_MS = 3000;
-
-const PILLS = {
-  connecting: { className: 'pill-status-connecting', dot: 'dot-connecting', label: 'Connecting' },
-  live: { className: 'pill-live', dot: 'dot-online pulse', label: 'LIVE' },
-  waiting: { className: 'pill-status-offline', dot: '', label: 'Waiting' },
-};
+const MOCK_CLOCK = '00:32:14';
 
 // Connects to the stream and keeps retrying while the phone hasn't started or drops out.
 function useWhepStream(sessionId, videoRef) {
@@ -51,55 +47,60 @@ function useWhepStream(sessionId, videoRef) {
   return { state, setState, message };
 }
 
-export default function LiveStream({ stream, sessionId = null, large = false, detection }) {
+// hh:mm:ss since the video started playing.
+function useLiveClock(running) {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    if (!running) {
+      setSeconds(0);
+      return undefined;
+    }
+    const started = Date.now();
+    const timer = window.setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+  return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+    .map((n) => String(n).padStart(2, '0')).join(':');
+}
+
+// aspect: '16x9' (Overview) or '16x10' (Live camera). full adds the MIC ON and privacy chips.
+// onState gets 'idle' (no session), 'connecting', 'waiting' or 'live'.
+export default function LiveStream({ sessionId = null, aspect = '16x9', full = false, onState }) {
   const videoRef = useRef(null);
   const { state, setState, message } = useWhepStream(sessionId, videoRef);
-  const pill = sessionId ? PILLS[state] : PILLS.live;
+  const playing = Boolean(sessionId) && state === 'live';
+  const clock = useLiveClock(playing);
+
+  useEffect(() => { onState?.(sessionId ? state : 'idle'); }, [sessionId, state, onState]);
 
   return (
-    <section className={`card live-card${large ? ' live-card-large' : ''}`} aria-labelledby="live-title">
-      <div className="card-head">
-        <div>
-          <h2 id="live-title" className="card-title">Live camera feed</h2>
-          <p className="card-sub">
-            {sessionId ? `Session ${sessionId.slice(0, 8)} · Phone camera` : `Session 001 · ${stream.device}`}
-          </p>
+    <div className={`stage stage-${aspect}`}>
+      {sessionId ? (
+        <video ref={videoRef} autoPlay muted playsInline onPlaying={() => setState('live')}
+          aria-label="Live video from the phone camera" />
+      ) : (
+        <SceneArt scene="door" sign="ROOM 205" label="Stand-in camera view: a corridor door with a ROOM 205 sign" />
+      )}
+
+      {sessionId && state === 'connecting' && (
+        <div className="stage-overlay" role="status">
+          <LogoTraceLoader size={72} loop strokeWidth={1.2} />
+          <span className="label">Connecting to the phone…</span>
         </div>
-        <span className={`pill ${pill.className}`}><span className={`dot ${pill.dot}`} aria-hidden="true" />{pill.label}</span>
-      </div>
+      )}
+      {sessionId && state === 'waiting' && (
+        <div className="stage-overlay" role="status">
+          <LogoTraceLoader size={56} strokeWidth={1.2} />
+          <p>{message}</p>
+          <span className="label">Trying again every few seconds</span>
+        </div>
+      )}
 
-      <div className="live-stage">
-        {sessionId ? (
-          <>
-            <video ref={videoRef} className="live-video" autoPlay muted playsInline
-              onPlaying={() => setState('live')} aria-label="Live video from the phone camera" />
-            {state !== 'live' && (
-              <div className="live-overlay" role="status">
-                <Icon name={state === 'connecting' ? 'wifi' : 'video'} size={22} />
-                <p>{state === 'connecting' ? 'Connecting to the phone…' : message}</p>
-                {state === 'waiting' && <p className="live-overlay-hint">Trying again every few seconds.</p>}
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <SceneArt scene="door" sign="205" label="Mock camera view: a corridor with a door labelled Room 205" />
-            {detection && (
-              <div className="detection" aria-hidden="true">
-                <span className="detection-tag"><span>{detection.label}</span><strong>{detection.value}</strong></span>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      <div className="live-foot">
-        <span className="with-icon"><Icon name="video" size={14} />WebRTC stream</span>
-        <span>720p · {stream.fps} fps</span>
-        {large
-          ? <span>{stream.codec}</span>
-          : <a href="#/live" className="link-quiet with-icon"><Icon name="external" size={14} />Expand</a>}
-      </div>
-    </section>
+      {(playing || !sessionId) && (
+        <span className="stage-chip chip-tl"><LiveDot />LIVE {sessionId ? clock : MOCK_CLOCK}</span>
+      )}
+      {full && <span className="stage-chip chip-tr">MIC ON</span>}
+      {full && <span className="stage-chip stage-chip-plain chip-br">Faces are never identified</span>}
+    </div>
   );
 }
