@@ -1,2 +1,0 @@
-# Shared database: MySQL driver; [rsa] adds the cryptography package MySQL 8's default login method needs.
-PyMySQL[rsa]
