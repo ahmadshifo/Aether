@@ -1,0 +1,39 @@
+[dir="rtl"] { font-family: var(--font-ar); line-height: 1.8; }
+[dir="rtl"] h1, [dir="rtl"] h2, [dir="rtl"] .eyebrow { letter-spacing: 0; text-transform: none; }
+[dir="rtl"] .eyebrow:not([dir="ltr"]) { font-family: var(--font-ar); font-size: .8125rem; }
+[dir="rtl"] .wordmark { font-family: var(--font-brand); }
+[dir="rtl"] .playing-cards { --direction: -1; }
+[dir="rtl"] .hold-fill { transform-origin: right; }
+.app-header { flex-wrap: wrap; }
+h1, h2, h3 { overflow-wrap: anywhere; }
+.feature-heading > div { min-width: 0; }
+.tab-bar > button > strong, .tab-bar > button > span { max-width: 100%; overflow-wrap: anywhere; }
+@container (max-width: 499px) {
+  .playing-card { transform: translateX(calc(var(--offset)*44px*var(--direction))) translateY(var(--drop)) rotate(calc(var(--offset)*5deg*var(--direction))); }
+  .playing-card.selected, .playing-card:focus-visible { transform: translateX(calc(var(--offset)*44px*var(--direction))) translateY(calc(var(--drop) - 16px)) rotate(calc(var(--offset)*5deg*var(--direction))); }
+}
+@container (min-width: 500px) { .playing-card { transform: translateX(calc(var(--offset)*52px*var(--direction))) translateY(var(--drop)) rotate(calc(var(--offset)*7deg*var(--direction))); } .playing-card.selected, .playing-card:focus-visible { transform: translateX(calc(var(--offset)*52px*var(--direction))) translateY(calc(var(--drop) - 16px)) rotate(calc(var(--offset)*7deg*var(--direction))); } }
+@container (max-width: 24em) {
+  .playing-cards { position: static; display: flex; gap: 12px; height: auto; margin: 16px -4px; padding: 12px 4px; overflow-x: auto; scroll-snap-type: inline proximity; }
+  .playing-card, .playing-card.selected, .playing-card:focus-visible { position: relative; top: auto; left: auto; transform: none; width: 118px; flex: 0 0 118px; scroll-snap-align: start; min-height: 176px; }
+  .playing-card.selected { box-shadow: 0 4px 8px #00000014; }
+  .home-greeting { flex-wrap: wrap; }
+  .feature-heading { gap: 16px; }
+  .feature-heading .aether-mark { width: 72px; height: 72px; }
+  .feature-heading h2 { font-size: 1.375rem; }
+  .home-feature { padding: 20px; }
+  .app-content { padding-inline: 16px; }
+  .tab-bar { grid-template-columns: repeat(5,minmax(0,1fr)); margin-inline: 8px; padding-inline: 4px; }
+  .assistant-tab > span { width: 60px; height: 60px; border-radius: 15px; margin-top: -24px; }
+  .assistant-tab .aether-mark { width: 50px; height: 50px; }
+  .tab-bar > button { font-size: .6875rem; }
+  .ticket-main { padding: 16px; }
+  .cassette { flex-wrap: wrap; }
+}
+@media (min-width: 768px) { .app-container { height: calc(100dvh - 32px); max-height: 1060px; margin-block: 16px; border: 1px solid var(--line-card); border-radius: 20px; overflow: clip; box-shadow: 0 8px 40px #00000006; } .auth-container { border-inline: 1px solid var(--line-card); } }
+@media (max-height: 700px) { .auth-landing { padding-top: 24px; } .auth-landing > .aether-mark { width: 130px; height: 130px; margin-bottom: 20px; } .landing-actions { margin-top: 24px; } .assistant-idle { min-height: 280px; } }
+@media (max-width: 360px) { .app-header { padding-inline: 16px; gap: 8px; } .brand { gap: 8px; } .page-assistant .brand .aether-mark { display: none; } .page-assistant .wordmark { font-size: 1.75rem; } }
+[data-motion="off"] *, [data-motion="off"] *::before, [data-motion="off"] *::after { animation: none !important; transition: none !important; }
+[data-motion="off"] .hold-fill { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } .hold-fill { visibility: hidden; } }
+@media (forced-colors: active) { button, input, select, textarea, .card, .tab-bar { border: 1px solid ButtonText; box-shadow: none; } .hold-label { color: ButtonText; background: Canvas; } .hold-fill { display: none; } .switch::before { border: 2px solid ButtonText; } .switch::after { background: ButtonText; } .aether-mark { forced-color-adjust: none; } .scramble-visual { display: none; } .stamp { box-shadow: none; } }

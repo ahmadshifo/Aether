@@ -4,7 +4,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Visual Assistant - Dashboard</title>
+    <meta name="theme-color" content="#FCFCFC" />
+    <title>Aether · Dashboard</title>
+    <!-- Member 2: apply a saved dark choice before first paint; light is the design's default. -->
+    <script>
+      try {
+        if (localStorage.getItem('echosight-theme') === 'dark') document.documentElement.dataset.theme = 'dark';
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

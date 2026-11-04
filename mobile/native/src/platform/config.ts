@@ -1,0 +1,31 @@
+export type Endpoints = { backend: string; media: string; allowLan: boolean };
+export const defaultEndpoints: Endpoints = { backend: 'https://localhost:18063', media: 'https://localhost:8889', allowLan: false };
+export function privateHost(host: string) {
+  if (host === 'localhost' || host.endsWith('.local')) return true;
+  const parts = host.split('.').map(Number);
+  if (parts.length !== 4 || parts.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+  return parts[0] === 10 || parts[0] === 127 || parts[0] === 192 && parts[1] === 168 || parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31;
+}
+export function validateOrigin(value: string, allowLan: boolean) {
+  const url = new URL(value.trim());
+  if (url.username || url.password || url.search || url.hash || url.pathname !== '/' || !['http:', 'https:'].includes(url.protocol)) throw Error('invalid_origin');
+  if (url.protocol === 'http:' && (!allowLan || !privateHost(url.hostname))) throw Error('https_required');
+  return url.origin;
+}
+export function validateEndpoints(value: Endpoints): Endpoints {
+  const allowLan = value.allowLan === true;
+  return { backend: validateOrigin(value.backend, allowLan), media: validateOrigin(value.media, allowLan), allowLan };
+}
+export async function boundedFetch(url: string, options: RequestInit = {}, ms = 8000, fetcher: typeof fetch = fetch) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  options.signal?.addEventListener('abort', abort, { once: true });
+  if (options.signal?.aborted) controller.abort();
+  const timer = setTimeout(abort, ms);
+  try {
+    const response = await fetcher(url, { ...options, redirect: 'error', signal: controller.signal });
+    if (response.redirected || response.url && new URL(response.url).origin !== new URL(url).origin) throw Error('redirect_rejected');
+    const body = response.status === 204 || response.status === 304 ? null : await response.arrayBuffer();
+    return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  } finally { clearTimeout(timer); options.signal?.removeEventListener('abort', abort); }
+}

@@ -1,0 +1,43 @@
+// Adapted from mobile/frontend/src/authCopy.ts at bb54dbd; original remains read-only.
+export const authCopy = {
+  en: {
+    login: 'Log in', signup: 'Create account', welcome: 'Welcome to Aether', subtitle: 'Your AI visual assistant',
+    intro: 'Log in to use the assistant and your local test History.', name: 'Name', email: 'Email', password: 'Password', confirm: 'Confirm password',
+    show: 'Show password', hide: 'Hide password', newAccount: 'New here? Create an account', existing: 'Already have an account? Log in',
+    pending: 'Please wait…', checking: 'Checking your session…', signingOut: 'Signing out…', retry: 'Check session again', retryLogout: 'Retry sign out',
+    cancel: 'Cancel request', language: 'Interface language', locked: 'Your private view is locked',
+    privacy: 'Test accounts only. History stays on this browser and address, for up to 24 hours. It is not encrypted or synced across devices.',
+    signed_out: 'Signed out. Your local History is kept for your next login.', created: 'Account created. Tap Start when you are ready.',
+    errors: {
+      invalid_email: 'Enter a valid email address (up to 254 characters).', invalid_name: 'Enter your name (1–80 characters).',
+      weak_password: 'Use a password of 8–128 characters.', mismatch: 'The passwords do not match.', password_required: 'Enter your password.',
+      email_taken: 'An account with this email already exists. Try logging in.', invalid_credentials: 'Email or password is incorrect.',
+      too_many_attempts: 'Too many failed attempts. Try again in 15 minutes.',
+      unavailable: 'The sign-in service is unavailable. Check the connection and try again.',
+      timeout: 'The service did not respond in time. Check your session again.', malformed: 'The service returned an unexpected response. Check your session again.',
+      uncertain: 'The request may have reached the server. Check your session before trying again; your account may already exist.',
+      logout_failed: 'Server sign-out is not confirmed. Media is stopped and your private view stays locked. Retry sign out or check the session.',
+      account_changing: 'An account change was reported in another tab. Check the session to continue.',
+    },
+  },
+  ar: {
+    login: 'تسجيل الدخول', signup: 'إنشاء حساب', welcome: 'مرحبًا بك في إيثر', subtitle: 'مساعدك البصري الذكي',
+    intro: 'سجّل الدخول لاستخدام المساعد وسجلك التجريبي المحلي.', name: 'الاسم', email: 'البريد الإلكتروني', password: 'كلمة المرور', confirm: 'تأكيد كلمة المرور',
+    show: 'إظهار كلمة المرور', hide: 'إخفاء كلمة المرور', newAccount: 'مستخدم جديد؟ أنشئ حسابًا', existing: 'لديك حساب؟ سجّل الدخول',
+    pending: 'يرجى الانتظار…', checking: 'جارٍ التحقق من جلستك…', signingOut: 'جارٍ تسجيل الخروج…', retry: 'التحقق من الجلسة مجددًا', retryLogout: 'إعادة محاولة الخروج',
+    cancel: 'إلغاء الطلب', language: 'لغة الواجهة', locked: 'المحتوى الخاص مقفل',
+    privacy: 'حسابات تجريبية فقط. يبقى السجل في هذا المتصفح وعلى هذا العنوان لمدة تصل إلى ٢٤ ساعة. لا يُشفّر ولا يتزامن بين الأجهزة.',
+    signed_out: 'تم تسجيل الخروج. يبقى سجلك المحلي للدخول القادم.', created: 'تم إنشاء الحساب. اضغط ابدأ عندما تكون جاهزًا.',
+    errors: {
+      invalid_email: 'أدخل بريدًا إلكترونيًا صالحًا (٢٥٤ حرفًا كحد أقصى).', invalid_name: 'أدخل اسمك (من حرف إلى ٨٠ حرفًا).',
+      weak_password: 'استخدم كلمة مرور من ٨ إلى ١٢٨ حرفًا.', mismatch: 'كلمتا المرور غير متطابقتين.', password_required: 'أدخل كلمة المرور.',
+      email_taken: 'يوجد حساب بهذا البريد الإلكتروني. جرّب تسجيل الدخول.', invalid_credentials: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
+      too_many_attempts: 'محاولات غير ناجحة كثيرة. حاول مجددًا بعد ١٥ دقيقة.',
+      unavailable: 'خدمة تسجيل الدخول غير متاحة. تحقّق من الاتصال وحاول مجددًا.',
+      timeout: 'لم تستجب الخدمة في الوقت المحدد. تحقّق من الجلسة مجددًا.', malformed: 'أعادت الخدمة استجابة غير متوقعة. تحقّق من الجلسة مجددًا.',
+      uncertain: 'قد يكون الطلب وصل إلى الخادم. تحقّق من الجلسة قبل المحاولة مجددًا؛ قد يكون حسابك أُنشئ بالفعل.',
+      logout_failed: 'لم يتأكد الخروج من الخادم. أُوقفت الكاميرا والصوت وبقي المحتوى الخاص مقفلًا. أعد محاولة الخروج أو تحقّق من الجلسة.',
+      account_changing: 'ورد إشعار بتغيير الحساب في علامة تبويب أخرى. تحقّق من الجلسة للمتابعة.',
+    },
+  },
+}
