@@ -1,0 +1,8 @@
+{
+  "name": "aether",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/start.mjs",
+    "db:clear": "web\\ai-backend\\.venv\\Scripts\\python scripts/clear-db.py"
+  }
+}
