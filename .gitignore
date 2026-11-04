@@ -1,17 +1,30 @@
 # Ignore secrets, dependencies, caches, build products and locally stored personal images/audio.
-.env
-.env.*
-!.env.example
-node_modules/
-dist/
-__pycache__/
-*.py[cod]
-.pytest_cache/
+
+# Virtual environment
 .venv/
 venv/
-*.log
-.DS_Store
-*.sqlite3
-data/
-recordings/
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Private environment configuration
+.env
+.env.*
+
+# Keep example configuration
+!.env.example
+
+# Generated images and temporary data
 stored_frames/
+temp/
+output/
+
+# Local database files
+*.db
+*.sqlite3
+
+# IDE files
+.vscode/
+.idea/
