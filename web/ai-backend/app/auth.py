@@ -1,6 +1,6 @@
 """Member 2: email + password accounts for the web dashboard and the phone: signup, login, logout and current user.
 
-Sessions are a short-lived JWT plus a refresh session stored in the shared MySQL database:
+Sessions are a short-lived JWT plus a refresh session stored in the multimedia MySQL database:
 - echosight_access: a signed JWT (HS256, 15 minutes). Each request is checked by its signature alone.
 - echosight_session: a random refresh token; only its hash is stored in login_sessions. When the JWT has expired,
   it quietly issues a new one. It ends after 8 hours without use, or 7 days after login, whichever comes first.
@@ -97,24 +97,58 @@ class UserResponse(BaseModel):
 def _connect() -> pymysql.connections.Connection:
     try:
         return pymysql.connect(
-            host=os.getenv("MYSQL_HOST", "127.0.0.1"), port=int(os.getenv("MYSQL_PORT", "3306")),
+            host=os.getenv("MYSQL_HOST", "127.0.0.1"), port=int(os.getenv("MYSQL_PORT", "3307")),
             user=os.getenv("MYSQL_USER", ""), password=os.getenv("MYSQL_PASSWORD", ""),
-            database=os.getenv("MYSQL_DATABASE", "echosight"),
+            database=os.getenv("MYSQL_DATABASE", "aether_multimedia"),
             charset="utf8mb4", cursorclass=pymysql.cursors.DictCursor, autocommit=True,
         )
     except pymysql.err.OperationalError:
         raise ApiError(503, "database_unavailable", "Can't reach the database. Is MySQL running?") from None
 
 
+# The backend's own tables, created at startup in the multimedia database (Member 3 owns the frames table there).
+# expires_at slides forward with use (idle limit); created_at caps the whole login (absolute limit).
+# A session is one Start/Stop on the phone; session_id is the UUID its stream is published under.
+ACCOUNT_TABLES = (
+    """CREATE TABLE IF NOT EXISTS users (
+        user_id            CHAR(36)     NOT NULL PRIMARY KEY,
+        email              VARCHAR(254) NOT NULL UNIQUE,
+        name               VARCHAR(80)  NOT NULL,
+        password_hash      VARCHAR(255) NOT NULL,
+        preferred_language VARCHAR(5)   NULL,
+        speech_rate        FLOAT        NULL,
+        created_at         DATETIME(3)  NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS login_sessions (
+        token_hash CHAR(64)    NOT NULL PRIMARY KEY,
+        user_id    CHAR(36)    NOT NULL,
+        created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        expires_at DATETIME(3) NOT NULL,
+        INDEX login_sessions_expires_idx (expires_at),
+        CONSTRAINT login_sessions_user_fk FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+    )""",
+    """CREATE TABLE IF NOT EXISTS sessions (
+        session_id    CHAR(36)              NOT NULL PRIMARY KEY,
+        user_id       CHAR(36)              NULL,
+        status        ENUM('live', 'ended') NOT NULL DEFAULT 'live',
+        started_at    DATETIME(3)           NOT NULL,
+        ended_at      DATETIME(3)           NULL,
+        consent_given BOOLEAN               NOT NULL DEFAULT FALSE,
+        INDEX sessions_user_status_idx (user_id, status, started_at),
+        CONSTRAINT sessions_user_fk FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE SET NULL
+    )""",
+)
+
+
 def init_db() -> None:
-    # The tables come from multimedia/database/schema.sql; fail at startup with a clear message if they're missing.
     try:
         with closing(_connect()) as conn, conn.cursor() as cur:
-            cur.execute("SELECT u.user_id, s.created_at FROM users u JOIN login_sessions s USING (user_id) LIMIT 0")
+            for statement in ACCOUNT_TABLES:
+                cur.execute(statement)
     except (ApiError, pymysql.err.MySQLError) as error:
         raise RuntimeError(
-            "Auth needs the shared MySQL database: set MYSQL_* in web/ai-backend/.env "
-            "and run `python setup.py` in the multimedia folder."
+            "Auth needs the multimedia MySQL database: set up MySQL as in multimedia/database/README.md, "
+            "then set MYSQL_* in web/ai-backend/.env."
         ) from error
 
 
