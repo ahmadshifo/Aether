@@ -1,5 +1,6 @@
 // Member 2: email + password login and account creation, shown instead of the dashboard until someone is signed in.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { login, signup } from '../auth.js';
 import { Mark, Segmented, TactileButton, Wordmark } from '../components/ui/index.js';
 import { Icon } from '../components/ui.jsx';
@@ -13,7 +14,12 @@ export default function AuthPage({ mode, initialError = '', onSignedIn }) {
   const [busy, setBusy] = useState(false);
 
   const update = (field) => (event) => setForm({ ...form, [field]: event.target.value });
-  const go = (next) => { window.location.hash = `#/${next}`; };
+  const navigate = useNavigate();
+  const go = (next) => navigate(`/${next}`);
+
+  useEffect(() => {
+    document.title = `${isSignup ? 'Sign up' : 'Log in'} · Aether`;
+  }, [isSignup]);
 
   async function submit(event) {
     event.preventDefault();

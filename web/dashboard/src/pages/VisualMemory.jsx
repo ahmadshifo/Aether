@@ -1,5 +1,6 @@
 // Member 2: saved frames fanned as playing cards, searchable by caption, read text and objects (data from Member 3's API).
 import { useMemo, useState } from 'react';
+import { useParams } from 'react-router';
 import { PlayingCards, Segmented } from '../components/ui/index.js';
 import { Icon, PageHeader, SceneArt, formatDate, formatTime, signText } from '../components/ui.jsx';
 import { FRAMES, sceneFor } from '../data/mockData.js';
@@ -30,10 +31,11 @@ function Card({ frame }) {
   );
 }
 
-export default function VisualMemory({ param }) {
+export default function VisualMemory() {
+  const { frameId } = useParams();
   const [query, setQuery] = useState('');
   const [range, setRange] = useState('history');
-  const [selectedId, setSelectedId] = useState(param ?? FRAMES[0].frame_id);
+  const [selectedId, setSelectedId] = useState(frameId ?? FRAMES[0].frame_id);
 
   const results = useMemo(() => {
     const newest = Math.max(...FRAMES.map((frame) => Date.parse(frame.captured_at)));

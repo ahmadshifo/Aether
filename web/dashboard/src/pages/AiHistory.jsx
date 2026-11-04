@@ -73,7 +73,7 @@ export default function AiHistory() {
               <ul className="evidence">
                 {evidence.map((frame, i) => (
                   <li key={frame.frame_id}>
-                    <Stamp small href={`#/memory/${frame.frame_id}`} tilt={i % 2 ? 1.5 : -1.5}
+                    <Stamp small to={`/memory/${frame.frame_id}`} tilt={i % 2 ? 1.5 : -1.5}
                       label={`Open evidence frame: ${frameTitle(frame)} at ${formatTime(frame.captured_at)}`}
                       caption={`${formatTime(frame.captured_at)} · ${frameTitle(frame)}`}>
                       <SceneArt scene={sceneFor(frame)} sign={signText(frame.ocr_text)} blur={/blur/i.test(frame.caption)} />

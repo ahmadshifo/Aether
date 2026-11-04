@@ -1,5 +1,6 @@
 // Member 2: overview: live stream with the text it just read, latest answer slip, system health and recently remembered frames.
 import { useContext, useState } from 'react';
+import { Link } from 'react-router';
 import { AUTH_ENABLED } from '../auth.js';
 import LiveStream from '../components/LiveStream.jsx';
 import { Barcode, LogoTraceLoader, ReceiptPrinter, ScrambleText, Stamp } from '../components/ui/index.js';
@@ -87,7 +88,7 @@ export default function Overview() {
         <section className="card section" aria-labelledby="live-title">
           <div className="card-head">
             <h2 id="live-title" className="card-title">Live stream</h2>
-            <a href="#/live" className="btn">Open full view</a>
+            <Link to="/live" className="btn">Open full view</Link>
           </div>
           <LiveStream sessionId={liveSessionId} aspect="16x9"
             idleText={AUTH_ENABLED ? 'Your phone isn’t streaming. Press Start in the Aether app.' : undefined} />
@@ -136,12 +137,12 @@ export default function Overview() {
       <section className="card section" aria-labelledby="recent-title">
         <div className="card-head">
           <h2 id="recent-title" className="card-title">Recently remembered</h2>
-          <a href="#/memory" className="btn">View all {FRAMES.length}</a>
+          <Link to="/memory" className="btn">View all {FRAMES.length}</Link>
         </div>
         <ul className="stamps">
           {recent.map(({ frame, tilt }) => (
             <li key={frame.frame_id}>
-              <Stamp href={`#/memory/${frame.frame_id}`} tilt={tilt}
+              <Stamp to={`/memory/${frame.frame_id}`} tilt={tilt}
                 label={`${frameTitle(frame)} at ${formatTime(frame.captured_at)}`}
                 caption={<><span>{frameTitle(frame)}</span><span>{formatTime(frame.captured_at)}</span></>}>
                 <SceneArt scene={sceneFor(frame)} sign={signText(frame.ocr_text)} />
