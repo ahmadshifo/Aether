@@ -1,0 +1,11 @@
+node_modules/
+.npm-cache/
+.expo/
+.runtime/
+dev-runtime/
+validation/artifacts/
+dist/
+android/
+ios/
+.env.local
+*.tsbuildinfo
