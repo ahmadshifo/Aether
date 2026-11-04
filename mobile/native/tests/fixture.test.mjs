@@ -1,0 +1,57 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { createFixture } from '../dev-server/server.mjs';
+test('real isolated SQLite: validation, signup/login/me/logout, restart, expiry, ownership and stale stop', async t => {
+  let now = Date.now();
+  const database = path.resolve('.runtime', `test-${randomUUID()}.sqlite3`);
+  let fixture = createFixture({ database, secure: false, now: () => now, sessionMs: 10000 });
+  await new Promise(resolve => fixture.server.listen(0, '127.0.0.1', resolve));
+  let origin = `http://127.0.0.1:${fixture.server.address().port}`, cookie = '';
+  const req = async (route, body, providedCookie = cookie) => {
+    const response = await fetch(origin + route, { method: body === undefined ? 'GET' : 'POST', headers: { ...(providedCookie ? { Cookie: providedCookie } : {}), 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error' });
+    const set = response.headers.get('set-cookie'); if (set) cookie = set.split(';')[0];
+    return { status: response.status, data: response.status === 204 ? null : await response.json(), set, cache: response.headers.get('cache-control') };
+  };
+  t.after(async () => { await fixture.close(); for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(database + suffix); } catch {} } });
+  const credentials = { name: 'Synthetic user', email: `${randomUUID()}@example.test`, password: randomUUID() };
+  assert.equal((await req('/api/v1/auth/me')).status, 401);
+  for (const [patch, code] of [[{ name: ' ' }, 'invalid_name'], [{ email: 'bad' }, 'invalid_email'], [{ password: 'short' }, 'weak_password']]) {
+    assert.equal((await req('/api/v1/auth/signup', { ...credentials, ...patch })).data.error.code, code);
+  }
+  const signup = await req('/api/v1/auth/signup', credentials); assert.equal(signup.status, 201);
+  assert.match(signup.set, /HttpOnly/); assert.match(signup.set, /SameSite=Lax/); assert.equal(signup.cache, 'no-store');
+  const userA = signup.data.user, cookieA = cookie;
+  assert.match(userA.user_id, /^[a-f\d-]{36}$/); assert.equal((await req('/api/v1/auth/me')).data.user.user_id, userA.user_id);
+  assert.equal((await req('/api/v1/auth/signup', credentials)).status, 409);
+  const stored = fixture.db.prepare('SELECT password_hash FROM users WHERE user_id=?').get(userA.user_id).password_hash;
+  assert.match(stored, /^scrypt\$/); assert.ok(!stored.includes(credentials.password));
+  const token = fixture.db.prepare('SELECT token_hash FROM sessions').get().token_hash; assert.equal(token.length, 64); assert.ok(!cookieA.includes(token));
+  const idA = randomUUID(), idB = randomUUID();
+  assert.equal((await req('/api/v1/streams/start', { session_id: 'not-uuid' })).status, 400);
+  assert.equal((await req('/api/v1/streams/start', { session_id: idA })).status, 200);
+  await req('/api/v1/streams/start', { session_id: idB }); await req('/api/v1/streams/stop', { session_id: idA });
+  assert.equal((await req('/api/v1/streams/active')).data.session_id, idB);
+  assert.equal((await req('/api/v1/streams/start', { session_id: idA })).status, 409);
+  const tombstone = randomUUID(); await req('/api/v1/streams/stop', { session_id: tombstone });
+  assert.equal((await req('/api/v1/streams/start', { session_id: tombstone })).status, 409);
+  await req('/api/v1/auth/signup', { ...credentials, email: `${randomUUID()}@example.test` }, '');
+  assert.equal((await req('/api/v1/streams/active')).data.session_id, null);
+  assert.equal((await req('/api/v1/streams/stop', { session_id: idB })).status, 403);
+  cookie = cookieA;
+  await fixture.close(); fixture = createFixture({ database, secure: false, now: () => now, sessionMs: 10000 });
+  await new Promise(resolve => fixture.server.listen(0, '127.0.0.1', resolve)); origin = `http://127.0.0.1:${fixture.server.address().port}`;
+  assert.equal((await req('/api/v1/auth/me')).data.user.user_id, userA.user_id);
+  const logout = await req('/api/v1/auth/logout', {}); assert.equal(logout.status, 204); assert.match(logout.set, /Max-Age=0/);
+  assert.equal((await req('/api/v1/auth/me', undefined, cookieA)).status, 401);
+  assert.equal((await req('/api/v1/auth/login', credentials)).status, 200);
+  now += 10001; assert.equal((await req('/api/v1/auth/me')).status, 401);
+  for (let i = 0; i < 5; i++) assert.equal((await req('/api/v1/auth/login', { ...credentials, password: randomUUID() })).status, 401);
+  assert.equal((await req('/api/v1/auth/login', credentials)).status, 429);
+  now += 900001; assert.equal((await req('/api/v1/auth/login', credentials)).status, 200);
+  const forbidden = await fetch(origin + '/api/v1/auth/logout', { method: 'POST', headers: { Origin: 'https://untrusted.example', Cookie: cookie } }); assert.equal(forbidden.status, 403);
+  assert.equal((await req('/api/v1/ask', {})).status, 404);
+  assert.equal(fs.readFileSync(database).subarray(0, 16).toString(), 'SQLite format 3\0');
+});
