@@ -1,7 +1,7 @@
 import { boundedFetch } from '../platform/config.ts';
 export const validSessionId = (id: string) => /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(id);
-// Existing paths/body from the supplied contract brief. This checkout lacks streams.py.
-// Fixture response validation is deliberately minimal until production integration.
+// web/ai-backend/app/streams.py: Start and Stop tell the backend which stream this account publishes,
+// so the web dashboard's Connect finds it.
 export class StreamRegistry {
   constructor(private origin: string, private fetcher: typeof fetch = fetch) {}
   async request(action: 'start' | 'stop', id: string) {

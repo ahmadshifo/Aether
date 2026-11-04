@@ -66,7 +66,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
   useEffect(() => { focus(); }, [page, focus]);
   useEffect(() => {
     const timer = setInterval(() => runtime.repository.expire(), 30000);
-    const sub = AppState.addEventListener('change', value => { if (value === 'background' || value === 'inactive' && !permissionPending()) runtime.controller.stop(true); else if (value === 'active') runtime.repository.expire(); });
+    const sub = AppState.addEventListener('change', value => { if ((value === 'background' || value === 'inactive') && !permissionPending()) runtime.controller.stop(true); else if (value === 'active') runtime.repository.expire(); });
     return () => { clearInterval(timer); sub.remove(); };
   }, [runtime]);
   const navigate = (next: Page) => { setNotice(''); if (next === 'history') runtime.controller.pause(); setPage(next); };

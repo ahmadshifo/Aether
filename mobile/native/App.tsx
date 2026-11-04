@@ -12,11 +12,12 @@ import { HelpScreen } from './src/screens/HelpScreen';
 import { ConnectionScreen } from './src/screens/ConnectionScreen';
 import { AuthController, type AuthState } from './src/auth/authController';
 import { createAuthClient } from './src/auth/authClient';
-import { boundedFetch, defaultEndpoints, validateEndpoints, type Endpoints } from './src/platform/config';
+import { defaultEndpoints, probeBackend, validateEndpoints, type Endpoints } from './src/platform/config';
 import { copies } from './src/i18n/nativeCopy';
 import { dark, light } from './src/theme/tokens';
 import type { Language } from './src/shared/types';
 import { nativeFetch } from './src/platform/network';
+import { permissionPending } from './src/platform/permissions';
 const CONFIG_KEY = 'aether-native-connection-v1';
 const waiting: AuthState = { status: 'checking', session: null, error: '', notice: '' };
 const failed: AuthState = { status: 'service_unavailable', session: null, error: 'fixture_unavailable', notice: '' };
@@ -33,14 +34,12 @@ export default function App() {
     current.current?.dispose(); current.current = undefined; setAuth(undefined); setBoot(waiting); setEndpoints(value); endpointRef.current = value;
     if (persist) await AsyncStorage.setItem(CONFIG_KEY, JSON.stringify(value)).catch(() => {});
     try {
-      const health = await boundedFetch(`${value.backend}/health`, { credentials: 'omit' }, 8000, nativeFetch);
-      const data = await health.json();
-      if (!health.ok || data.service !== 'aether-native-fixture' || data.storage !== 'sqlite' || data.answers !== 'demo' || typeof data.environment !== 'string' || !/^[a-f\d-]{36}$/i.test(data.environment)) throw Error('fixture_unavailable');
+      await probeBackend(value.backend, nativeFetch);
       if (epoch !== connectEpoch.current) return;
-      const next = new AuthController(createAuthClient(value.backend, nativeFetch), `${value.backend}|${data.environment}`);
+      const next = new AuthController(createAuthClient(value.backend, nativeFetch), value.backend);
       current.current = next; setAuth(next); setPublicPage('auth');
       if (fresh) next.requireFresh(); else await next.check();
-    } catch { if (epoch === connectEpoch.current) setBoot(failed); }
+    } catch (error) { if (__DEV__) console.warn('Aether connect failed:', value.backend, String(error)); if (epoch === connectEpoch.current) setBoot(failed); }
   }
   useEffect(() => {
     let alive = true;
@@ -48,12 +47,15 @@ export default function App() {
     const motion = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduced);
     void AsyncStorage.getItem(CONFIG_KEY).then(raw => {
       if (!alive) return;
+      // In Expo Go, npm start gives the laptop's current address, so an old saved address can't lock the app out.
+      // An installed APK only starts from its built-in address; after that the one saved on Connection wins.
+      if (process.env.EXPO_PUBLIC_AETHER_HOST && (__DEV__ || !raw)) { void connect(defaultEndpoints, false); return; }
       if (!raw) { setBoot(failed); setPublicPage('connection'); return; }
       const config = validateEndpoints(JSON.parse(raw)); void connect(config, false);
     }).catch(() => { if (alive) { setBoot(failed); setPublicPage('connection'); } });
     let backgrounded = false;
     const appState = AppState.addEventListener('change', value => {
-      if (value === 'background') { backgrounded = true; connectEpoch.current++; current.current?.background(); }
+      if (value === 'background' && !permissionPending()) { backgrounded = true; connectEpoch.current++; current.current?.background(); }
       else if (value === 'active' && backgrounded) { backgrounded = false; if (current.current) void current.current.check(); else setBoot(failed); }
     });
     return () => { alive = false; connectEpoch.current++; current.current?.dispose(); motion.remove(); appState.remove(); };

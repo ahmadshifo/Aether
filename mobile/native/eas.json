@@ -1,0 +1,16 @@
+{
+  "cli": { "appVersionSource": "local" },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": { "buildType": "apk", "gradleCommand": ":app:assembleDebug" },
+      "env": { "AETHER_LAN_HOST": "any", "EXPO_PUBLIC_AETHER_HOST": "192.168.1.8" }
+    },
+    "apk": {
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": { "AETHER_LAN_HOST": "any", "EXPO_PUBLIC_AETHER_HOST": "192.168.1.8" }
+    }
+  }
+}

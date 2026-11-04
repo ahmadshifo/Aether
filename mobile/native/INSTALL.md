@@ -1,5 +1,15 @@
 # Local preview and later native builds
 
+## Using the real Aether backend
+
+The app now talks to the real backend (`web/ai-backend`), not only the test fixture: same accounts as the web dashboard, and the dashboard's **Connect** finds the stream.
+
+1. On the laptop, start the backend so phones can reach it: `.venv\Scripts\python -m uvicorn app.main:app --host 0.0.0.0 --port 8002` (in `web/ai-backend`), and start MediaMTX.
+2. In the app's **Connection** screen: turn on the private-LAN switch, set the server to `http://<laptop IP>:8002` and media to `http://<laptop IP>:8889`, and save.
+3. Build an APK with `AETHER_LAN_HOST=any` so it keeps working when the laptop's Wi-Fi address changes. `EXPO_PUBLIC_AETHER_HOST=<laptop IP>` prefills the first launch.
+
+Answers are still demo answers until `/api/v1/ask` exists on the backend.
+
 ## Current verified preview
 
 On 2026-11-04 the laptop Wi-Fi address was `192.168.1.103`. It is different from the VMware virtual adapter addresses. This address can change after reconnecting to Wi-Fi. The fixture and Metro were started with hidden process windows, and their health was verified from the laptop using the LAN address. Phone reachability has not been tested.

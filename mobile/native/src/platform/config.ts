@@ -1,5 +1,9 @@
 export type Endpoints = { backend: string; media: string; allowLan: boolean };
-export const defaultEndpoints: Endpoints = { backend: 'https://localhost:18063', media: 'https://localhost:8889', allowLan: false };
+// EXPO_PUBLIC_AETHER_HOST (set when building) prefills the laptop's address on first launch.
+const buildHost = process.env.EXPO_PUBLIC_AETHER_HOST;
+export const defaultEndpoints: Endpoints = buildHost
+  ? { backend: `http://${buildHost}:8002`, media: `http://${buildHost}:8889`, allowLan: true }
+  : { backend: 'https://localhost:8002', media: 'https://localhost:8889', allowLan: false };
 export function privateHost(host: string) {
   if (host === 'localhost' || host.endsWith('.local')) return true;
   const parts = host.split('.').map(Number);
@@ -28,4 +32,10 @@ export async function boundedFetch(url: string, options: RequestInit = {}, ms = 
     const body = response.status === 204 || response.status === 304 ? null : await response.arrayBuffer();
     return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
   } finally { clearTimeout(timer); options.signal?.removeEventListener('abort', abort); }
+}
+// Recognises the Aether backend (or the test fixture): /me answers, and says "not signed in" in the agreed error shape.
+export async function probeBackend(origin: string, fetcher: typeof fetch = fetch) {
+  const response = await boundedFetch(`${origin}/api/v1/auth/me`, { credentials: 'omit', headers: { Accept: 'application/json' } }, 8000, fetcher);
+  const data = await response.json().catch(() => null);
+  if (response.status === 200 ? !data?.user : response.status !== 401 || data?.error?.code !== 'not_authenticated') throw Error('fixture_unavailable');
 }

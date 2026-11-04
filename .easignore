@@ -1,0 +1,19 @@
+# EAS Build only needs the native app. This file replaces .gitignore for uploads, so local files must be listed here too.
+/*
+!/mobile
+/mobile/*
+!/mobile/native
+
+**/node_modules
+**/.npm-cache
+**/.runtime
+**/.expo
+**/dist
+**/android
+**/ios
+**/validation/artifacts
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.tsbuildinfo

@@ -3,7 +3,7 @@ import { Switch, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Button, Card, Field, Mark, Notice, Row, T, useUI } from '../components/ui';
 import { copies } from '../i18n/nativeCopy';
-import { boundedFetch, validateEndpoints, type Endpoints } from '../platform/config';
+import { boundedFetch, probeBackend, validateEndpoints, type Endpoints } from '../platform/config';
 import type { SessionState } from '../session/controller';
 import { nativeFetch } from '../platform/network';
 export function ConnectionScreen({ endpoints, onSave, session, signedIn }: { endpoints: Endpoints; onSave(value: Endpoints): void; session?: SessionState; signedIn: boolean }) {
@@ -14,9 +14,7 @@ export function ConnectionScreen({ endpoints, onSave, session, signedIn }: { end
     const g = ++epoch.current; setBusy(true); setMessage('');
     try {
       const valid = validateEndpoints(draft);
-      const health = await boundedFetch(`${valid.backend}/health`, { credentials: 'omit' }, 8000, nativeFetch);
-      const data = await health.json();
-      if (!health.ok || data.service !== 'aether-native-fixture' || data.storage !== 'sqlite') throw Error('fixture_unavailable');
+      await probeBackend(valid.backend, nativeFetch);
       // A public check proves reachability only. /me is not used to unlock this view.
       if (g === epoch.current) setAuthStatus(`${n.reachable} · ${signedIn && valid.backend === endpoints.backend ? n.authenticated : n.signedOut}`);
       try {

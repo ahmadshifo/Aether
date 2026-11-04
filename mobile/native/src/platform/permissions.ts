@@ -1,4 +1,4 @@
-// iOS permission dialogs can emit inactive -> active without backgrounding.
+// Permission dialogs emit inactive -> active on iOS and background -> active on Android.
 // Never treat that transition as account loss or cancel the user's Start.
 let prompts = 0;
 let previous: Promise<unknown> = Promise.resolve();
