@@ -11,6 +11,7 @@ import { copies } from '../i18n/nativeCopy';
 import type { AuthController, AuthSession } from '../auth/authController';
 import type { Endpoints } from '../platform/config';
 import type { Language, Page } from '../shared/types';
+import { themeModes, type ThemeMode } from '../theme/tokens';
 import { capabilities } from '../platform/capabilities';
 import { nativeFetch } from '../platform/network';
 import { permissionPending } from '../platform/permissions';
@@ -26,7 +27,7 @@ import { ConnectionScreen } from './ConnectionScreen';
 import { HelpScreen } from './HelpScreen';
 import { HistoryScreen, entryTime } from './HistoryScreen';
 type Preferences = { welcome?: boolean; motion?: boolean; haptics?: boolean; wake?: boolean };
-export function Account({ auth, session, endpoints, saveEndpoints, changeLanguage }: { auth: AuthController; session: AuthSession; endpoints: Endpoints; saveEndpoints(value: Endpoints): void; changeLanguage(language: Language): void }) {
+export function Account({ auth, session, endpoints, saveEndpoints, changeLanguage, themeMode, changeTheme }: { auth: AuthController; session: AuthSession; endpoints: Endpoints; saveEndpoints(value: Endpoints): void; changeLanguage(language: Language): void; themeMode: ThemeMode; changeTheme(mode: ThemeMode): void }) {
   const ui = useUI(), { language, colors } = ui, { m, u, n } = copies(language), dimensions = useWindowDimensions();
   const [page, setPage] = useState<Page>('welcome'), [preferences, setPreferences] = useState<Preferences>({}), [loaded, setLoaded] = useState(false), [selected, setSelected] = useState(0), [prompt, setPrompt] = useState<number | null>(null), [typed, setTyped] = useState(''), [notice, setNotice] = useState('');
   const [confirm, setConfirm] = useState<'stop' | 'leave' | 'clear' | 'logout' | null>(null);
@@ -130,7 +131,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
           {media.phase === 'paused' && media.active && <Button label={m.resume} onPress={() => runtime.controller.resume()} />}
           {prompt !== null && <Card><T variant="label">{m.selected}</T><T>{m.questions[prompt]}</T><T variant="small">{m.say}</T></Card>}
           {!!media.transcript && <Card><T variant="label">{m.transcript}</T><T>{media.transcript}</T></Card>}
-          {media.answer && <Reveal key={media.answer.id}><View style={{ borderTopWidth: 8, borderTopColor: '#2A2A2E', gap: 20 }}><Card style={{ marginHorizontal: 8, borderRadius: 0 }}><T variant="label">AETHER · {m.answer}</T><T variant="small">{entryTime(media.answer, language)}</T><Notice>{m.demo}</Notice>{media.answer.input === 'typed' && <T variant="small">{n.typed}</T>}<T language={media.answer.language}>{media.answer.answer}</T><T variant="small">{m.evidence} · {media.answer.language.toUpperCase()}</T></Card><Cassette onReplay={() => { void runtime.controller.replay(media.answer!); }} /></View></Reveal>}
+          {media.answer && <Reveal key={media.answer.id}><View style={{ borderTopWidth: 8, borderTopColor: colors.cassette, gap: 20 }}><Card style={{ marginHorizontal: 8, borderRadius: 0 }}><T variant="label">AETHER · {m.answer}</T><T variant="small">{entryTime(media.answer, language)}</T><Notice>{m.demo}</Notice>{media.answer.input === 'typed' && <T variant="small">{n.typed}</T>}<T language={media.answer.language}>{media.answer.answer}</T><T variant="small">{m.evidence} · {media.answer.language.toUpperCase()}</T></Card><Cassette onReplay={() => { void runtime.controller.replay(media.answer!); }} /></View></Reveal>}
           {media.phase === 'speaking' && <Button label={n.stopSpeech} onPress={() => runtime.controller.stopPlayback()} />}
           {(!runtime.caps.recognition || !runtime.caps.webrtc) && <Notice>{n.native_required}</Notice>}
           {runtime.caps.go && __DEV__ && media.active && <Card><T variant="small">{n.typed}</T><Field label={n.typedLabel} value={typed} onChangeText={setTyped} /><Button label={n.typedAction} disabled={!typed.trim() || ['speaking', 'processing', 'paused'].includes(media.phase)} onPress={() => { void runtime.controller.typedQuestion(typed); setTyped(''); }} /></Card>}
@@ -139,8 +140,10 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
           {runtime.caps.webrtc && <T variant="small">{n.noSnapshot}</T>}
         </View>}
         {page === 'history' && <HistoryScreen repository={runtime.repository} state={history} replay={entry => { void runtime.controller.replay(entry); }} active={media.active} speaking={media.phase === 'speaking'} stopSpeech={() => runtime.controller.stopPlayback()} focus={focus} />}
-        {page === 'settings' && <View style={{ gap: 24 }}><T variant="title">{m.settings}</T><T variant="heading">{m.voice}</T><Card><T>{m.speed}</T><Button disabled label={m.speedValue} onPress={() => {}} /><T variant="small">{m.voiceIntegration}</T><T>{m.aloud}</T><T variant="small">{n.aloudNote}</T>
-          {([['wake', m.wake, m.wakeNote], ['haptics', m.vibrate, m.vibrateNote], ['motion', m.motion, m.motionNote]] as const).map(([key, label, body]) => <View key={key} style={{ gap: 8 }}><Row><T style={{ flex: 1 }}>{label}</T><Switch accessibilityLabel={label} value={key === 'motion' ? preferences.motion !== false : preferences[key] === true} onValueChange={value => updatePrefs({ [key]: value })} /></Row><T variant="small">{body}</T></View>)}<T>{m.warning}</T><T variant="small">{m.warningNote}</T></Card>
+        {page === 'settings' && <View style={{ gap: 24 }}><T variant="title">{m.settings}</T>
+          <T variant="heading">{m.appearance}</T><Card><View style={{ gap: 8 }}>{themeModes.map(mode => <Button key={mode} label={mode === 'system' ? m.themeSystem : mode === 'light' ? m.themeLight : m.themeDark} icon={themeMode === mode ? 'check' : mode === 'system' ? 'phone' : mode === 'light' ? 'sun' : 'moon'} selected={themeMode === mode} onPress={() => changeTheme(mode)} />)}</View><T variant="small">{m.themeNote}</T></Card>
+          <T variant="heading">{m.voice}</T><Card><T>{m.speed}</T><Button disabled label={m.speedValue} onPress={() => {}} /><T variant="small">{m.voiceIntegration}</T><T>{m.aloud}</T><T variant="small">{n.aloudNote}</T>
+          {([['wake', m.wake, m.wakeNote], ['haptics', m.vibrate, m.vibrateNote], ['motion', m.motion, m.motionNote]] as const).map(([key, label, body]) => <View key={key} style={{ gap: 8 }}><Row><T style={{ flex: 1 }}>{label}</T><Switch accessibilityLabel={label} trackColor={{ false: colors.muted, true: colors.ok }} thumbColor={colors.card} value={key === 'motion' ? preferences.motion !== false : preferences[key] === true} onValueChange={value => updatePrefs({ [key]: value })} /></Row><T variant="small">{body}</T></View>)}<T>{m.warning}</T><T variant="small">{m.warningNote}</T></Card>
           <T variant="heading">{m.local}</T><Card><T>{n.retention}</T><HoldButton clear disabled={history.loading || !history.items.length} onConfirm={() => { runtime.repository.clear(); setNotice(u.cleared); }} onOptions={() => setConfirm('clear')} /><T variant="small">{m.clearHint}</T></Card>
           <Button label={m.connection} onPress={() => navigate('connection')} /><Button label={m.how} onPress={() => navigate('help')} /><Card><T variant="heading">{m.account}</T><T>{session.user.name}</T><T selectable style={{ writingDirection: 'ltr' }}>{session.user.email}</T><T variant="small">{n.accountNote}</T><Button danger label={m.signOut} onPress={() => setConfirm('logout')} /></Card>
         </View>}

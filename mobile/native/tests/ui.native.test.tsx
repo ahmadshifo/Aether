@@ -45,7 +45,7 @@ test.each(['en', 'ar'] as const)('auth landing/forms/outage remain native and tr
 test.each(['en', 'ar'] as const)('eight screen families use shared native views and working navigation: %s', async language => {
   Dimensions.set({ window: { width: language === 'ar' ? 412 : 402, height: language === 'ar' ? 915 : 874, scale: 3, fontScale: 2 } });
   const auth = new AuthController({ me: async () => user, login: async () => user, signup: async () => user, logout: async () => {} }, 'test-ui-' + language); await auth.check();
-  const tree = await render(wrapper(<Account auth={auth} session={auth.getSnapshot().session!} endpoints={defaultEndpoints} saveEndpoints={() => {}} changeLanguage={() => {}} />, language));
+  const tree = await render(wrapper(<Account auth={auth} session={auth.getSnapshot().session!} endpoints={defaultEndpoints} saveEndpoints={() => {}} changeLanguage={() => {}} themeMode="system" changeTheme={() => {}} />, language));
   const m = monoCopy[language]; expect(JSON.stringify(tree.toJSON())).toContain(m.welcome);
   await press(tree, m.getStarted); expect(JSON.stringify(tree.toJSON())).toContain(m.quick);
   const go = async (label: string) => { const tab = tree.root.findAll(x => x.props.accessibilityRole === 'tab' && x.props.accessibilityLabel === label && typeof x.props.onPress === 'function')[0]; expect(tab).toBeTruthy(); await act(async () => tab!.props.onPress()); };
