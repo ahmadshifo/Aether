@@ -14,7 +14,7 @@ module.exports = {
         ...(lanHost === 'any' ? {} : { NSExceptionDomains: { [lanHost]: { NSExceptionAllowsInsecureHTTPLoads: true, NSIncludesSubdomains: false } } }),
       } : {}) },
     } },
-    android: { package: 'local.aether.nativeexperiment', allowBackup: false, adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#FCFCFC' }, permissions: ['CAMERA', 'RECORD_AUDIO', 'INTERNET'], blockedPermissions: ['android.permission.READ_MEDIA_AUDIO', 'android.permission.READ_MEDIA_VIDEO', 'android.permission.READ_MEDIA_IMAGES', 'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE'], softwareKeyboardLayoutMode: 'resize' },
+    android: { package: 'local.aether.nativeexperiment', allowBackup: false, adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#202020' }, permissions: ['CAMERA', 'RECORD_AUDIO', 'INTERNET'], blockedPermissions: ['android.permission.READ_MEDIA_AUDIO', 'android.permission.READ_MEDIA_VIDEO', 'android.permission.READ_MEDIA_IMAGES', 'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE'], softwareKeyboardLayoutMode: 'resize' },
     plugins: [
       'expo-dev-client', ['expo-camera', { cameraPermission: 'Allow Aether to preview your camera after Start.', microphonePermission: false, recordAudioAndroid: false }],
       ['expo-speech-recognition', { microphonePermission: 'Allow Aether to hear your questions after Start.', speechRecognitionPermission: 'Allow Aether to transcribe your questions with system speech recognition.' }],

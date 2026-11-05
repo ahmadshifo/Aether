@@ -14,8 +14,9 @@ export function T({ variant = 'body', language, style, ...props }: TextProps & {
   return <Text {...props} allowFontScaling style={[{ color: ui.colors.ink, fontSize: sizes[variant], lineHeight: sizes[variant] * (lang === 'ar' ? 1.8 : 1.5), textAlign: lang === 'ar' && variant !== 'brand' ? 'right' : 'left', writingDirection: lang === 'ar' && variant !== 'brand' ? 'rtl' : 'ltr', ...(ui.fonts ? { fontFamily: font } : {}), ...(['small', 'label'].includes(variant) ? { color: ui.colors.muted } : {}) }, style]} />;
 }
 export function Mark({ size = 34 }: { size?: number }) {
-  return <View accessible={false} style={{ width: size, height: size, backgroundColor: '#202020' }}>
-    {[0.28, 0.59].map(left => <View key={left} style={{ position: 'absolute', left: size * left, top: size * 0.365, width: size * 0.13, height: size * 0.27, borderRadius: size * 0.065, backgroundColor: 'white' }} />)}
+  const { colors } = useUI();
+  return <View accessible={false} style={{ width: size, height: size, backgroundColor: colors.ink }}>
+    {[0.28, 0.59].map(left => <View key={left} style={{ position: 'absolute', left: size * left, top: size * 0.365, width: size * 0.13, height: size * 0.27, borderRadius: size * 0.065, backgroundColor: colors.bg }} />)}
   </View>;
 }
 export function Row({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
@@ -29,9 +30,9 @@ export function Button({ label, onPress, disabled, primary, danger, large, icon,
   const { colors, haptics, language } = useUI();
   return <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint} accessibilityState={{ disabled: !!disabled, selected: !!selected }} disabled={disabled}
     onPress={() => { if (haptics) void Haptics.selectionAsync().catch(() => {}); onPress(); }}
-    style={({ pressed }) => ({ minHeight: large ? 92 : primary ? 64 : 48, minWidth: 48, padding: primary ? 16 : 12, borderRadius: primary ? 13 : 10, borderWidth: 1, borderBottomWidth: primary && !pressed ? 7 : 1, borderColor: danger ? colors.danger : primary ? '#000' : selected ? colors.ink : colors.line, backgroundColor: danger ? colors.dangerBg : primary ? colors.tactile : selected ? colors.inset : colors.card, opacity: disabled ? 0.55 : pressed ? 0.8 : 1, transform: [{ translateY: primary && pressed ? 4 : 0 }], alignItems: 'center', justifyContent: 'center', flexDirection: language === 'ar' ? 'row-reverse' : 'row', gap: 10 })}>
-    {icon && <Icon name={icon} color={primary ? 'white' : danger ? colors.danger : colors.ink} />}
-    <T style={{ color: primary ? 'white' : danger ? colors.danger : colors.ink, textAlign: 'center', flexShrink: 1 }}>{label}</T>
+    style={({ pressed }) => ({ minHeight: large ? 92 : primary ? 64 : 48, minWidth: 48, padding: primary ? 16 : 12, borderRadius: primary ? 13 : 10, borderWidth: 1, borderBottomWidth: primary && !pressed ? 7 : 1, borderColor: danger ? colors.danger : primary ? colors.edge : selected ? colors.ink : colors.line, backgroundColor: danger ? colors.dangerBg : primary ? colors.tactile : selected ? colors.inset : colors.card, opacity: disabled ? 0.55 : pressed ? 0.8 : 1, transform: [{ translateY: primary && pressed ? 4 : 0 }], alignItems: 'center', justifyContent: 'center', flexDirection: language === 'ar' ? 'row-reverse' : 'row', gap: 10 })}>
+    {icon && <Icon name={icon} color={primary ? colors.onTactile : danger ? colors.danger : colors.ink} />}
+    <T style={{ color: primary ? colors.onTactile : danger ? colors.danger : colors.ink, textAlign: 'center', flexShrink: 1 }}>{label}</T>
   </Pressable>;
 }
 export function Field({ label, style, ...props }: TextInputProps & { label: string }) {
@@ -48,7 +49,7 @@ export function Sheet({ title, onClose, children, restoreFocus }: { title: strin
   const titleRef = useRef<React.ComponentRef<typeof Text>>(null);
   useEffect(() => () => restoreFocus?.(), [restoreFocus]);
   return <NativeModal transparent animationType="none" visible onRequestClose={onClose} onShow={() => { const id = findNodeHandle(titleRef.current); if (id) AccessibilityInfo.setAccessibilityFocus(id); }}>
-    <View accessibilityViewIsModal style={{ flex: 1, backgroundColor: '#20202099', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 40 }}>
+    <View accessibilityViewIsModal style={{ flex: 1, backgroundColor: colors.scrim, justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 40 }}>
       <View style={{ maxHeight: '100%', width: '100%', maxWidth: 520, alignSelf: 'center', borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line }}>
         <Row style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: colors.line }}><Text ref={titleRef} accessibilityRole="header" style={{ color: colors.ink, fontSize: 24, flex: 1, textAlign: language === 'ar' ? 'right' : 'left' }}>{title}</Text><Button label={t.close} onPress={onClose} /></Row>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 16 }}>{children}</ScrollView>
@@ -72,7 +73,7 @@ export function HoldButton({ clear, onConfirm, onOptions, disabled }: { clear?: 
     onResponderTerminationRequest={() => true} onResponderTerminate={cancel}
     onResponderRelease={e => { const value = hold.current, { locationX, locationY } = e.nativeEvent; cancel(); if (value?.inside && locationX >= 0 && locationY >= 0 && locationX <= bounds.current.width && locationY <= bounds.current.height) { if (Date.now() - value.at >= 1000) onConfirm(); else if (Date.now() - value.at < 250) onOptions(); } }}
     style={{ minHeight: clear ? 64 : 92, padding: 20, borderRadius: 14, backgroundColor: clear ? colors.dangerBg : colors.tactile, justifyContent: 'center', opacity: disabled ? 0.5 : 1 }}>
-      <T style={{ color: clear ? colors.danger : 'white', textAlign: 'center', fontSize: 20 }}>{label}</T>
+      <T style={{ color: clear ? colors.danger : colors.onTactile, textAlign: 'center', fontSize: 20 }}>{label}</T>
     </View><Button label={clear ? t.clearOptions : t.stopOptions} onPress={onOptions} disabled={disabled} /></View>;
 }
 export function Reveal({ children }: { children: React.ReactNode }) {

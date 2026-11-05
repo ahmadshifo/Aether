@@ -7,6 +7,7 @@ type IconName =
   | 'history' | 'close' | 'arrow-left' | 'arrow-right'
   | 'volume' | 'sparkles' | 'check' | 'loader' | 'radio'
   | 'circle-help' | 'stop' | 'audio-lines' | 'logout' | 'search' | 'more' | 'copy' | 'trash' | 'share' | 'plus' | 'minus'
+  | 'sun' | 'moon' | 'phone'
 
 type Props = SvgProps & { name: IconName; size?: number }
 
@@ -39,6 +40,9 @@ export default function EchoIcon({ name, size = 22, ...props }: Props) {
     'circle-help': <><Circle cx="12" cy="12" r="10"/><Path d="M9.5 9a2.6 2.6 0 1 1 4.2 2c-.9.7-1.7 1.2-1.7 2.5M12 17h.01"/></>,
     stop: <Rect x="7" y="7" width="10" height="10" rx="1.5"/>,
     'audio-lines': <><Path d="M3 10v4M7 7v10M11 4v16M15 8v8M19 10v4"/></>,
+    sun: <><Circle cx="12" cy="12" r="4"/><Path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></>,
+    moon: <Path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>,
+    phone: <><Rect x="7" y="2" width="10" height="20" rx="2"/><Path d="M11 18h2"/></>,
   }
 
   return (

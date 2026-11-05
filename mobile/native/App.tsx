@@ -14,16 +14,18 @@ import { AuthController, type AuthState } from './src/auth/authController';
 import { createAuthClient } from './src/auth/authClient';
 import { defaultEndpoints, probeBackend, validateEndpoints, type Endpoints } from './src/platform/config';
 import { copies } from './src/i18n/nativeCopy';
-import { dark, light } from './src/theme/tokens';
+import { dark, light, parseThemeMode, resolveScheme, type ThemeMode } from './src/theme/tokens';
 import type { Language } from './src/shared/types';
 import { nativeFetch } from './src/platform/network';
 import { permissionPending } from './src/platform/permissions';
 const CONFIG_KEY = 'aether-native-connection-v1';
+const THEME_KEY = 'aether-native-theme-v1';
 const waiting: AuthState = { status: 'checking', session: null, error: '', notice: '' };
 const failed: AuthState = { status: 'service_unavailable', session: null, error: 'fixture_unavailable', notice: '' };
 const noSubscription = () => () => {};
 export default function App() {
-  const scheme = useColorScheme();
+  const systemScheme = useColorScheme();
+  const [themeMode, setThemeMode] = useState<ThemeMode>('system'), scheme = resolveScheme(themeMode, systemScheme);
   const [language, setLanguage] = useState<Language>('en'), [reduced, setReduced] = useState(false), [endpoints, setEndpoints] = useState(defaultEndpoints), [publicPage, setPublicPage] = useState<'auth' | 'connection' | 'help'>('auth');
   const [auth, setAuth] = useState<AuthController>(), [boot, setBoot] = useState<AuthState>(waiting);
   const current = useRef<AuthController | undefined>(undefined), connectEpoch = useRef(0), endpointRef = useRef(endpoints);
@@ -45,6 +47,7 @@ export default function App() {
     let alive = true;
     void AccessibilityInfo.isReduceMotionEnabled().then(value => { if (alive) setReduced(value); });
     const motion = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduced);
+    void AsyncStorage.getItem(THEME_KEY).then(raw => { if (alive) setThemeMode(parseThemeMode(raw)); }).catch(() => {});
     void AsyncStorage.getItem(CONFIG_KEY).then(raw => {
       if (!alive) return;
       // In Expo Go, npm start gives the laptop's current address, so an old saved address can't lock the app out.
@@ -63,9 +66,10 @@ export default function App() {
   useEffect(() => { const sub = BackHandler.addEventListener('hardwareBackPress', () => { if (publicPage !== 'auth' && state.status !== 'signed_in') { setPublicPage('auth'); return true; } return false; }); return () => sub.remove(); }, [publicPage, state.status]);
   const save = (value: Endpoints) => { setPublicPage('auth'); void connect(value, true, true); };
   const retry = () => { if (current.current) void current.current.check(); else void connect(endpointRef.current, false); };
+  const changeTheme = (mode: ThemeMode) => { setThemeMode(mode); void AsyncStorage.setItem(THEME_KEY, mode).catch(() => {}); };
   const ui = { language, colors: scheme === 'dark' ? dark : light, fonts, motion: !reduced, haptics: false };
   return <SafeAreaProvider><UIContext.Provider value={ui}><StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-    {auth && state.status === 'signed_in' && state.session ? <Account key={`${state.session.owner.source}:${state.session.owner.epoch}`} auth={auth} session={state.session} endpoints={endpoints} saveEndpoints={save} changeLanguage={setLanguage} />
+    {auth && state.status === 'signed_in' && state.session ? <Account key={`${state.session.owner.source}:${state.session.owner.epoch}`} auth={auth} session={state.session} endpoints={endpoints} saveEndpoints={save} changeLanguage={setLanguage} themeMode={themeMode} changeTheme={changeTheme} />
       : <Frame languageChange={setLanguage} back={publicPage !== 'auth' ? () => setPublicPage('auth') : undefined}>
         {fontError && <Notice>{copies(language).n.fontFallback}</Notice>}
         {publicPage === 'connection' ? <ConnectionScreen endpoints={endpoints} onSave={save} signedIn={false} /> : publicPage === 'help' ? <HelpScreen /> : <AuthScreen state={state} auth={auth} retry={retry} connection={() => setPublicPage('connection')} help={() => setPublicPage('help')} />}
