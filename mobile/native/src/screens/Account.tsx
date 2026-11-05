@@ -5,6 +5,7 @@ import * as Crypto from 'expo-crypto';
 import * as KeepAwake from 'expo-keep-awake';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Frame } from '../components/Frame';
+import { GlassBottomBar } from '../components/GlassBottomBar';
 import { Button, Card, HoldButton, Mark, Notice, Row, Sheet, T, UIContext, useUI } from '../components/ui';
 import Icon from '../components/Icon';
 import { copies } from '../i18n/nativeCopy';
@@ -101,12 +102,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
   const finishWelcome = () => { updatePrefs({ welcome: true }); navigate('home'); };
   const confirmAction = () => { const action = confirm; setConfirm(null); if (action === 'logout') void auth.logout(); else if (action === 'clear') { runtime.repository.clear(); setNotice(u.cleared); } else { runtime.controller.stop(); setPrompt(null); if (action === 'leave') navigate('home'); } };
   const fan = dimensions.width >= 390 && dimensions.fontScale < 1.3;
-  const footer = page !== 'welcome' && <Row style={{ margin: 12, marginTop: 26, padding: 6, flexWrap: 'nowrap', borderWidth: 1, borderColor: colors.lineCard, borderRadius: 16, backgroundColor: colors.card, gap: 2 }}>
-    {(['home', 'history', 'assistant', 'help', 'settings'] as const).map(destination => <Pressable key={destination} accessibilityRole="tab" accessibilityLabel={destination === 'assistant' ? `${m.assistant}: ${m.startLabel}` : m[destination]} accessibilityState={{ selected: page === destination }} onPress={() => destination === 'assistant' ? start() : navigate(destination)} style={{ flex: 1, minHeight: 60, paddingVertical: 8, paddingHorizontal: 2, alignItems: 'center', gap: 6, backgroundColor: page === destination ? colors.inset : undefined, borderRadius: 10 }}>
-      {destination === 'assistant' ? <View style={{ marginTop: -26, borderWidth: 4, borderColor: colors.card, borderRadius: 14, overflow: 'hidden' }}><Mark size={48} /></View> : <Icon name={destination === 'help' ? 'circle-help' : destination} color={colors.ink} />}
-      <T style={{ fontSize: 11, textAlign: 'center' }}>{m[destination]}</T>
-    </Pressable>)}
-  </Row>;
+  const footer = page !== 'welcome' && <GlassBottomBar page={page} onNavigate={navigate} onStart={() => start()} />;
   return <UIContext.Provider value={{ ...ui, motion: ui.motion && preferences.motion !== false, haptics: preferences.haptics === true }}>
     {loaded && page === 'assistant' ? <AssistantScreen media={media} controller={runtime.controller} camera={runtime.camera} caps={runtime.caps} prompt={prompt} start={() => start(prompt)} back={back} backRef={assistantBack} changeLanguage={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} /> : <Frame back={page === 'connection' ? back : undefined} languageChange={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} footer={loaded ? footer : undefined}>
       <Text ref={heading} accessibilityRole="header" style={{ color: colors.muted, fontSize: 12 }}>{page === 'welcome' ? 'AETHER / 01' : `AETHER / ${m[page]}`}</Text>
