@@ -98,7 +98,8 @@ export class SessionController {
           if (!valid()) return;
           if (['not-allowed', 'service-not-allowed', 'audio-capture'].includes(code)) { this.stop(); this.set({ phase: 'error', voiceError: 'recognition_denied' }); }
           else if (code === 'language-not-supported') { this.pause(); this.set({ voiceError: 'language_unavailable' }); }
-          else { this.set({ voiceError: code === 'no-speech' ? 'silence' : 'recognition_failed' }); this.retry(g); }
+          // Silence is not a failure: someone may take their time before asking, so it never uses up the retries.
+          else { if (code === 'no-speech') this.retries = 0; this.set({ voiceError: code === 'no-speech' ? 'silence' : 'recognition_failed' }); this.retry(g); }
         },
       }, request.signal));
       this.recognitionStartup = pending;

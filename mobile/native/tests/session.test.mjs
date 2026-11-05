@@ -94,3 +94,18 @@ test('Stop while photo save resolves discards the retired frame and never emits 
   const photo = { path: 'a.jpg', bytes: 8, capturedAt: new Date().toISOString() }; gate.resolve(photo); await tick();
   assert.equal(h.answers.length, 0); assert.equal(discarded, photo);
 });
+test('silence keeps listening however long it lasts; real recognition failures still give up', async () => {
+  const h = harness();
+  await h.controller.start('ar');
+  for (let i = 0; i < 6; i++) {
+    h.events.at(-1).error('no-speech'); h.events.at(-1).end();
+    await new Promise(resolve => setTimeout(resolve, 450)); await tick();
+    assert.equal(h.events.length, i + 2); assert.equal(h.controller.getSnapshot().phase, 'listening');
+  }
+  for (let i = 0; i < 4; i++) {
+    h.events.at(-1).error('network');
+    await new Promise(resolve => setTimeout(resolve, 400 * (i + 1) + 50)); await tick();
+  }
+  assert.equal(h.controller.getSnapshot().phase, 'paused'); assert.equal(h.controller.getSnapshot().voiceError, 'recognition_failed');
+  h.controller.stop();
+});
