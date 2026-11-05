@@ -1,7 +1,7 @@
 global.IS_REACT_ACT_ENVIRONMENT = true;
 jest.mock('expo-constants', () => ({ __esModule: true, default: { executionEnvironment: 'storeClient' }, ExecutionEnvironment: { StoreClient: 'storeClient' } }));
 jest.mock('@react-native-async-storage/async-storage', () => require('@react-native-async-storage/async-storage/jest/async-storage-mock'));
-jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn(async () => {}) }));
+jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn(async () => {}), notificationAsync: jest.fn(async () => {}), NotificationFeedbackType: { Success: 'success' } }));
 jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn(async () => true) }));
 jest.mock('expo-sharing', () => ({ isAvailableAsync: jest.fn(async () => false), shareAsync: jest.fn(async () => {}) }));
 jest.mock('expo-file-system/legacy', () => ({ documentDirectory: 'file:///synthetic-test/', getInfoAsync: jest.fn(async () => ({ exists: false })), readDirectoryAsync: jest.fn(async () => []), deleteAsync: jest.fn(async () => {}), copyAsync: jest.fn(async () => {}), makeDirectoryAsync: jest.fn(async () => {}) }));

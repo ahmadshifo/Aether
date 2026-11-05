@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionController } from '../src/session/controller.ts';
 import { demoAnswer, validTranscript } from '../src/voice/demo.ts';
+import { sessionGreeting } from '../src/voice/sessionGreeting.ts';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 function harness(overrides = {}) {
@@ -42,7 +43,7 @@ test('only valid final speech produces a labeled demo and real speech adapter ca
   h.events[0].result('Read the sign', true, .1); await tick(); assert.equal(h.answers.length, 0);
   h.events[0].result('Read the sign', true, .9); await tick(); await tick();
   assert.equal(h.answers.length, 1); assert.equal(h.answers[0].answer, 'The sign on the door reads Room 205.');
-  assert.equal(h.answers[0].demo, true); assert.equal(h.answers[0].input, 'speech'); assert.equal(h.counts.speak, 1);
+  assert.equal(h.answers[0].demo, true); assert.equal(h.answers[0].input, 'speech'); assert.equal(h.counts.speak, 2); // Greeting, then answer.
   h.events[0].result('Read the sign', true); await tick(); assert.equal(h.answers.length, 1); h.controller.stop();
 });
 test('interruption/language change while frame resolves cannot save a stale question or photo', async () => {
@@ -81,7 +82,7 @@ test('recognition denial stops an in-flight camera; background never auto-restar
 test('a final event during recognizer startup waits for input shutdown before TTS', async () => {
   const gate = deferred(); let stopped = false;
   const h = harness({ recognition: async (_, events) => { events.start(); events.result('Read the sign', true); await gate.promise; return async () => { stopped = true; }; },
-    speak: async () => { assert.equal(stopped, true); return 'done'; } });
+    speak: async text => { if (text !== sessionGreeting.en) assert.equal(stopped, true); return 'done'; } });
   const start = h.controller.start('en'); await tick(); assert.equal(h.answers.length, 0);
   gate.resolve(); await start; await tick(); assert.equal(h.answers.length, 1); h.controller.stop();
 });
@@ -107,5 +108,104 @@ test('silence keeps listening however long it lasts; real recognition failures s
     await new Promise(resolve => setTimeout(resolve, 400 * (i + 1) + 50)); await tick();
   }
   assert.equal(h.controller.getSnapshot().phase, 'paused'); assert.equal(h.controller.getSnapshot().voiceError, 'recognition_failed');
+  h.controller.stop();
+});
+
+test('opening feedback waits for wake release, precedes camera/mic, and speaks once before listening (EN/AR)', async () => {
+  for (const language of ['en', 'ar']) {
+    const release = deferred(), greeting = deferred(), order = [];
+    const h = harness({ prepareStart: async () => { await release.promise; order.push('wake released'); },
+      sessionOpened: async () => { order.push('vibrate'); },
+      camera: async () => { order.push('camera'); return { release() {} }; },
+      prepareRecognition: async () => { order.push('permission'); },
+      speak: async (text, lang) => { assert.equal(text, sessionGreeting[language]); assert.equal(lang, language); order.push('greeting'); return greeting.promise; },
+      recognition: async (_, events) => { order.push('microphone'); events.start(); return async () => {}; },
+    });
+    const start = h.controller.start(language); await h.controller.start(language); await tick();
+    assert.deepEqual(order, []);
+    release.resolve(); await tick(); assert.deepEqual(order, ['wake released', 'vibrate', 'camera', 'permission', 'greeting']);
+    assert.equal(h.controller.getSnapshot().phase, 'greeting');
+    h.controller.resume(); await tick(); assert.equal(order.includes('microphone'), false);
+    greeting.resolve('done'); await start;
+    assert.equal(order.at(-1), 'microphone'); assert.equal(h.controller.getSnapshot().phase, 'listening');
+    assert.equal(h.answers.length, 0); assert.equal(h.controller.getSnapshot().transcript, '');
+    h.controller.stop();
+  }
+});
+
+test('stop, background, logout, language change, and pause during greeting never restart input', async () => {
+  for (const action of ['stop', 'background', 'logout', 'language', 'pause']) {
+    const greeting = deferred();
+    const h = harness({ speak: () => greeting.promise });
+    const start = h.controller.start('en'); await tick(); assert.equal(h.controller.getSnapshot().phase, 'greeting');
+    if (action === 'logout') h.lock();
+    else if (action === 'language') h.controller.changeLanguage('ar');
+    else if (action === 'background') h.controller.stop(true);
+    else h.controller[action]();
+    greeting.resolve('done'); await start;
+    assert.equal(h.events.length, 0); assert.equal(h.answers.length, 0);
+    if (action === 'language' || action === 'pause') {
+      h.controller.resume(); await tick(); assert.equal(h.events.length, 1);
+    }
+    h.controller.stop();
+  }
+});
+
+test('greeting failure still allows questions and reports playback failure', async () => {
+  for (const speak of [async () => 'error', async () => { throw Error('voice unavailable'); }]) {
+    const h = harness({ speak }); await h.controller.start('en');
+    assert.equal(h.controller.getSnapshot().phase, 'listening');
+    assert.equal(h.controller.getSnapshot().voiceError, 'tts_failed');
+    h.controller.stop();
+  }
+});
+
+test('denied speech permissions do not announce readiness and release camera', async () => {
+  const h = harness({ prepareRecognition: async () => { throw Error('denied'); } });
+  await h.controller.start('en');
+  assert.equal(h.counts.speak, 0); assert.equal(h.events.length, 0);
+  assert.equal(h.controller.getSnapshot().active, false); assert.equal(h.counts.release, 1);
+  assert.equal(h.controller.getSnapshot().voiceError, 'recognition_denied');
+});
+
+test('late startup permission after stopping cannot greet or open the microphone', async () => {
+  const permission = deferred(), h = harness({ prepareRecognition: () => permission.promise });
+  const start = h.controller.start('en'); await tick(); h.controller.stop(); permission.resolve(); await start;
+  assert.equal(h.counts.speak, 0); assert.equal(h.events.length, 0); assert.equal(h.counts.release, 1);
+});
+
+test('stopped wake handoff cannot open hardware; paused handoff keeps voice off; haptic failure cannot block Start', async () => {
+  for (const action of ['stop', 'pause']) {
+    const handoff = deferred(), h = harness({ prepareStart: () => handoff.promise });
+    const start = h.controller.start('en'); h.controller[action](); handoff.resolve(); await start;
+    assert.equal(h.counts.capture, action === 'stop' ? 0 : 1); assert.equal(h.counts.speak, 0); assert.equal(h.events.length, 0); h.controller.stop();
+  }
+  const h = harness({ sessionOpened: async () => { throw Error('haptics disabled by OS'); } });
+  await h.controller.start('en'); assert.equal(h.controller.getSnapshot().phase, 'listening'); h.controller.stop();
+});
+
+test('Resume during a pending wake handoff waits for release and respects the new language', async () => {
+  const gate = deferred(); let heardLanguage;
+  const h = harness({ prepareStart: () => gate.promise, recognition: async (language, events) => { heardLanguage = language; events.start(); return async () => {}; } });
+  const pending = h.controller.start('en'); h.controller.changeLanguage('ar'); h.controller.resume(); await tick();
+  assert.equal(heardLanguage, undefined); gate.resolve(); await pending; await tick();
+  assert.equal(heardLanguage, 'ar'); assert.equal(h.counts.speak, 0); h.controller.stop();
+});
+
+test('an old delayed wake handoff cannot stop the microphone of a newer session', async () => {
+  const gate = deferred(); let starts = 0;
+  const h = harness({ prepareStart: async () => { if (++starts === 1) await gate.promise; } });
+  const old = h.controller.start('en'); h.controller.stop(); await h.controller.start('ar');
+  gate.resolve(); await old; assert.equal(h.counts.voiceStop, 0); assert.equal(h.controller.getSnapshot().phase, 'listening');
+  h.controller.stop();
+});
+
+test('a delayed old greeting cannot interfere with a new session', async () => {
+  const old = deferred(); let calls = 0;
+  const h = harness({ speak: async () => ++calls === 1 ? old.promise : 'done' });
+  const first = h.controller.start('en'); await tick(); h.controller.stop();
+  await h.controller.start('ar'); const id = h.controller.getSnapshot().id;
+  old.resolve('done'); await first;
+  assert.equal(h.events.length, 1); assert.equal(h.controller.getSnapshot().id, id); assert.equal(h.controller.getSnapshot().phase, 'listening');
   h.controller.stop();
 });

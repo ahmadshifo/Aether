@@ -32,7 +32,7 @@ with info.open('rb') as stream:
     data = plistlib.load(stream)
 data['NSMicrophoneUsageDescription'] = 'Aether listens to spoken questions and, if enabled, for Hey Aether while the app is open.'
 data['NSSpeechRecognitionUsageDescription'] = 'Aether uses system speech recognition to transcribe your questions.'
-data['NSLocalNetworkUsageDescription'] = 'Connect to Metro, the Aether test server, and camera streaming on your laptop.'
+data['NSLocalNetworkUsageDescription'] = 'Aether connects to the app server and camera stream on your local network.'
 # IP-based Metro and the private-LAN HTTP server need this in the dev binary.
 # App endpoint validation still restricts user-configured HTTP origins to private hosts.
 data['NSAppTransportSecurity'] = {'NSAllowsArbitraryLoads': True}

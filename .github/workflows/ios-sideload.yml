@@ -3,7 +3,7 @@ name: iPhone development IPA for sideloading
 on:
   workflow_dispatch:
   push:
-    branches: [feature/mobile-native-mono-expo]
+    branches: [feature/mobile-native-mono-expo, codex/native-session-polish]
     paths:
       - .github/workflows/ios-sideload.yml
       - mobile/native/**
@@ -41,6 +41,12 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Check TypeScript
         run: npm run typecheck
+      - name: Validate native app behavior and bundles
+        run: |
+          npm run lint
+          npm test
+          npm run test:ui
+          npm run export
       - name: Compile unsigned iPhone development app
         run: bash scripts/build-ios-sideload.sh
       - name: Upload unsigned IPA

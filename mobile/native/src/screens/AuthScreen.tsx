@@ -17,11 +17,11 @@ export function AuthScreen({ state, auth, retry, connection, help }: { state: Au
     <View style={{ alignItems: mode === 'landing' && available ? 'center' : undefined, gap: 20 }}>
       <Mark size={mode === 'landing' && available ? 180 : 64} />
       <T accessibilityRole="header" variant={mode === 'landing' && available ? 'brand' : 'title'} style={mode === 'landing' && available ? { fontSize: 60 } : {}}>{available ? mode === 'landing' ? 'Aether' : mode === 'signup' ? a.signup : a.welcome : a.locked}</T>
-      <T>{available ? mode === 'landing' ? m.tagline : a.intro : ''}</T>
+      {available && mode === 'landing' && <T>{m.tagline}</T>}
     </View>
     {!!error && <Notice danger>{errorText}</Notice>}
     {!!state.notice && <Notice>{a[state.notice as 'created' | 'signed_out']}</Notice>}
-    {available && mode === 'landing' ? <><Button primary label={a.login} onPress={() => setMode('login')} /><Button label={m.signup} onPress={() => setMode('signup')} /><T variant="small">{m.accessible}</T></>
+    {available && mode === 'landing' ? <><Button primary label={a.login} onPress={() => setMode('login')} /><Button label={m.signup} onPress={() => setMode('signup')} /></>
       : available ? <View style={{ gap: 18 }}>
         {mode === 'signup' && <Field label={a.name} value={name} onChangeText={setName} autoComplete="name" textContentType="name" editable={!pending} />}
         <Field label={a.email} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" textContentType="username" editable={!pending} style={{ writingDirection: 'ltr', textAlign: 'left' }} />
@@ -40,6 +40,6 @@ export function AuthScreen({ state, auth, retry, connection, help }: { state: Au
           <Button label={a.retry} onPress={retry} />
         </>}
       </>}
-    <Button label={m.connection} onPress={connection} /><Button label={m.help} onPress={help} /><T variant="small">{a.privacy}</T>
+    <Button label={m.connection} onPress={connection} /><Button label={m.help} onPress={help} />
   </View>;
 }

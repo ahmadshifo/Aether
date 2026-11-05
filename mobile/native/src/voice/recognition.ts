@@ -2,13 +2,16 @@ import { loadRecognition } from '../platform/capabilities';
 import type { Language } from '../shared/types';
 import type { RecognitionEvents } from '../session/controller';
 import { duringPermission } from '../platform/permissions';
-export async function recognize(language: Language, events: RecognitionEvents, signal: AbortSignal, options:{continuous?:boolean;onDevice?:boolean;phrases?:string[]}={}): Promise<() => Promise<void>> {
-
+export async function prepareRecognition(signal: AbortSignal) {
   const module = loadRecognition();
   const permission = await duringPermission(() => module.requestPermissionsAsync(), signal);
-
-  if (signal.aborted) return async () => {};
+  if (signal.aborted) return;
   if (!permission.granted || !module.isRecognitionAvailable()) throw Error('recognition_denied');
+}
+export async function recognize(language: Language, events: RecognitionEvents, signal: AbortSignal, options:{continuous?:boolean;onDevice?:boolean;phrases?:string[]}={}): Promise<() => Promise<void>> {
+  await prepareRecognition(signal);
+  if (signal.aborted) return async () => {};
+  const module = loadRecognition();
 
   const supported = await module.getSupportedLocales({}).catch(() => ({ locales: [] as string[], installedLocales: [] as string[] }));
   if (signal.aborted) return async () => {};

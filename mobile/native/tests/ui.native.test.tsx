@@ -1,5 +1,6 @@
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Dimensions, Pressable, Share, TextInput, View } from 'react-native';
 import { UIContext, Button, HoldButton, Sheet } from '../src/components/ui';
 import { monoCopy } from '../src/i18n/monoCopy';
@@ -20,7 +21,7 @@ import * as Clipboard from 'expo-clipboard';
 import { HistoryScreen } from '../src/screens/HistoryScreen';
 import { HistoryRepository } from '../src/storage/history';
 const user = { user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', name: 'Synthetic test account', email: 'test@example.test', created_at: new Date().toISOString() };
-const wrapper = (children: React.ReactNode, language: 'en' | 'ar' = 'en', colors = light) => <UIContext.Provider value={{ language, colors, fonts: false, motion: false, haptics: false }}>{children}</UIContext.Provider>;
+const wrapper = (children: React.ReactNode, language: 'en' | 'ar' = 'en', colors = light) => <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 402, height: 874 }, insets: { top: 59, bottom: 34, left: 0, right: 0 } }}><UIContext.Provider value={{ language, colors, fonts: false, motion: false, haptics: false }}>{children}</UIContext.Provider></SafeAreaProvider>;
 async function render(element: React.ReactNode) { let tree!: renderer.ReactTestRenderer; await act(async () => { tree = renderer.create(element); }); return tree; }
 async function press(tree: renderer.ReactTestRenderer, label: string) { const item = tree.root.findAllByType(Button).find(x => x.props.label === label); expect(item).toBeTruthy(); await act(async () => { item!.props.onPress(); }); }
 afterEach(() => jest.clearAllMocks());
@@ -55,10 +56,11 @@ test.each(['en', 'ar'] as const)('eight screen families use shared native views 
   await go(m.help); expect(JSON.stringify(tree.toJSON())).toContain(m.safety);
   await go(m.home); await press(tree, m.start);
   expect(tree.root.findAllByType(Pressable).filter(x => x.props.accessibilityRole === 'tab')).toHaveLength(0);
-  expect(JSON.stringify(tree.toJSON())).toContain(nativeCopy[language].native_required);
-  await press(tree, m.stopOptions); expect(tree.root.findAllByType(Sheet)).toHaveLength(1);
-  await press(tree, m.cancel); expect(tree.root.findAllByType(HoldButton)).toHaveLength(1);
-  await press(tree, m.stopOptions); await press(tree, m.stop); expect(tree.root.findAllByType(HoldButton)).toHaveLength(0);
+  expect(tree.root.findAllByType(Button).filter(x => x.props.label === m.stop)).toHaveLength(1);
+  expect(tree.root.findAllByType(HoldButton)).toHaveLength(0);
+  await press(tree, nativeCopy[language].details); expect(JSON.stringify(tree.toJSON())).toContain(nativeCopy[language].native_required);
+  await press(tree, m.close); await press(tree, m.stop);
+  expect(tree.root.findAllByType(Button).filter(x => x.props.label === m.stop)).toHaveLength(0);
   await act(async () => tree.unmount()); auth.dispose();
 });
 test('public Connection and Help expose setup/safety with no personal account data', async () => {

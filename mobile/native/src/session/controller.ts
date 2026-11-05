@@ -1,11 +1,15 @@
 import type { Entry, Language, Phase, Photo } from '../shared/types.ts';
 import { demoAnswer, validTranscript } from '../voice/demo.ts';
 import type { Transport } from '../streaming/whip.ts';
+import { sessionGreeting } from '../voice/sessionGreeting.ts';
 export interface CameraHandle { url?: string; release(): void; snapshot?(): Promise<{ uri: string; capturedAt: string } | undefined> }
 export interface RecognitionEvents { start(): void; result(text: string, final: boolean, confidence?: number): void; end(): void; error(code: string): void }
 export interface SessionPorts {
   preview: boolean; recognitionAvailable: boolean; streamingAvailable: boolean;
   uuid(): string; allowed(): boolean;
+  prepareStart?(): Promise<void>;
+  sessionOpened?(): Promise<void>;
+  prepareRecognition?(signal: AbortSignal): Promise<void>;
   camera(signal: AbortSignal): Promise<CameraHandle>;
   recognition(language: Language, events: RecognitionEvents, signal: AbortSignal): Promise<() => Promise<void>>;
   speak(text: string, language: Language, started: () => void): Promise<'done' | 'cancelled' | 'error'>;
@@ -31,6 +35,7 @@ export class SessionController {
   private publisher?: ReturnType<SessionPorts['publish']>;
   private stopRecognition?: () => Promise<void>;
   private recognitionStartup?: Promise<() => Promise<void>>;
+  private sessionStartup?: Promise<void>;
   private silencing = Promise.resolve();
   private request = new AbortController();
   private recognitionRequest?: AbortController;
@@ -47,17 +52,42 @@ export class SessionController {
   private valid(g: number) { return g === this.generation && this.state.active && this.ports.allowed(); }
   async start(language: Language) {
     if (!this.ports.allowed() || this.state.active) return;
-    this.ports.stopSpeech(); this.speechGeneration++;
+    this.ports.stopSpeech(); const token = ++this.speechGeneration;
     const g = ++this.generation; this.language = language; this.request = new AbortController(); this.retries = 0; this.lastQuestion = '';
     const id = this.ports.uuid();
     this.set({ ...initial, active: true, id, startedAt: new Date().toISOString(), phase: 'starting' });
     this.ports.keepAwake(true);
-    // Camera and OS permission acquisition begin only from this explicit action.
+    const pending = this.openSession(g, id, token);
+    this.sessionStartup = pending;
+    try { await pending; } finally { if (this.sessionStartup === pending) this.sessionStartup = undefined; }
+  }
+  private async openSession(g: number, id: string, token: number) {
+    // Release wake-word dictation before feedback, camera acquisition, or greeting playback.
+    try { await this.ports.prepareStart?.(); }
+    catch { if (this.valid(g)) { this.stop(); this.set({ phase: 'error', voiceError: 'recognition_failed' }); } return; }
+    if (!this.valid(g)) return;
+    await this.silenceInput();
+    if (!this.valid(g)) return;
+    await this.ports.sessionOpened?.().catch(() => {});
+    if (!this.valid(g)) return;
     const camera = this.openCamera(g, id);
-    const voice = this.ports.recognitionAvailable ? this.listen(g) : Promise.resolve();
+    const voice = this.ports.recognitionAvailable ? this.openVoice(g, token) : Promise.resolve();
     await Promise.allSettled([camera, voice]);
     if (!this.valid(g)) return;
-    if (!this.ports.recognitionAvailable) this.set({ phase: 'unavailable', voiceError: 'native_required' });
+    if (!this.ports.recognitionAvailable && this.state.phase !== 'paused') this.set({ phase: 'unavailable', voiceError: 'native_required' });
+  }
+  private async openVoice(g: number, token: number) {
+    const valid = () => this.valid(g) && token === this.speechGeneration;
+    if (!valid()) return;
+    try { await this.ports.prepareRecognition?.(this.request.signal); }
+    catch { if (valid()) { this.stop(); this.set({ phase: 'error', voiceError: 'recognition_denied' }); } return; }
+    if (!valid()) return;
+    // The microphone is off for the entire greeting; never store it as a question or answer.
+    this.set({ phase: 'greeting' });
+    const result = await this.ports.speak(sessionGreeting[this.language], this.language, () => {}).catch(() => 'error' as const);
+    if (!valid()) return;
+    await this.listen(g);
+    if (valid() && result === 'error') this.set({ voiceError: 'tts_failed' });
   }
   private async openCamera(g: number, id: string) {
     try {
@@ -129,7 +159,7 @@ export class SessionController {
   async typedQuestion(text: string) { if (this.ports.preview) await this.question(text, 'typed'); }
   private async question(text: string, input: 'speech' | 'typed') {
     const g = this.generation;
-    if (!this.valid(g) || ['processing', 'speaking', 'paused'].includes(this.state.phase) || !validTranscript(text)) return;
+    if (!this.valid(g) || ['greeting', 'processing', 'speaking', 'paused'].includes(this.state.phase) || !validTranscript(text)) return;
     const normalized = text.toLocaleLowerCase().replace(/\s+/g, ' ').trim();
     if (normalized === this.lastQuestion && Date.now() - this.lastAt < 4500) return;
     this.lastQuestion = normalized; this.lastAt = Date.now();
@@ -159,9 +189,19 @@ export class SessionController {
       this.retryTimer = setTimeout(() => { this.retryTimer = undefined; if (this.valid(g)) void this.listen(g); }, 450);
     } else if (this.valid(g) && this.ports.preview) this.set({ phase: 'unavailable' });
   }
-  stopPlayback() { this.speechGeneration++; this.ports.stopSpeech(); if (this.state.phase === 'speaking') this.set({ phase: this.state.active ? 'paused' : 'idle' }); }
+  stopPlayback() { this.speechGeneration++; this.ports.stopSpeech(); if (['speaking', 'greeting'].includes(this.state.phase)) this.set({ phase: this.state.active ? 'paused' : 'idle' }); }
   pause() { this.questionGeneration++; this.stopPlayback(); void this.silenceInput(); if (this.state.active) this.set({ phase: 'paused', transcript: '' }); }
-  resume() { if (this.state.active && this.ports.allowed()) { this.retries = 0; if (this.ports.recognitionAvailable) void this.listen(this.generation); else this.set({ phase: 'unavailable' }); } }
+  resume() {
+    const g = this.generation;
+    const resume = () => {
+      if (!this.valid(g) || !['paused', 'unavailable'].includes(this.state.phase)) return;
+      this.retries = 0;
+      if (this.ports.recognitionAvailable) { this.set({ phase: 'starting' }); void this.listen(g); }
+      else this.set({ phase: 'unavailable' });
+    };
+    // A fast language change/Resume must still wait for wake-word microphone release.
+    if (this.sessionStartup) void this.sessionStartup.then(resume); else resume();
+  }
   changeLanguage(lang: Language) { if (lang === this.language) return; this.language = lang; this.pause(); }
   stop(background = false) {
     const id = this.state.id, wasActive = this.state.active;

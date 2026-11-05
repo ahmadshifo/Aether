@@ -26,9 +26,9 @@ export function Row({ children, style }: { children: React.ReactNode; style?: Vi
 export function Card({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
   const { colors } = useUI(); return <View style={[{ padding: 20, borderWidth: 1, borderColor: colors.lineCard, borderRadius: geometry.card, backgroundColor: colors.card, gap: 12 }, style]}>{children}</View>;
 }
-export function Button({ label, onPress, disabled, primary, danger, large, icon, selected, hint, testID }: { label: string; onPress(): void; disabled?: boolean; primary?: boolean; danger?: boolean; large?: boolean; icon?: React.ComponentProps<typeof Icon>['name']; selected?: boolean; hint?: string; testID?: string }) {
+export function Button({ label, onPress, disabled, primary, danger, large, icon, selected, hint, testID, focusRef }: { label: string; onPress(): void; disabled?: boolean; primary?: boolean; danger?: boolean; large?: boolean; icon?: React.ComponentProps<typeof Icon>['name']; selected?: boolean; hint?: string; testID?: string; focusRef?: React.Ref<React.ComponentRef<typeof View>> }) {
   const { colors, haptics, language } = useUI();
-  return <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint} accessibilityState={{ disabled: !!disabled, selected: !!selected }} disabled={disabled}
+  return <Pressable ref={focusRef} testID={testID} accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint} accessibilityState={{ disabled: !!disabled, selected: !!selected }} disabled={disabled}
     onPress={() => { if (haptics) void Haptics.selectionAsync().catch(() => {}); onPress(); }}
     style={({ pressed }) => ({ minHeight: large ? 92 : primary ? 64 : 48, minWidth: 48, padding: primary ? 16 : 12, borderRadius: primary ? 13 : 10, borderWidth: 1, borderBottomWidth: primary && !pressed ? 7 : 1, borderColor: danger ? colors.danger : primary ? colors.edge : selected ? colors.ink : colors.line, backgroundColor: danger ? colors.dangerBg : primary ? colors.tactile : selected ? colors.inset : colors.card, opacity: disabled ? 0.55 : pressed ? 0.8 : 1, transform: [{ translateY: primary && pressed ? 4 : 0 }], alignItems: 'center', justifyContent: 'center', flexDirection: language === 'ar' ? 'row-reverse' : 'row', gap: 10 })}>
     {icon && <Icon name={icon} color={primary ? colors.onTactile : danger ? colors.danger : colors.ink} />}
@@ -86,6 +86,6 @@ export function Cassette({ onReplay, disabled }: { onReplay(): void; disabled?: 
   return <View style={{ gap: 10 }}><Row style={{ backgroundColor: colors.cassette, borderRadius: 14, padding: 16 }}><Button label={m.replay} onPress={onReplay} disabled={disabled} icon="volume" />
     <View accessible={false} style={{ flex: 1, minWidth: 60, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#696861', borderRadius: 20, padding: 5 }}>
       {[0, 1].map(i => <React.Fragment key={i}>{i === 1 && <View style={{ height: 4, flex: 1, backgroundColor: colors.track }} />}<View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: colors.reel, borderWidth: 5, borderColor: colors.cassette }} /></React.Fragment>)}
-    </View></Row><T variant="small">{m.audioLimits}</T></View>;
+    </View></Row></View>;
 }
 export const styles = StyleSheet.create({ stack: { gap: 24 }, flex: { flex: 1 }, center: { alignItems: 'center', gap: 20 }, footer: { padding: 16, gap: 10 }, keyboard: { flex: 1, ...(Platform.OS === 'ios' ? {} : {}) } });
