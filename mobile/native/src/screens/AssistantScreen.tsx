@@ -31,6 +31,7 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
     <View testID="camera-viewport" style={{ height: layout.camera, overflow: 'hidden', backgroundColor: '#141414' }}>
       {caps.go && <GoCameraPreview camera={camera} />}
       {caps.webrtc && media.cameraUrl && <RtcPreview url={media.cameraUrl} />}
+      <View pointerEvents="none" accessible={false} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top, backgroundColor: '#141414' }} />
       {!media.active && <Pressable accessibilityRole="button" accessibilityLabel={m.startLabel} onPress={start} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 20 }}><Mark size={110} /><T style={{ color: 'white' }}>{m.tap}</T></Pressable>}
       <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + 8, left: insets.left + 12, right: insets.right + 12, gap: 10 }}>
         <Row style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}><Button focusRef={backRef} label={m.back} icon={language === 'ar' ? 'arrow-right' : 'arrow-left'} onPress={back} />
