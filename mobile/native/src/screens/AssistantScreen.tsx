@@ -2,7 +2,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import { AccessibilityInfo, findNodeHandle, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Button, Card, Cassette, Field, Mark, Notice, Row, Sheet, T, useUI } from '../components/ui';
+import { Button, Card, Cassette, Field, Mark, Notice, Reveal, Row, Sheet, T, useUI } from '../components/ui';
 import { copies } from '../i18n/nativeCopy';
 import { GoCameraPreview, RtcPreview, type GoCamera } from '../platform/camera';
 import type { SessionController, SessionState } from '../session/controller';
@@ -58,7 +58,7 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
       <Notice>{n.demoExplanation}</Notice>
       {prompt !== null && <Card><T>{m.questions[prompt]}</T><T variant="small">{m.say}</T></Card>}
       {!!media.transcript && <Card><T variant="label">{m.transcript}</T><T>{media.transcript}</T></Card>}
-      {media.answer && <Card><T variant="heading">{m.answer}</T><T language={media.answer.language}>{media.answer.answer}</T><Cassette onReplay={() => { void controller.replay(media.answer!); }} /></Card>}
+      {media.answer && <Reveal key={media.answer.id}><Card><T variant="heading">{m.answer}</T><T language={media.answer.language}>{media.answer.answer}</T><Cassette onReplay={() => { void controller.replay(media.answer!); }} /></Card></Reveal>}
       {media.phase === 'speaking' && <Button label={n.stopSpeech} onPress={() => controller.stopPlayback()} />}
       {(!caps.recognition || !caps.webrtc) && <Notice>{n.native_required}</Notice>}
       {caps.go && __DEV__ && media.active && <Card><Field label={n.typedLabel} value={typed} onChangeText={setTyped} /><Button label={n.typedAction} disabled={!typed.trim() || ['greeting', 'speaking', 'processing', 'paused'].includes(media.phase)} onPress={() => { void controller.typedQuestion(typed); setTyped(''); }} /></Card>}
