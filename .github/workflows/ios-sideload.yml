@@ -1,0 +1,64 @@
+name: iPhone development IPA for sideloading
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/mobile-native-mono-expo]
+    paths:
+      - .github/workflows/ios-sideload.yml
+      - mobile/native/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-sideload-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Standard public-repository runner; no Apple account or signing secrets.
+    runs-on: macos-26
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile/native
+        shell: bash
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      EXPO_NO_DOTENV: '1'
+      AETHER_LAN_HOST: any
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: mobile/native
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.4'
+      - name: Install locked native dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Check TypeScript
+        run: npm run typecheck
+      - name: Compile unsigned iPhone development app
+        run: bash scripts/build-ios-sideload.sh
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aether-iphone-unsigned-${{ github.run_number }}
+          path: |
+            mobile/native/.runtime/ios-sideload/Aether-development-unsigned.ipa
+            mobile/native/.runtime/ios-sideload/INSTALL.txt
+            mobile/native/.runtime/ios-sideload/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Upload build failure log
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-build-log-${{ github.run_number }}
+          path: mobile/native/.runtime/ios-sideload/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 1
