@@ -17,6 +17,7 @@ import { permissionPending } from '../platform/permissions';
 import { GoCamera, GoCameraPreview, nativeCamera, nativePublisher, RtcPreview } from '../platform/camera';
 import { SessionController } from '../session/controller';
 import { recognize } from '../voice/recognition';
+import { listenForWakeWord } from '../voice/wakeWord';
 import { SpeechOwner } from '../voice/speech';
 import { StreamRegistry } from '../streaming/registry';
 import { HistoryRepository } from '../storage/history';
@@ -24,7 +25,7 @@ import { discardPhoto, nativeStorage, savePhoto } from '../storage/nativeStorage
 import { ConnectionScreen } from './ConnectionScreen';
 import { HelpScreen } from './HelpScreen';
 import { HistoryScreen, entryTime } from './HistoryScreen';
-type Preferences = { welcome?: boolean; motion?: boolean; haptics?: boolean };
+type Preferences = { welcome?: boolean; motion?: boolean; haptics?: boolean; wake?: boolean };
 export function Account({ auth, session, endpoints, saveEndpoints, changeLanguage }: { auth: AuthController; session: AuthSession; endpoints: Endpoints; saveEndpoints(value: Endpoints): void; changeLanguage(language: Language): void }) {
   const ui = useUI(), { language, colors } = ui, { m, u, n } = copies(language), dimensions = useWindowDimensions();
   const [page, setPage] = useState<Page>('welcome'), [preferences, setPreferences] = useState<Preferences>({}), [loaded, setLoaded] = useState(false), [selected, setSelected] = useState(0), [prompt, setPrompt] = useState<number | null>(null), [typed, setTyped] = useState(''), [notice, setNotice] = useState('');
@@ -57,7 +58,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
   useEffect(() => {
     void AsyncStorage.getItem(prefsKey).then(raw => {
       if (!alive.current || !auth.authorized(session.owner)) return;
-      const value = raw ? JSON.parse(raw) : {}; const safe = { welcome: value.welcome === true, motion: value.motion !== false, haptics: value.haptics === true };
+      const value = raw ? JSON.parse(raw) : {}; const safe = { welcome: value.welcome === true, motion: value.motion !== false, haptics: value.haptics === true, wake: value.wake === true };
       currentPrefs.current = safe; setPreferences(safe); setPage(safe.welcome ? 'home' : 'welcome'); setLoaded(true);
     }).catch(() => { if (alive.current) setLoaded(true); });
     const lock = auth.onLock(() => { runtime.controller.stop(); setConfirm(null); setTyped(''); setNotice(''); });
@@ -77,6 +78,18 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
     preferenceQueue.current = preferenceQueue.current.then(() => AsyncStorage.setItem(prefsKey, JSON.stringify(next))).catch(() => { if (alive.current) setNotice(u.storageError); });
   };
   const start = (question: number | null = null) => { if (!auth.authorized(session.owner)) return; setPrompt(question); setPage('assistant'); if (!media.active) void runtime.controller.start(language); };
+  // "Hey Aether": only with the switch on, with the app on screen, and never while a session or the app's own voice is running.
+  const [foreground, setForeground] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', value => setForeground(value === 'active' || permissionPending()));
+    return () => sub.remove();
+  }, []);
+  const wakeOn = loaded && preferences.wake === true && runtime.caps.recognition && foreground && !media.active && media.phase !== 'speaking' && page !== 'assistant' && !confirm;
+  useEffect(() => {
+    if (!wakeOn) return;
+    const stop = listenForWakeWord(() => start(), () => { updatePrefs({ wake: false }); setNotice(m.wakeUnavailable); });
+    return () => { void stop(); };
+  }, [wakeOn, language]);
   const finishWelcome = () => { updatePrefs({ welcome: true }); navigate('home'); };
   const confirmAction = () => { const action = confirm; setConfirm(null); if (action === 'logout') void auth.logout(); else if (action === 'clear') { runtime.repository.clear(); setNotice(u.cleared); } else { runtime.controller.stop(); setPrompt(null); if (action === 'leave') navigate('home'); } };
   const phase = media.phase === 'unavailable' ? n.unavailable : media.phase === 'error' ? n.error : media.phase === 'starting' ? m.starting : media.phase === 'idle' ? m.ready : m[media.phase];
@@ -127,7 +140,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
         </View>}
         {page === 'history' && <HistoryScreen repository={runtime.repository} state={history} replay={entry => { void runtime.controller.replay(entry); }} active={media.active} speaking={media.phase === 'speaking'} stopSpeech={() => runtime.controller.stopPlayback()} focus={focus} />}
         {page === 'settings' && <View style={{ gap: 24 }}><T variant="title">{m.settings}</T><T variant="heading">{m.voice}</T><Card><T>{m.speed}</T><Button disabled label={m.speedValue} onPress={() => {}} /><T variant="small">{m.voiceIntegration}</T><T>{m.aloud}</T><T variant="small">{n.aloudNote}</T>
-          {([['haptics', m.vibrate, m.vibrateNote], ['motion', m.motion, m.motionNote]] as const).map(([key, label, body]) => <View key={key} style={{ gap: 8 }}><Row><T style={{ flex: 1 }}>{label}</T><Switch accessibilityLabel={label} value={key === 'motion' ? preferences.motion !== false : preferences.haptics === true} onValueChange={value => updatePrefs({ [key]: value })} /></Row><T variant="small">{body}</T></View>)}<T>{m.warning}</T><T variant="small">{m.warningNote}</T></Card>
+          {([['wake', m.wake, m.wakeNote], ['haptics', m.vibrate, m.vibrateNote], ['motion', m.motion, m.motionNote]] as const).map(([key, label, body]) => <View key={key} style={{ gap: 8 }}><Row><T style={{ flex: 1 }}>{label}</T><Switch accessibilityLabel={label} value={key === 'motion' ? preferences.motion !== false : preferences[key] === true} onValueChange={value => updatePrefs({ [key]: value })} /></Row><T variant="small">{body}</T></View>)}<T>{m.warning}</T><T variant="small">{m.warningNote}</T></Card>
           <T variant="heading">{m.local}</T><Card><T>{n.retention}</T><HoldButton clear disabled={history.loading || !history.items.length} onConfirm={() => { runtime.repository.clear(); setNotice(u.cleared); }} onOptions={() => setConfirm('clear')} /><T variant="small">{m.clearHint}</T></Card>
           <Button label={m.connection} onPress={() => navigate('connection')} /><Button label={m.how} onPress={() => navigate('help')} /><Card><T variant="heading">{m.account}</T><T>{session.user.name}</T><T selectable style={{ writingDirection: 'ltr' }}>{session.user.email}</T><T variant="small">{n.accountNote}</T><Button danger label={m.signOut} onPress={() => setConfirm('logout')} /></Card>
         </View>}

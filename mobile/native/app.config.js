@@ -7,7 +7,7 @@ module.exports = {
     orientation: 'portrait', userInterfaceStyle: 'automatic', extra: { eas: { projectId: '3c774f20-07c4-4b43-baa8-e94b54cec6d4' } },
     ios: { supportsTablet: false, bundleIdentifier: 'local.aether.nativeexperiment', infoPlist: {
       NSCameraUsageDescription: 'Aether uses the rear camera only after Start for preview and your chosen local video stream.',
-      NSMicrophoneUsageDescription: 'Aether listens to your spoken questions only during an active session.',
+      NSMicrophoneUsageDescription: 'Aether listens to your spoken questions during an active session and, if you turn it on, for "Hey Aether" while the app is open.',
       NSSpeechRecognitionUsageDescription: 'Aether uses system speech recognition to transcribe your questions.',
       NSLocalNetworkUsageDescription: 'Connect to your isolated SQLite test service and MediaMTX on your local laptop.',
       NSAppTransportSecurity: { NSAllowsArbitraryLoads: false, ...(lanHost ? { NSAllowsLocalNetworking: true,
