@@ -1,12 +1,13 @@
 import { monoCopy } from './monoCopy';
 import { uiCopy } from './uiCopy';
 import { authCopy } from './authCopy';
+import { teamCopy } from './teamCopy';
 import type { Language } from '../shared/types';
 export const nativeCopy = {
   en: {
     details: 'Details', openingGreeting: 'Session opened', preview: 'Expo Go preview', native: 'Native development build', native_required: 'Install the development build to use speech recognition and camera streaming.',
-    demoExplanation: 'Demo answers are examples, not camera or photo analysis.',
-    typed: 'Development test · typed question, not microphone recognition', typedAction: 'Test demo answer', typedLabel: 'Typed test question',
+
+    typed: 'Development test · typed question, not microphone recognition', typedLabel: 'Typed test question',
     stopSpeech: 'Stop speech', language_unavailable: 'This device does not report support for the selected speech language. No language was substituted.',
     recognition_denied: 'Microphone or speech recognition is denied or unavailable. Check this app’s permissions in device Settings, then Start again.',
     recognition_failed: 'Speech recognition could not continue. Check the system speech service and connection, then Resume.',
@@ -20,7 +21,7 @@ export const nativeCopy = {
     https_required: 'Use HTTPS, or explicitly enable development HTTP for a private IP address or .local host.',
     connectionNote: 'Changing the server stops the session and signs you out.',
     reachable: 'Server reachable', signedOut: 'Signed out', authenticated: 'Authenticated', unknown: 'Not checked', checking: 'Checking…',
-    fixtureOnly: 'Use the address of the laptop running the Aether backend, on port 8002.', fixture_unavailable: 'Aether server unavailable or unrecognized. Open Connection, then check the address and that the backend is running.',
+    backendSetup: 'Use the address of the laptop running the Aether backend, on port 8002.', backend_unavailable: 'Aether server unavailable or unrecognized. Open Connection, then check the address and that the backend is running.',
     signaling: 'Media signaling', signalingReachable: 'Signaling reachable', signalingUnavailable: 'Signaling unverified or unavailable',
     registry: 'Session link', registered: 'Session linked', registry_failed: 'Session link failed',
     transportConnected: 'Stream connected', transportFailed: 'Stream failed · preview only',
@@ -32,12 +33,12 @@ export const nativeCopy = {
     steps: [ ['Start together', 'Tap Start, or enable “Hey Aether” in Settings and say it while the app is open.'], ['Ask out loud', 'After the greeting, wait for Listening and ask your question.'], ['Listen or read', 'Hear the reply. Tap Answer to read it or replay it.'], ['Stop when you choose', 'Tap Stop session. Leaving the app also stops the camera and microphone.'] ],
     fontFallback: 'Font loading failed; system fonts are in use.', permissionSettings: 'Open device Settings', shareCancelled: 'Sharing cancelled',
     stopped: 'Session stopped', unavailable: 'Unavailable', error: 'Needs attention', pending: 'Pending', off: 'Off',
-    photoLocal: 'Local question-time photo. It is not evidence for this demo answer.', emptyConnection: 'Set the laptop origins before signing in.',
+    emptyConnection: 'Set the laptop origins before signing in.',
   },
   ar: {
     details: 'التفاصيل', openingGreeting: 'بدأت الجلسة', preview: 'معاينة Expo Go', native: 'نسخة تطوير أصلية', native_required: 'ثبّت نسخة التطوير لاستخدام التعرّف على الكلام وبث الكاميرا.',
-    demoExplanation: 'الإجابات التجريبية أمثلة وليست تحليلًا للكاميرا أو الصور.',
-    typed: 'اختبار تطوير · سؤال مكتوب وليس تعرّفًا من الميكروفون', typedAction: 'اختبار الإجابة التجريبية', typedLabel: 'سؤال الاختبار المكتوب',
+
+    typed: 'اختبار تطوير · سؤال مكتوب وليس تعرّفًا من الميكروفون', typedLabel: 'سؤال الاختبار المكتوب',
     stopSpeech: 'إيقاف النطق', language_unavailable: 'لا يبلّغ هذا الجهاز عن دعم لغة الكلام المحددة. لم تُستبدل اللغة بلغة أخرى.',
     recognition_denied: 'الميكروفون أو التعرّف على الكلام مرفوض أو غير متاح. تحقّق من أذونات التطبيق في إعدادات الجهاز ثم ابدأ مجددًا.',
     recognition_failed: 'تعذّرت متابعة التعرّف على الكلام. تحقّق من خدمة الكلام والاتصال ثم استأنف.',
@@ -51,7 +52,7 @@ export const nativeCopy = {
     https_required: 'استخدم HTTPS أو فعّل HTTP للتطوير صراحةً لعنوان IP خاص أو مضيف ينتهي بـ .local.',
     connectionNote: 'تغيير الخادم يوقف الجلسة ويسجّل خروجك.',
     reachable: 'الخادم قابل للوصول', signedOut: 'غير مسجّل الدخول', authenticated: 'تم التحقق من الحساب', unknown: 'لم يُفحص', checking: 'جارٍ الفحص…',
-    fixtureOnly: 'استخدم عنوان الحاسوب الذي يشغّل خادم Aether، على المنفذ 8002.', fixture_unavailable: 'خادم Aether غير متاح أو غير معروف. افتح الاتصال ثم تحقّق من العنوان ومن تشغيل الخادم.',
+    backendSetup: 'استخدم عنوان الحاسوب الذي يشغّل خادم Aether، على المنفذ 8002.', backend_unavailable: 'خادم Aether غير متاح أو غير معروف. افتح الاتصال ثم تحقّق من العنوان ومن تشغيل الخادم.',
     signaling: 'إشارات البث', signalingReachable: 'الإشارات متاحة', signalingUnavailable: 'الإشارات غير متاحة أو غير متحقق منها',
     registry: 'ربط الجلسة', registered: 'تم ربط الجلسة', registry_failed: 'فشل ربط الجلسة',
     transportConnected: 'البث متصل', transportFailed: 'فشل البث · معاينة فقط',
@@ -63,12 +64,12 @@ export const nativeCopy = {
     steps: [ ['ابدأ معًا', 'اضغط ابدأ، أو فعّل «Hey Aether» في الإعدادات وقلها أثناء فتح التطبيق.'], ['اسأل بصوتك', 'بعد الترحيب، انتظر حالة أستمع إليك ثم اطرح سؤالك.'], ['استمع أو اقرأ', 'استمع إلى الرد. اضغط الإجابة لقراءتها أو إعادة سماعها.'], ['توقف متى شئت', 'اضغط إنهاء الجلسة. مغادرة التطبيق توقف الكاميرا والميكروفون أيضًا.'] ],
     fontFallback: 'فشل تحميل الخطوط؛ تُستخدم خطوط النظام.', permissionSettings: 'فتح إعدادات الجهاز', shareCancelled: 'أُلغيت المشاركة',
     stopped: 'أُوقفت الجلسة', unavailable: 'غير متاح', error: 'يحتاج إلى انتباه', pending: 'قيد الانتظار', off: 'متوقف',
-    photoLocal: 'صورة محلية وقت السؤال. ليست دليلًا لهذه الإجابة التجريبية.', emptyConnection: 'اضبط عناوين الحاسوب قبل تسجيل الدخول.',
+    emptyConnection: 'اضبط عناوين الحاسوب قبل تسجيل الدخول.',
   },
 };
 export function copies(language: Language) {
-  const n = nativeCopy[language];
+  const n = { ...nativeCopy[language], ...teamCopy[language] };
   return { m: { ...monoCopy[language], retention: n.retention, clearBody: n.clearBody, accountNote: n.accountNote, audioLimits: n.audioLimits, aloudNote: n.aloudNote, steps: n.steps },
-    u: { ...uiCopy[language], local: `${n.privacy} ${n.retention}`, clearBody: n.clearBody, photoNote: n.photoLocal, playback: n.audioLimits },
+    u: { ...uiCopy[language], local: `${n.privacy} ${n.retention}`, clearBody: n.clearBody, photoNote: n.photoNote, playback: n.audioLimits },
     a: { ...authCopy[language], privacy: n.privacy }, n };
 }

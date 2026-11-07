@@ -26,6 +26,7 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
     media.transport === 'failed' ? 'transportFailed' : '', media.registry === 'failed' ? 'registry_failed' : ''].filter(Boolean))];
   const errorText = (code: string) => n[code as keyof typeof n] as string || n.error;
   const excerpt = media.answer?.answer || media.transcript || (prompt !== null ? `${m.questions[prompt]} ${m.say}` : '');
+  const answerLabel = n.serverAnswer;
   return <View testID="assistant-screen" style={{ flex: 1, backgroundColor: colors.bg }} onLayout={event => setHeight(event.nativeEvent.layout.height)}>
     <StatusBar style="light" />
     <View testID="camera-viewport" style={{ height: layout.camera, overflow: 'hidden', backgroundColor: '#141414' }}>
@@ -43,8 +44,8 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
         {media.active && media.phase === 'paused' && <Button label={m.resume} onPress={() => controller.resume()} />}
         {!!errors.length && <Pressable accessibilityRole="button" accessibilityLabel={errorText(errors[0])} accessibilityHint={n.details} onPress={() => setDetails(true)} style={{ padding: 12, backgroundColor: colors.dangerBg, borderRadius: 10 }}><T numberOfLines={2} style={{ color: colors.danger }}>{errorText(errors[0])}</T></Pressable>}
       </View>
-      <Pressable accessibilityRole="button" accessibilityLabel={excerpt ? `${m.demo}. ${excerpt}` : m.demo} accessibilityHint={n.details} onPress={() => setDetails(true)} style={{ position: 'absolute', bottom: 12, left: insets.left + 12, right: insets.right + 12, borderRadius: 10, padding: 12, gap: 4, backgroundColor: '#141414E8' }}>
-        <T variant="small" style={{ color: '#D0D0D0' }}>{m.demo}</T>
+      <Pressable accessibilityRole="button" accessibilityLabel={excerpt ? `${answerLabel}. ${excerpt}` : answerLabel} accessibilityHint={n.details} onPress={() => setDetails(true)} style={{ position: 'absolute', bottom: 12, left: insets.left + 12, right: insets.right + 12, borderRadius: 10, padding: 12, gap: 4, backgroundColor: '#141414E8' }}>
+        <T variant="small" style={{ color: '#D0D0D0' }}>{answerLabel}{media.answer?.uncertain ? ` · ${n.uncertain}` : ''}</T>
         {!!excerpt && <T numberOfLines={dimensions.fontScale > 1.5 ? 1 : 2} language={media.answer?.language ?? language} style={{ color: 'white' }}>{excerpt}</T>}
       </Pressable>
     </View>
@@ -56,13 +57,14 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
     </ScrollView>
     {details && <Sheet title={m.assistant} onClose={() => setDetails(false)} restoreFocus={restoreFocus}>
       <Row><Button label="EN" selected={language === 'en'} onPress={() => changeLanguage('en')} /><Button label="ع" selected={language === 'ar'} onPress={() => changeLanguage('ar')} /></Row>
-      <Notice>{n.demoExplanation}</Notice>
+      {media.answer?.uncertain && <Notice>{n.uncertain}</Notice>}
+      {!!media.answer?.evidenceFrameIds?.length && <T variant="small">{n.evidence}: {media.answer.evidenceFrameIds.length}</T>}
       {prompt !== null && <Card><T>{m.questions[prompt]}</T><T variant="small">{m.say}</T></Card>}
       {!!media.transcript && <Card><T variant="label">{m.transcript}</T><T>{media.transcript}</T></Card>}
       {media.answer && <Reveal key={media.answer.id}><Card><T variant="heading">{m.answer}</T><T language={media.answer.language}>{media.answer.answer}</T><Cassette onReplay={() => { void controller.replay(media.answer!); }} /></Card></Reveal>}
       {media.phase === 'speaking' && <Button label={n.stopSpeech} onPress={() => controller.stopPlayback()} />}
       {(!caps.recognition || !caps.webrtc) && <Notice>{n.native_required}</Notice>}
-      {caps.go && __DEV__ && media.active && <Card><Field label={n.typedLabel} value={typed} onChangeText={setTyped} /><Button label={n.typedAction} disabled={!typed.trim() || ['greeting', 'speaking', 'processing', 'paused'].includes(media.phase)} onPress={() => { void controller.typedQuestion(typed); setTyped(''); }} /></Card>}
+      {caps.go && __DEV__ && media.active && <Card><Field label={n.typedLabel} value={typed} onChangeText={setTyped} /><Button label={n.typedQuestionAction} disabled={!typed.trim() || ['greeting', 'speaking', 'processing', 'paused'].includes(media.phase)} onPress={() => { void controller.typedQuestion(typed); setTyped(''); }} /></Card>}
       {errors.map(code => <Notice key={code} danger>{errorText(code)}</Notice>)}
     </Sheet>}
   </View>;

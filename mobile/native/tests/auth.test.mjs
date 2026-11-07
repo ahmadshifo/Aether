@@ -6,6 +6,12 @@ const a = { user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', name: 'Synthetic A'
 const input = () => ({ name: 'Synthetic', email: 'a@example.test', password: crypto.randomUUID() });
 const client = changes => ({ me: async () => a, login: async () => a, signup: async () => a, logout: async () => {}, ...changes });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+test('profile refresh preserves account ownership and rejects late or foreign updates', async () => {
+  const c = new AuthController(client(), 'team'); await c.check(); const owner = c.getSnapshot().session.owner;
+  c.updateProfile({ ...a, name: 'Updated' }, owner); assert.equal(c.getSnapshot().session.user.name, 'Updated'); assert.equal(c.getSnapshot().session.owner, owner);
+  c.updateProfile({ ...a, user_id: crypto.randomUUID(), name: 'Other' }, owner); assert.equal(c.getSnapshot().session.user.name, 'Updated');
+  c.background(); c.updateProfile({ ...a, name: 'Late' }, owner); assert.equal(c.getSnapshot().session.user.name, 'Updated'); c.dispose();
+});
 test('native auth transport: explicit origin, credentials/include, no redirects, validated identity and outages', async () => {
   const calls = [], origin = 'https://fixture.example';
   const api = createAuthClient(origin, async (url, options) => { calls.push({ url, options }); return new Response(url.endsWith('logout') ? null : JSON.stringify({ user: a }), { status: url.endsWith('logout') ? 204 : url.endsWith('signup') ? 201 : 200 }); });

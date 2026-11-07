@@ -12,7 +12,7 @@ import { HelpScreen } from './src/screens/HelpScreen';
 import { ConnectionScreen } from './src/screens/ConnectionScreen';
 import { AuthController, type AuthState } from './src/auth/authController';
 import { createAuthClient } from './src/auth/authClient';
-import { defaultEndpoints, probeBackend, validateEndpoints, type Endpoints } from './src/platform/config';
+import { defaultEndpoints, probeBackend, restoreConnection, type Endpoints } from './src/platform/config';
 import { copies } from './src/i18n/nativeCopy';
 import { dark, light, parseThemeMode, resolveScheme, type ThemeMode } from './src/theme/tokens';
 import type { Language } from './src/shared/types';
@@ -21,7 +21,7 @@ import { permissionPending } from './src/platform/permissions';
 const CONFIG_KEY = 'aether-native-connection-v1';
 const THEME_KEY = 'aether-native-theme-v1';
 const waiting: AuthState = { status: 'checking', session: null, error: '', notice: '' };
-const failed: AuthState = { status: 'service_unavailable', session: null, error: 'fixture_unavailable', notice: '' };
+const failed: AuthState = { status: 'service_unavailable', session: null, error: 'backend_unavailable', notice: '' };
 const noSubscription = () => () => {};
 export default function App() {
   const systemScheme = useColorScheme();
@@ -41,7 +41,7 @@ export default function App() {
       const next = new AuthController(createAuthClient(value.backend, nativeFetch), value.backend);
       current.current = next; setAuth(next); setPublicPage('auth');
       if (fresh) next.requireFresh(); else await next.check();
-    } catch (error) { if (__DEV__) console.warn('Aether connect failed:', value.backend, String(error)); if (epoch === connectEpoch.current) setBoot(failed); }
+    } catch (error) { if (__DEV__) console.warn('Aether connect failed:', value.backend, String(error)); if (epoch === connectEpoch.current) setBoot({ ...failed, error: error instanceof Error ? error.message : failed.error }); }
   }
   useEffect(() => {
     let alive = true;
@@ -50,11 +50,12 @@ export default function App() {
     void AsyncStorage.getItem(THEME_KEY).then(raw => { if (alive) setThemeMode(parseThemeMode(raw)); }).catch(() => {});
     void AsyncStorage.getItem(CONFIG_KEY).then(raw => {
       if (!alive) return;
-      // In Expo Go, npm start gives the laptop's current address, so an old saved address can't lock the app out.
-      // An installed APK only starts from its built-in address; after that the one saved on Connection wins.
-      if (process.env.EXPO_PUBLIC_AETHER_HOST && (__DEV__ || !raw)) { void connect(defaultEndpoints, false); return; }
+      // A saved connection always wins over build-time defaults, including in development.
+      if (!raw && (process.env.EXPO_PUBLIC_AETHER_HOST || process.env.EXPO_PUBLIC_AETHER_BACKEND_URL)) { void connect(defaultEndpoints, false); return; }
       if (!raw) { setBoot(failed); setPublicPage('connection'); return; }
-      const config = validateEndpoints(JSON.parse(raw)); void connect(config, false);
+      const { endpoints: config, needsConfirmation } = restoreConnection(JSON.parse(raw));
+      if (needsConfirmation) { setEndpoints(config); endpointRef.current = config; setBoot(failed); setPublicPage('connection'); return; }
+      void connect(config, false);
     }).catch(() => { if (alive) { setBoot(failed); setPublicPage('connection'); } });
     let backgrounded = false;
     const appState = AppState.addEventListener('change', value => {

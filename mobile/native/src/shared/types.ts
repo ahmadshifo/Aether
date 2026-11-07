@@ -5,5 +5,6 @@ export type Owner = Readonly<{ source: string; userId: string; epoch: number }>;
 export type Photo = { path: string; bytes: number; capturedAt: string };
 export type Entry = {
   id: string; sessionId: string; questionId: string; question: string; answer: string;
-  language: Language; createdAt: string; demo: true; input: 'speech' | 'typed'; photo?: Photo;
+  language: Language; createdAt: string; provenance: 'server'; input: 'speech' | 'typed'; photo?: Photo;
+  uncertain: boolean; evidenceFrameIds: string[];
 };

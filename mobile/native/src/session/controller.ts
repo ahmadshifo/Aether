@@ -1,10 +1,12 @@
 import type { Entry, Language, Phase, Photo } from '../shared/types.ts';
-import { demoAnswer, validTranscript } from '../voice/demo.ts';
+import { validTranscript } from '../voice/transcript.ts';
 import type { Transport } from '../streaming/whip.ts';
 import { sessionGreeting } from '../voice/sessionGreeting.ts';
+import type { AskRequest, AskResponse } from '../services/teamApi.ts';
 export interface CameraHandle { url?: string; release(): void; snapshot?(): Promise<{ uri: string; capturedAt: string } | undefined> }
 export interface RecognitionEvents { start(): void; result(text: string, final: boolean, confidence?: number): void; end(): void; error(code: string): void }
 export interface SessionPorts {
+  ask?(request: AskRequest, signal: AbortSignal): Promise<AskResponse>;
   preview: boolean; recognitionAvailable: boolean; streamingAvailable: boolean;
   uuid(): string; allowed(): boolean;
   prepareStart?(): Promise<void>;
@@ -39,6 +41,7 @@ export class SessionController {
   private silencing = Promise.resolve();
   private request = new AbortController();
   private recognitionRequest?: AbortController;
+  private questionRequest?: AbortController;
   private retryTimer?: ReturnType<typeof setTimeout>;
   private retries = 0;
   private lastQuestion = '';
@@ -165,7 +168,8 @@ export class SessionController {
     this.lastQuestion = normalized; this.lastAt = Date.now();
     const q = ++this.questionGeneration, questionId = this.ports.uuid(), lang = this.language;
     const valid = () => this.valid(g) && q === this.questionGeneration && lang === this.language;
-    this.set({ phase: 'processing', transcript: text });
+    const request = new AbortController(); this.questionRequest = request;
+    this.set({ phase: 'processing', transcript: text, error: '', answer: undefined });
     // Capture at final question time, before speech shutdown or any answer work.
     const frame = this.capture?.snapshot?.().catch(() => undefined);
     await this.silenceInput();
@@ -173,7 +177,18 @@ export class SessionController {
     if (!valid()) { if (snapshot) this.ports.discardSnapshot?.(snapshot); return; }
     const photo = snapshot ? await this.ports.savePhoto?.(snapshot, valid).catch(() => undefined) : undefined;
     if (!valid()) { this.ports.discardPhoto?.(photo); return; }
-    const entry: Entry = { id: this.ports.uuid(), questionId, sessionId: this.state.id!, question: text.trim(), answer: demoAnswer(text, lang, this.state.camera), language: lang, demo: true, input, createdAt: new Date().toISOString(), ...(photo ? { photo } : {}) };
+    let result: Pick<Entry, 'answer' | 'provenance' | 'uncertain' | 'evidenceFrameIds'>;
+    try {
+      if (!this.ports.ask) throw Error('answers_unavailable');
+      const response = await this.ports.ask({ session_id: this.state.id!, question_id: questionId, question: text.trim(), language: lang }, request.signal);
+      result = { answer: response.answer, provenance: 'server', uncertain: response.uncertain, evidenceFrameIds: response.evidence_frame_ids };
+    } catch (error) {
+      this.ports.discardPhoto?.(photo);
+      if (valid()) { this.lastQuestion = ''; this.set({ phase: 'paused', error: error instanceof Error ? error.message : 'server_unavailable' }); }
+      return;
+    } finally { if (this.questionRequest === request) this.questionRequest = undefined; }
+    if (!valid()) { this.ports.discardPhoto?.(photo); return; }
+    const entry: Entry = { id: this.ports.uuid(), questionId, sessionId: this.state.id!, question: text.trim(), ...result, language: lang, input, createdAt: new Date().toISOString(), ...(photo ? { photo } : {}) };
     this.set({ answer: entry }); this.ports.answer(entry);
     await this.play(entry, true);
   }
@@ -190,12 +205,12 @@ export class SessionController {
     } else if (this.valid(g) && this.ports.preview) this.set({ phase: 'unavailable' });
   }
   stopPlayback() { this.speechGeneration++; this.ports.stopSpeech(); if (['speaking', 'greeting'].includes(this.state.phase)) this.set({ phase: this.state.active ? 'paused' : 'idle' }); }
-  pause() { this.questionGeneration++; this.stopPlayback(); void this.silenceInput(); if (this.state.active) this.set({ phase: 'paused', transcript: '' }); }
+  pause() { this.questionGeneration++; this.questionRequest?.abort(); this.stopPlayback(); void this.silenceInput(); if (this.state.active) this.set({ phase: 'paused', transcript: '' }); }
   resume() {
     const g = this.generation;
     const resume = () => {
       if (!this.valid(g) || !['paused', 'unavailable'].includes(this.state.phase)) return;
-      this.retries = 0;
+      this.retries = 0; this.set({ error: '' });
       if (this.ports.recognitionAvailable) { this.set({ phase: 'starting' }); void this.listen(g); }
       else this.set({ phase: 'unavailable' });
     };
@@ -206,7 +221,7 @@ export class SessionController {
   stop(background = false) {
     const id = this.state.id, wasActive = this.state.active;
     this.generation++; this.questionGeneration++; this.speechGeneration++;
-    this.request.abort(); void this.silenceInput(); this.ports.stopSpeech();
+    this.request.abort(); this.questionRequest?.abort(); void this.silenceInput(); this.ports.stopSpeech();
     try { this.publisher?.stop(); } catch { /* Continue every independent cleanup. */ } this.publisher = undefined;
     try { this.capture?.release(); } catch { /* Native resource may already be released. */ } this.capture = undefined;
     this.ports.keepAwake(false);

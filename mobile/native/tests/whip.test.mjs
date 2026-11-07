@@ -59,7 +59,7 @@ test('connection validation rejects credential URLs, paths, public HTTP and fore
   for (const url of ['http://public.example', 'https://user:secret@example.test', 'https://example.test/path', 'https://example.test/?x=1']) assert.throws(() => validateEndpoints({ backend: url, media: 'https://media.example', allowLan: true }));
   assert.equal(validateEndpoints({ backend: 'http://192.168.1.2:18063', media: 'http://192.168.1.2:8889', allowLan: true }).backend, 'http://192.168.1.2:18063');
   await assert.rejects(boundedFetch('https://fixture.example/health', {}, 10, async () => ({ redirected: true })), /redirect_rejected/);
-  const calls = [], registry = new StreamRegistry('https://fixture.example', async (url, options) => { calls.push({ url, options }); return new Response('{}'); });
+  const calls = [], registry = new StreamRegistry('https://fixture.example', async (url, options) => { calls.push({ url, options }); return url.endsWith('/start') ? Response.json({ session: { session_id: JSON.parse(options.body).session_id, started_at: new Date().toISOString() } }) : new Response(null, { status: 204 }); });
   const id = crypto.randomUUID(); await registry.request('start', id); await registry.request('stop', id);
   assert.equal(calls[0].url, 'https://fixture.example/api/v1/streams/start'); assert.deepEqual(JSON.parse(calls[0].options.body), { session_id: id });
   await assert.rejects(registry.request('start', 'bad')); assert.equal(calls.length, 2);

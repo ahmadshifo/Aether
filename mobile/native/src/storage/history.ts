@@ -23,7 +23,8 @@ export function boundEntries(value: unknown, now = Date.now()): Entry[] {
   return value.filter((row): row is Entry => {
     if (!row || typeof row.id !== 'string' || seen.has(row.id) || typeof row.sessionId !== 'string' || typeof row.questionId !== 'string'
       || typeof row.question !== 'string' || row.question.length > 4000 || typeof row.answer !== 'string' || row.answer.length > 32000
-      || !['en', 'ar'].includes(row.language) || !['speech', 'typed'].includes(row.input) || row.demo !== true
+      || !['en', 'ar'].includes(row.language) || !['speech', 'typed'].includes(row.input) || row.provenance !== 'server'
+      || typeof row.uncertain !== 'boolean' || !Array.isArray(row.evidenceFrameIds) || row.evidenceFrameIds.length > 100 || !row.evidenceFrameIds.every((id: unknown) => typeof id === 'string' && /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(id))
       || !Number.isFinite(Date.parse(row.createdAt)) || now - Date.parse(row.createdAt) >= RETENTION_MS || Date.parse(row.createdAt) > now + 60000) return false;
     seen.add(row.id); return true;
   }).slice(0, MAX_ENTRIES).map(row => {
@@ -31,7 +32,8 @@ export function boundEntries(value: unknown, now = Date.now()): Entry[] {
     if (photo) bytes += photo.bytes;
     // Explicit fields exclude unknown payloads/credentials/prototypes.
     return { id: row.id, sessionId: row.sessionId, questionId: row.questionId, question: row.question, answer: row.answer,
-      language: row.language, createdAt: row.createdAt, demo: true, input: row.input, ...(photo ? { photo } : {}) };
+      language: row.language, createdAt: row.createdAt, provenance: 'server', input: row.input, ...(photo ? { photo } : {}),
+      uncertain: row.uncertain, evidenceFrameIds: [...new Set(row.evidenceFrameIds)] };
   });
 }
 export class HistoryRepository {

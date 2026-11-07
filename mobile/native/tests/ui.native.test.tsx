@@ -7,6 +7,8 @@ import { monoCopy } from '../src/i18n/monoCopy';
 import { uiCopy } from '../src/i18n/uiCopy';
 import { authCopy } from '../src/i18n/authCopy';
 import { nativeCopy } from '../src/i18n/nativeCopy';
+import { teamCopy } from '../src/i18n/teamCopy';
+import { ProfileSettings } from '../src/components/ProfileSettings';
 import { light, dark, geometry } from '../src/theme/tokens';
 import { AuthScreen } from '../src/screens/AuthScreen';
 import { ConnectionScreen } from '../src/screens/ConnectionScreen';
@@ -27,7 +29,7 @@ async function press(tree: renderer.ReactTestRenderer, label: string) { const it
 afterEach(() => jest.clearAllMocks());
 test('EN/AR key parity, source theme values and native hit targets', () => {
   const keys = (obj: Record<string, unknown>, prefix = ''): string[] => Object.entries(obj).flatMap(([k, v]) => typeof v === 'object' && v && !Array.isArray(v) ? keys(v as Record<string, unknown>, `${prefix}${k}.`) : [`${prefix}${k}`]).sort();
-  for (const dictionary of [monoCopy, uiCopy, authCopy, nativeCopy]) expect(keys(dictionary.en)).toEqual(keys(dictionary.ar));
+  for (const dictionary of [monoCopy, uiCopy, authCopy, nativeCopy, teamCopy]) expect(keys(dictionary.en)).toEqual(keys(dictionary.ar));
   expect(light.bg).toBe('#FCFCFC'); expect(light.ink).toBe('#202020'); expect(dark.bg).toBe('#141414'); expect(geometry.hit).toBeGreaterThanOrEqual(48);
 });
 test('Expo Go module gating blocks custom module evaluation', () => {
@@ -39,8 +41,8 @@ test.each(['en', 'ar'] as const)('auth landing/forms/outage remain native and tr
   const tree = await render(wrapper(<AuthScreen state={state} retry={() => {}} connection={() => {}} help={() => {}} />, language));
   await press(tree, monoCopy[language].signup); expect(tree.root.findAllByType(TextInput)).toHaveLength(4);
   await press(tree, a.signup); expect(JSON.stringify(tree.toJSON())).toContain(a.errors.invalid_email);
-  await act(async () => { tree.update(wrapper(<AuthScreen state={{ ...state, status: 'service_unavailable', error: 'fixture_unavailable' }} retry={() => {}} connection={() => {}} help={() => {}} />, language)); });
-  expect(tree.root.findAllByType(TextInput)).toHaveLength(0); expect(JSON.stringify(tree.toJSON())).toContain(nativeCopy[language].fixture_unavailable);
+  await act(async () => { tree.update(wrapper(<AuthScreen state={{ ...state, status: 'service_unavailable', error: 'backend_unavailable' }} retry={() => {}} connection={() => {}} help={() => {}} />, language)); });
+  expect(tree.root.findAllByType(TextInput)).toHaveLength(0); expect(JSON.stringify(tree.toJSON())).toContain(nativeCopy[language].backend_unavailable);
   await act(async () => tree.unmount());
 });
 test.each(['en', 'ar'] as const)('eight screen families use shared native views and working navigation: %s', async language => {
@@ -69,6 +71,18 @@ test('public Connection and Help expose setup/safety with no personal account da
   const help = await render(wrapper(<HelpScreen />)); expect(JSON.stringify(help.toJSON())).toContain(nativeCopy.en.osSpeech);
   await act(async () => { connection.unmount(); help.unmount(); });
 });
+test('profile edits use the team API and cancel pending work when the account locks', async () => {
+  const auth = new AuthController({ me: async () => user, login: async () => user, signup: async () => user, logout: async () => {} }, 'team'); await auth.check();
+  const session = auth.getSnapshot().session!;
+  let signal: AbortSignal | undefined, resolve: ((value: typeof user) => void) | undefined;
+  const api = { ask: jest.fn(), updateName: jest.fn((_name: string, _id: string, value: AbortSignal) => { signal = value; return new Promise<typeof user>(done => { resolve = done; }); }) };
+  const tree = await render(wrapper(<ProfileSettings auth={auth} session={session} api={api} />));
+  await act(async () => tree.root.findByType(TextInput).props.onChangeText('Updated name'));
+  await press(tree, teamCopy.en.saveName); expect(api.updateName).toHaveBeenCalledWith('Updated name', user.user_id, expect.anything());
+  await act(async () => { auth.background(); resolve!({ ...user, name: 'Late name' }); });
+  expect(signal!.aborted).toBe(true); expect(auth.getSnapshot().session!.user.name).toBe(user.name);
+  await act(async () => tree.unmount()); auth.dispose();
+});
 test('one device speech owner selects answer language, uses actual callbacks and rejects late voice lookup', async () => {
   const owner = new SpeechOwner(), started = jest.fn();
   expect(await owner.speak('Synthetic answer', 'en', started)).toBe('done'); expect(started).toHaveBeenCalledTimes(1);
@@ -80,7 +94,7 @@ test('one device speech owner selects answer language, uses actual callbacks and
 test('History detail preserves Arabic, explicitly copies/shares, and Clear confirmation invalidates Undo', async () => {
   const repository = new HistoryRepository({ userId: user.user_id, source: 'history-ui-test', epoch: 1 }, { read: async () => null, write: async () => {}, collect: async () => {} }, () => true);
   await repository.ready;
-  const entry = { id: 'one', sessionId: 'session', questionId: 'question', language: 'ar' as const, question: 'اقرأ اللافتة', answer: 'اللافتة على الباب مكتوب عليها غرفة ٢٠٥.', input: 'speech' as const, demo: true as const, createdAt: new Date().toISOString() };
+  const entry = { id: 'one', sessionId: 'session', questionId: 'question', language: 'ar' as const, question: 'اقرأ اللافتة', answer: 'اللافتة على الباب مكتوب عليها غرفة ٢٠٥.', input: 'speech' as const, provenance: 'server' as const, uncertain: false, evidenceFrameIds: [], createdAt: new Date().toISOString() };
   repository.upsert(entry);
   const replay = jest.fn(), stopSpeech = jest.fn(), make = () => wrapper(<HistoryScreen repository={repository} state={repository.getSnapshot()} replay={replay} active={false} speaking stopSpeech={stopSpeech} focus={() => {}} />);
   const tree = await render(make()), u = uiCopy.en;

@@ -95,7 +95,7 @@ Aether iPhone development build (UNSIGNED)
    Stop an older Metro using port 8083 first; keep the laptop and phone on the same Wi-Fi.
 6. Open Aether and connect to the development server shown by Metro.
    The app's Connection screen still needs the laptop's server/media addresses.
-   The isolated test fixture uses port 18063; the shared backend uses port 8002.
+   The shared MySQL-backed account service uses port 8002.
    Only select a backend that you intentionally started; accounts are separate.
 
 A free Apple ID normally needs re-signing every 7 days and allows 3 sideloaded apps.

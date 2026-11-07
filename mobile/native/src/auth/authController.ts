@@ -2,8 +2,6 @@
 import { AuthError } from './authClient.ts'
 import type { AuthClient, AuthUser, SignupInput } from './authClient.ts'
 
-// Nonsecret namespace: change deliberately if the authoritative test account DB changes.
-export const AUTH_SOURCE = 'aether-native-sqlite-dev-v1'
 export type AuthOwner = Readonly<{ userId: string; source: string; epoch: number }>
 export type AuthSession = Readonly<{ user: AuthUser; owner: AuthOwner }>
 export type AuthStatus = 'checking' | 'signed_out' | 'signed_in' | 'service_unavailable' | 'submitting' | 'signing_out' | 'logout_failed'
@@ -29,6 +27,9 @@ export class AuthController {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   onLock = (listener: (reason: 'check' | 'revoke') => void) => { this.locks.add(listener); return () => { this.locks.delete(listener) } }
   authorized = (owner: AuthOwner) => this.state.status === 'signed_in' && this.state.session?.owner === owner
+  updateProfile(user: AuthUser, owner: AuthOwner) {
+    if (this.authorized(owner) && user.user_id === owner.userId) this.accept(user)
+  }
   clearError() { if (this.state.status === 'signed_out') this.publish({ ...this.state, error: '', notice: '' }) }
   private publish(state: AuthState) { this.state = Object.freeze(state); this.listeners.forEach(listener => listener()) }
   private begin(status: AuthStatus, revoke = false) {
@@ -53,7 +54,7 @@ export class AuthController {
     if (session?.user.user_id !== user.user_id) {
       this.locks.forEach(listener => listener('revoke'))
       session = Object.freeze({ user, owner: Object.freeze({ userId: user.user_id, source: this.source, epoch: ++this.ownerEpoch }) })
-    }
+    } else session = Object.freeze({ user, owner: session.owner })
     this.publish({ status: 'signed_in', session, error: '', notice })
   }
   async check() {

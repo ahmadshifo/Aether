@@ -1,9 +1,11 @@
 export type Endpoints = { backend: string; media: string; allowLan: boolean };
 // EXPO_PUBLIC_AETHER_HOST (set when building) prefills the laptop's address on first launch.
 const buildHost = process.env.EXPO_PUBLIC_AETHER_HOST;
-export const defaultEndpoints: Endpoints = buildHost
-  ? { backend: `http://${buildHost}:8002`, media: `http://${buildHost}:8889`, allowLan: true }
-  : { backend: 'https://localhost:8002', media: 'https://localhost:8889', allowLan: false };
+export const defaultEndpoints: Endpoints = {
+  backend: process.env.EXPO_PUBLIC_AETHER_BACKEND_URL || (buildHost ? `http://${buildHost}:8002` : 'https://localhost:8002'),
+  media: process.env.EXPO_PUBLIC_AETHER_MEDIA_URL || (buildHost ? `http://${buildHost}:8889` : 'https://localhost:8889'),
+  allowLan: !!buildHost,
+};
 export function privateHost(host: string) {
   if (host === 'localhost' || host.endsWith('.local')) return true;
   const parts = host.split('.').map(Number);
@@ -17,8 +19,17 @@ export function validateOrigin(value: string, allowLan: boolean) {
   return url.origin;
 }
 export function validateEndpoints(value: Endpoints): Endpoints {
+  if (!value) throw Error('invalid_origin');
   const allowLan = value.allowLan === true;
   return { backend: validateOrigin(value.backend, allowLan), media: validateOrigin(value.media, allowLan), allowLan };
+}
+// Retired development connections become a shared-server draft. Do not send
+// credentials to a replacement backend until the user saves the new connection.
+export function restoreConnection(value: Endpoints) {
+  const endpoints = validateEndpoints(value), backend = new URL(endpoints.backend);
+  const needsConfirmation = backend.port === '18063';
+  if (needsConfirmation) { backend.port = '8002'; endpoints.backend = backend.origin; }
+  return { endpoints, needsConfirmation };
 }
 export async function boundedFetch(url: string, options: RequestInit = {}, ms = 8000, fetcher: typeof fetch = fetch) {
   const controller = new AbortController();
@@ -33,9 +44,10 @@ export async function boundedFetch(url: string, options: RequestInit = {}, ms = 
     return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
   } finally { clearTimeout(timer); options.signal?.removeEventListener('abort', abort); }
 }
-// Recognises the Aether backend (or the test fixture): /me answers, and says "not signed in" in the agreed error shape.
+// Recognizes the account API without assuming that the backend implements /health.
+// Anonymous reachability alone does not prove database persistence.
 export async function probeBackend(origin: string, fetcher: typeof fetch = fetch) {
   const response = await boundedFetch(`${origin}/api/v1/auth/me`, { credentials: 'omit', headers: { Accept: 'application/json' } }, 8000, fetcher);
   const data = await response.json().catch(() => null);
-  if (response.status === 200 ? !data?.user : response.status !== 401 || data?.error?.code !== 'not_authenticated') throw Error('fixture_unavailable');
+  if (response.status === 200 ? !data?.user : response.status !== 401 || data?.error?.code !== 'not_authenticated') throw Error('backend_unavailable');
 }

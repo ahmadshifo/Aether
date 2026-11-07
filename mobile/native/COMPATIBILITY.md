@@ -1,6 +1,6 @@
 # Compatibility evidence — 2026-11-04
 
-The official `expo-template-blank-typescript@58.0.32` npm tarball was extracted under `.runtime/template` without running a Git scaffold. Stable versions: **Expo 58.0.23, React 19.3.0, React Native 0.88.1, TypeScript 6.0.3**, React types 19.3.0. Expo's engine includes Node ^22.13.0; installed **Node 22.20.0 / npm 11.6.1 / PowerShell 7.6.5** qualifies. Python's WindowsApps alias failed; the fixture uses Node SQLite (experimental warning on Node 22).
+The official `expo-template-blank-typescript@58.0.32` npm tarball was extracted under `.runtime/template` without running a Git scaffold. Stable versions: **Expo 58.0.23, React 19.3.0, React Native 0.88.1, TypeScript 6.0.3**, React types 19.3.0. Expo's engine includes Node ^22.13.0; installed **Node 22.20.0 / npm 11.6.1 / PowerShell 7.6.5** qualifies. Current backend integration uses an installed Python 3.12.12 environment and MySQL 8.4.13; see TEAM-INTEGRATION.md.
 
 | Runtime package | Exact installed version |
 | --- | --- |

@@ -40,7 +40,7 @@ export class WhipPublisher {
       const timer = setTimeout(() => this.abort.abort(), this.timeout);
       try {
         const response = await this.fetcher(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/sdp', Accept: 'application/sdp' }, body: sdp, signal: this.abort.signal, credentials: 'omit', redirect: 'error' });
-        if (response.redirected || response.status !== 201) throw Error('whip_response');
+        if (response.redirected || response.status !== 201) throw Error(`whip_response_${response.status}`);
         this.resource = resourceLocation(response.headers.get('Location'), endpoint);
         // An aborted native POST can still return a created resource. Always delete it.
         if (this.stopped) { this.deleteResource(); return; }

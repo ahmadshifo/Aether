@@ -6,11 +6,13 @@
   "scripts": {
     "start": "node scripts/expo.mjs start --go --lan --port 8083",
     "start:dev": "node scripts/expo.mjs start --dev-client --lan --port 8083",
+    "start:team": "node scripts/team-stack.mjs start",
+    "services:team": "node scripts/team-stack.mjs services",
+    "check:team": "node scripts/team-stack.mjs check",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint src App.tsx index.ts tests scripts dev-server",
+    "lint": "oxlint src App.tsx index.ts tests scripts",
     "test": "node --experimental-transform-types --test tests/*.test.mjs",
     "test:ui": "jest --runInBand",
-    "fixture": "node dev-server/server.mjs",
     "audit": "node scripts/audit.mjs",
     "export": "node scripts/expo.mjs export --platform ios --platform android --output-dir dist",
     "config:check": "node scripts/expo.mjs config --type introspect"

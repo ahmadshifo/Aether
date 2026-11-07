@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionController } from '../src/session/controller.ts';
-import { demoAnswer, validTranscript } from '../src/voice/demo.ts';
+import { validTranscript } from '../src/voice/transcript.ts';
 import { sessionGreeting } from '../src/voice/sessionGreeting.ts';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
@@ -9,6 +9,7 @@ function harness(overrides = {}) {
   const events = [], answers = [], counts = { capture: 0, release: 0, close: 0, start: 0, stop: 0, voiceStop: 0, speak: 0, wake: false }, snapshots = [];
   let allowed = true;
   const ports = { preview: false, recognitionAvailable: true, streamingAvailable: true, uuid: () => crypto.randomUUID(), allowed: () => allowed,
+    ask: async r => ({ question_id: r.question_id, language: r.language, answer: r.language === 'ar' ? 'إجابة اختبار من الخادم' : 'Synthetic server answer', uncertain: false, evidence_frame_ids: [] }),
     camera: async () => { counts.capture++; return { release: () => counts.release++, snapshot: async () => snapshots.shift() }; },
     recognition: async (_, callbacks) => { events.push(callbacks); callbacks.start(); return async () => { counts.voiceStop++; }; },
     speak: async (_, __, start) => { counts.speak++; start(); return 'done'; }, stopSpeech: () => {},
@@ -19,6 +20,32 @@ function harness(overrides = {}) {
   const controller = new SessionController(ports);
   return { controller, ports, events, answers, counts, snapshots, lock: () => { allowed = false; controller.stop(); } };
 }
+test('real answer is spoken and stored with server evidence', async () => {
+  const evidence = crypto.randomUUID(); let received;
+  const h = harness({ ask: async (request, signal) => { received = request; assert.equal(signal.aborted, false); return { question_id: request.question_id, language: request.language, answer: 'Server answer', uncertain: true, evidence_frame_ids: [evidence] }; } });
+  await h.controller.start('en'); h.events[0].result('Read the sign', true); await tick(); await tick();
+  assert.equal(received.session_id, h.controller.getSnapshot().id); assert.equal(received.question, 'Read the sign');
+  assert.equal(h.answers[0].provenance, 'server'); assert.equal(h.answers[0].answer, 'Server answer'); assert.equal(h.answers[0].uncertain, true); assert.deepEqual(h.answers[0].evidenceFrameIds, [evidence]);
+  assert.equal(h.counts.speak, 2); h.controller.stop();
+});
+test('unavailable team answers pause with no fake speech or saved history; retry accepts same question', async () => {
+  let calls = 0;
+  const h = harness({ ask: async () => { calls++; throw Error('answers_unavailable'); } });
+  await h.controller.start('en'); h.events[0].result('Read the sign', true); await tick(); await tick();
+  assert.equal(h.controller.getSnapshot().error, 'answers_unavailable'); assert.equal(h.controller.getSnapshot().phase, 'paused');
+  assert.equal(h.answers.length, 0); assert.equal(h.counts.speak, 1);
+  h.controller.resume(); await tick(); h.events.at(-1).result('Read the sign', true); await tick(); await tick(); assert.equal(calls, 2); h.controller.stop();
+});
+test('Stop, language change and account lock abort a pending team answer and reject late results', async () => {
+  for (const action of ['stop', 'changeLanguage', 'lock']) {
+    const gate = deferred(); let signal;
+    const h = harness({ ask: (_, value) => { signal = value; return gate.promise; } });
+    await h.controller.start('en'); h.events[0].result('Read the sign', true); await tick();
+    if (action === 'lock') h.lock(); else h.controller[action]('ar');
+    assert.equal(signal.aborted, true); gate.resolve({ answer: 'Late answer', uncertain: false, evidence_frame_ids: [] }); await tick(); await tick();
+    assert.equal(h.answers.length, 0); assert.equal(h.counts.speak, 1); h.controller.stop();
+  }
+});
 test('Start is single-owner across 20 lifetimes; every Stop releases camera, peer, recognition and wake lock', async () => {
   const h = harness(), ids = new Set();
   for (let i = 0; i < 20; i++) {
@@ -37,13 +64,13 @@ test('Stop/logout during permission or camera startup rejects late acquired trac
     assert.equal(released, 1); assert.equal(h.answers.length, 0); assert.equal(h.controller.getSnapshot().camera, false);
   }
 });
-test('only valid final speech produces a labeled demo and real speech adapter call; selected/interim text does not', async () => {
+test('only valid final speech produces an API request and speech adapter call; selected/interim text does not', async () => {
   const h = harness(); await h.controller.start('en');
   h.events[0].result('Read the sign', false); await tick(); assert.equal(h.answers.length, 0);
   h.events[0].result('Read the sign', true, .1); await tick(); assert.equal(h.answers.length, 0);
   h.events[0].result('Read the sign', true, .9); await tick(); await tick();
-  assert.equal(h.answers.length, 1); assert.equal(h.answers[0].answer, 'The sign on the door reads Room 205.');
-  assert.equal(h.answers[0].demo, true); assert.equal(h.answers[0].input, 'speech'); assert.equal(h.counts.speak, 2); // Greeting, then answer.
+  assert.equal(h.answers.length, 1); assert.equal(h.answers[0].answer, 'Synthetic server answer');
+  assert.equal(h.answers[0].provenance, 'server'); assert.equal(h.answers[0].input, 'speech'); assert.equal(h.counts.speak, 2); // Greeting, then answer.
   h.events[0].result('Read the sign', true); await tick(); assert.equal(h.answers.length, 1); h.controller.stop();
 });
 test('interruption/language change while frame resolves cannot save a stale question or photo', async () => {
@@ -55,12 +82,11 @@ test('interruption/language change while frame resolves cannot save a stale ques
     assert.equal(h.answers.length, 0); assert.equal(saved.length, 0); h.controller.stop();
   }
 });
-test('Expo Go typed demo is explicit, uses one preview, does not recognize or publish, and camera absence is truthful', async () => {
+test('Expo Go typed API test is explicit, uses one preview, does not recognize or publish, and camera absence is truthful', async () => {
   const h = harness({ preview: true, recognitionAvailable: false, streamingAvailable: false });
   await h.controller.start('ar'); assert.equal(h.controller.getSnapshot().phase, 'unavailable');
-  await h.controller.typedQuestion('اقرأ اللافتة'); assert.equal(h.answers[0].input, 'typed'); assert.equal(h.answers[0].answer, 'اللافتة على الباب مكتوب عليها غرفة ٢٠٥.');
+  await h.controller.typedQuestion('اقرأ اللافتة'); assert.equal(h.answers[0].input, 'typed'); assert.equal(h.answers[0].answer, 'إجابة اختبار من الخادم');
   assert.equal(h.events.length, 0); assert.equal(h.counts.start, 0); h.controller.stop();
-  assert.match(demoAnswer('Read the sign', 'en', false), /camera is off/);
   assert.equal(validTranscript('cough'), false);
 });
 test('idle mixed-language Replay cannot acquire camera/microphone; old speech callbacks cannot resurrect activity', async () => {

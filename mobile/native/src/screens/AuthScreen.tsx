@@ -11,7 +11,7 @@ export function AuthScreen({ state, auth, retry, connection, help }: { state: Au
   const pending = state.status === 'submitting', available = state.status === 'signed_out' || pending;
   const reset = () => { setPassword(''); setConfirmation(''); setShow(false); setInvalid(''); auth?.clearError(); };
   const error = available ? invalid || state.error : state.error;
-  const errorText = error === 'fixture_unavailable' ? n.fixture_unavailable : a.errors[error as keyof typeof a.errors] ?? a.errors.unavailable;
+  const errorText = n[error as keyof typeof n] as string || a.errors[error as keyof typeof a.errors] || a.errors.unavailable;
   return <View style={{ gap: 24 }}>
     {mode !== 'landing' && available && <Button label={m.back} onPress={() => { reset(); setMode('landing'); }} disabled={pending} />}
     <View style={{ alignItems: mode === 'landing' && available ? 'center' : undefined, gap: 20 }}>

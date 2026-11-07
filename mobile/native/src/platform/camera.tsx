@@ -73,7 +73,13 @@ export function nativePublisher(camera: CameraHandle, endpoint: string, state: (
     preferH264(() => rtc.RTCRtpSender.getCapabilities?.('video'), codecs => transceiver.setCodecPreferences?.(codecs));
   } catch (error) { peer.close(); throw error; }
   const publisher = new WhipPublisher(peer as unknown as Peer, state, nativeFetch);
-  return { start: () => publisher.start(endpoint), stop: () => publisher.stop() };
+  return { start: async () => {
+    try { await publisher.start(endpoint); }
+    catch (error) {
+      if (__DEV__) console.warn('Aether stream failed', new URL(endpoint).origin, error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  }, stop: () => publisher.stop() };
 }
 export function RtcPreview({ url }: { url: string }) {
   const { RTCView } = loadRtc();

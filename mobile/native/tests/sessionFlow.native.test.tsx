@@ -17,6 +17,8 @@ import { sessionGreeting } from '../src/voice/sessionGreeting';
 import type { RecognitionEvents } from '../src/session/controller';
 import type { Language } from '../src/shared/types';
 
+jest.mock('../src/services/teamApi', () => ({ createTeamApi: () => ({ ask: async (request: { question_id: string; language: Language }) => ({ ...request, answer: 'Synthetic server answer', uncertain: false, evidence_frame_ids: [] }) }) }));
+
 const mockOrder: string[] = [], mockRelease = jest.fn();
 let mockWake: RecognitionEvents | undefined, mockQuestion: RecognitionEvents | undefined;
 jest.mock('../src/platform/capabilities', () => ({ capabilities: () => ({ go: false, recognition: true, webrtc: true }) }));
@@ -101,7 +103,7 @@ test('a question after the greeting produces an answer, opens its full text, and
   await act(async () => mockQuestion!.result('Read the sign', true, .95));
   expect(Speech.speak).toHaveBeenCalledTimes(2);
   await press(tree, monoCopy.en.answer);
-  expect(JSON.stringify(tree.toJSON())).toContain('The sign on the door reads Room 205.');
+  expect(JSON.stringify(tree.toJSON())).toContain('Synthetic server answer');
   await press(tree, monoCopy.en.close); await press(tree, monoCopy.en.stop);
   expect(mockRelease).toHaveBeenCalledTimes(1); await close();
 });

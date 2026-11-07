@@ -2,8 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HistoryRepository, boundEntries, namespace, RETENTION_MS, searchHistory, dateGroup } from '../src/storage/history.ts';
 const owner = id => ({ source: 'https://fixture.example|environment', userId: `${id.repeat(8)}-${id.repeat(4)}-${id.repeat(4)}-${id.repeat(4)}-${id.repeat(12)}`, epoch: 1 });
-const row = (id, extra = {}) => ({ id, sessionId: crypto.randomUUID(), questionId: crypto.randomUUID(), question: 'Read the sign', answer: 'Room 205', language: 'en', input: 'speech', demo: true, createdAt: new Date().toISOString(), ...extra });
+const row = (id, extra = {}) => ({ id, sessionId: crypto.randomUUID(), questionId: crypto.randomUUID(), question: 'Read the sign', answer: 'Room 205', language: 'en', input: 'speech', provenance: 'server', uncertain: false, evidenceFrameIds: [], createdAt: new Date().toISOString(), ...extra });
 function memory() { const map = new Map(), collected = []; return { map, collected, read: async key => map.get(key) ?? null, write: async (key, value) => { map.set(key, value); }, collect: async (key, keep) => { collected.push({ key, keep }); } }; }
+test('retired synthetic History without server provenance is never shown as a real answer', () => {
+  assert.deepEqual(boundEntries([row('retired', { provenance: undefined })]), []);
+});
+test('real answers retain provenance across restart; malformed evidence is rejected', async () => {
+  const evidence = crypto.randomUUID(), store = memory(), repo = new HistoryRepository(owner('a'), store, () => true); await repo.ready;
+  repo.upsert(row('real', { provenance: 'server', uncertain: true, evidenceFrameIds: [evidence] })); await repo.settled(); repo.dispose();
+  const reopened = new HistoryRepository(owner('a'), store, () => true); await reopened.ready;
+  assert.equal(reopened.getSnapshot().items[0].provenance, 'server'); assert.equal(reopened.getSnapshot().items[0].uncertain, true); assert.deepEqual(reopened.getSnapshot().items[0].evidenceFrameIds, [evidence]);
+  assert.equal(boundEntries([row('bad', { provenance: 'server', uncertain: false, evidenceFrameIds: ['private/path'] })]).length, 0); reopened.dispose();
+});
 test('verified-owner gate, account A/B and environment isolation; retired writes cannot enter another owner', async () => {
   const store = memory(); assert.throws(() => new HistoryRepository(owner('a'), store, () => false));
   const a = new HistoryRepository(owner('a'), store, () => true), b = new HistoryRepository(owner('b'), store, () => true); await Promise.all([a.ready, b.ready]);
