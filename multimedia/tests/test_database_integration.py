@@ -1,4 +1,4 @@
-"""Opt-in REAL MySQL Community 8.4 tests. Never use SQLite substitutes."""
+"""Opt-in REAL MySQL Community 8.0/8.4 tests. Never use SQLite substitutes."""
 
 import os
 from datetime import UTC, datetime, timedelta, timezone
@@ -15,7 +15,7 @@ from database.errors import RepositoryError
 from database.models import EMBEDDING_MODEL, Frame
 from database.repository import FrameCursor, FrameRepository
 
-pytestmark = pytest.mark.skipif(os.environ.get("RUN_MYSQL_TESTS") != "1", reason="Set RUN_MYSQL_TESTS=1 for real MySQL 8.4 tests")
+pytestmark = pytest.mark.skipif(os.environ.get("RUN_MYSQL_TESTS") != "1", reason="Set RUN_MYSQL_TESTS=1 for real MySQL tests")
 
 
 @pytest.fixture(scope="module")
@@ -48,7 +48,7 @@ def stored(live_database, tmp_path):
 
 
 def test_database_connection(live_database):
-    assert live_database.check()["mysql_version"].startswith("8.4.")
+    assert live_database.check()["mysql_version"].startswith(("8.0.", "8.4."))
 
 
 def test_native_json_storage(live_database, stored):

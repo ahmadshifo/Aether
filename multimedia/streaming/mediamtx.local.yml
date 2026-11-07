@@ -1,0 +1,30 @@
+# Member 3 isolated native test server. NEVER use this as a LAN/public config.
+# Reuses the team path. Only local loopback clients may publish/read.
+logLevel: warn
+rtsp: true
+rtspAddress: 127.0.0.1:8554
+rtspTransports: [tcp]
+rtmp: false
+hls: false
+srt: false
+moq: false
+webrtc: true
+webrtcAddress: 127.0.0.1:8889
+webrtcLocalUDPAddress: 127.0.0.1:8189
+webrtcIPsFromInterfaces: false
+webrtcAdditionalHosts: [127.0.0.1]
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: ['127.0.0.1/32', '::1/128']
+    permissions:
+      - action: publish
+        path: '~^live/[0-9a-f-]{36}$'
+      - action: read
+        path: '~^live/[0-9a-f-]{36}$'
+pathDefaults:
+  record: false
+paths:
+  '~^live/[0-9a-f-]{36}$':
+    source: publisher

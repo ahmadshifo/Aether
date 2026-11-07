@@ -1,166 +1,133 @@
-# Task 10 MySQL correction: implementation and verification
+# Native MySQL connection and authentication verification
 
-Status: **code correction implemented; real MySQL 8.4 acceptance pending**.
-The correction is not declared fully complete under the requested acceptance
-condition, because no configured MySQL 8.4 connection is available.
+Verified on 2026-11-05 against the user's existing MySQL Community Server
+8.0.43 at 127.0.0.1:3306, database multimedia_project. The user authorized
+supporting this installed server instead of requiring an 8.4 upgrade.
 
-## Files changed by this correction
+Status: schema initialization, real frame storage, and existing signup/login
+API flows passed. MySQL 8.0.17+ and 8.4 LTS are accepted; MariaDB and unsupported
+version families remain rejected. Only 8.0.43 was exercised on a real server
+in this session. The 8.4 version acceptance also has offline coverage.
 
-| File | Responsibility |
+## Tables created
+
+- frames: existing 13-column multimedia schema, UTC DATETIME(6), objects and
+  embeddings as native JSON, 1536 finite embedding floats and private JPEGs.
+- users: UUID primary key, unique email, name, password_hash and UTC created_at.
+- login_sessions: hashed refresh-token primary key, user UUID, creation/expiry
+  timestamps, cleanup indexes, and foreign key to users with ON DELETE CASCADE.
+- sessions: stream UUID, optional user UUID, live/ended status, start/end times,
+  consent flag, account/status timeline index, and ON DELETE SET NULL user link.
+
+The schema is generated from the same SQLAlchemy metadata for all four tables.
+Initialization validates existing tables, creates missing tables/indexes and
+never drops tables, replaces passwords or deletes application data. Frames
+retain their independent session UUID API without requiring a stream row.
+
+## Connection and backend configuration
+
+multimedia/api/.env and web/ai-backend/.env privately configure the same server
+and database using the supplied MySQL root account. A persistent JWT signing
+secret is configured privately for the existing web authentication backend.
+All unrelated private settings were preserved. Neither secrets file is tracked
+by Git; public .env.example files contain only placeholders.
+
+The backend parses quoted dotenv values, accepts process-environment overrides,
+and can fall back to multimedia/api/.env for MYSQL_* database settings. Existing
+API paths, request fields and response fields are preserved. No second login
+implementation or alternative account database was introduced. The obsolete
+python setup.py startup instruction was replaced with the actual initialization
+command. Startup checks readiness of account, refresh and stream tables.
+
+The MySQL root login is an infrastructure credential. Application users sign
+up with their own email and password through the existing frontend; no default
+application account has been seeded.
+
+## Actual results
+
+| Verification | Result |
 | --- | --- |
-| database/models.py | MySQL types, CHAR(36) UUID adapter, DATETIME(6) UTC adapter, JSON fields, checks and indexes |
-| database/schema.py | Deterministic repeatable SQL generation with inline indexes |
-| database/schema.sql | Generated MySQL 8.4 schema, matching ORM definitions |
-| database/connection.py | Lazy PyMySQL engine, dotenv configuration, utf8mb4/UTC/strict sessions, version and schema checks, non-destructive initialization |
-| database/validation.py | 1536 finite JSON floating-point values, keeping nonzero/model validation without obsolete float32 restriction |
-| database/repository.py | MySQL expiry expression, duplicate error mapping and parameterized pagination; existing JPEG/transaction recovery preserved |
-| database/compose.db.yml | Optional MySQL-only container with a new MySQL data volume |
-| database/smoke.py | Real MySQL synthetic smoke test, separate-process persistence and targeted cleanup |
-| database/__init__.py | Correct package description |
-| tests/test_database.py | 69 offline tests, including UTC/UUID adapters, version rejection, JSON precision and schema drift |
-| tests/test_database_integration.py | All 15 integration tests adapted to MySQL, including native JSON and UTC microseconds |
-| api/requirements.txt | PyMySQL[rsa] added; existing dependencies retained |
-| api/.env.example | Placeholder MySQL connection and optional Docker settings; no real credentials |
-| README.md | Corrected Task 10 overview |
-| database/README.md | Complete native Windows setup, schema, SQL grants, commands, storage behavior and Task 11 boundary |
-| database/VERIFICATION.md | This report and Git snapshot |
+| Offline database tests | 74 passed |
+| Real frame-storage integration | Original 15 tests passed |
+| Real authentication/stream integration | 8 new tests passed |
+| Full tests/ run with RUN_MYSQL_TESTS=1 | 533 passed, no failures, no skipped tests |
+| Real synthetic repository smoke test | Passed, including separate-process persistence and targeted cleanup |
+| MySQL schema initialization and connection check | Passed on MySQL 8.0.43 |
+| Dependency consistency | pip check passed |
+| Public example credential checks | Passed |
+| Git diff whitespace check | Passed |
 
-Paths in the table are relative to multimedia/. database/errors.py was
-inspected and left unchanged. The unused GitHub cleanup.py placeholder was
-subsequently removed; it contained no implementation and had no callers.
-Legacy psycopg/pgvector packages
-remain solely for compatibility with the established Task 1 setup checks;
-the active database layer imports neither. No previous task processing
-algorithms were changed by this correction.
+The full run reported one upstream Starlette TestClient deprecation warning
+about httpx. No runtime/test failures resulted. No live OpenAI or Mistral calls
+were made. Tests exercise the existing ASGI authentication API with a real
+MySQL database, not a mocked database or SQLite substitute. They do not claim
+browser, live camera, or live AI end-to-end verification.
 
-## Schema and exact setup commands
+Authentication coverage includes signup and duplicate-email rejection; scrypt
+password hashing and hashed refresh tokens; current-user lookup; incorrect and
+correct passwords; logout/revocation; JWT refresh; expired-session rejection;
+new-client login persistence; repeated initialization preserving a registered
+account; and cross-account stream isolation. Synthetic users and sessions are
+removed by their own generated identifiers. Normal signup/login only purges
+expired refresh records belonging to the signing-in user.
 
-The complete schema is in [schema.sql](schema.sql); the column-by-column
-reference and exact Windows/MySQL administrator SQL are in
-[README.md](README.md#native-windows-11-setup-primary-option).
+Final observed row counts after cleanup: frames=0, users=0, login_sessions=0,
+sessions=0. These counts describe this verification run, not a reset operation.
+Real user data was not deleted and no demo credentials were left behind.
 
-The frames table includes all 13 required columns: frame_id and session_id
-CHAR(36); captured_at, created_at and expires_at DATETIME(6); optional source
-index and video offset BIGINT; private image_path VARCHAR(1024); OCR LONGTEXT;
-objects JSON; caption TEXT; nullable embedding JSON and model VARCHAR(100).
-The table uses utf8mb4, with ASCII binary UUID/path columns. Indexes cover the
-session/capture-time/frame-ID timeline and expiration. Expiry remains based
-on insertion plus 24 hours by default. Missing embeddings are SQL NULL.
+## Commands
 
-Install/configure MySQL Community 8.4 LTS, create aether_multimedia and its
-dedicated account using the README's SQL, then edit the existing private
-multimedia/api/.env while preserving AI credentials:
-
-```dotenv
-DATABASE_URL=mysql+pymysql://multimedia_user:YOUR_LOCAL_DATABASE_PASSWORD@localhost:3306/aether_multimedia?charset=utf8mb4
-FRAME_STORAGE_PATH=./stored_frames
-FRAME_RETENTION_HOURS=24
-```
-
-URL-encode special characters in the password. Do not overwrite the existing
-.env with the example file. Commands from multimedia/ after activating .venv:
+From multimedia/ with its virtual environment active:
 
 ```powershell
 python -m pip install -r api/requirements.txt
+python -m pip install -r ../web/ai-backend/requirements.txt
 python -m database.connection --init
 python -m database.connection --check
-mysql -h localhost -P 3306 -u multimedia_user -p aether_multimedia
-```
+python -m database.repository --smoke-test
 
-Inside MySQL:
-
-```sql
-SHOW TABLES;
-SHOW CREATE TABLE frames\G
-SHOW INDEX FROM frames;
-```
-
-Run the real integration tests and smoke test once that connection is ready:
-
-```powershell
 $env:RUN_MYSQL_TESTS = "1"
 try {
     $pytestTemp = Join-Path $env:TEMP ("aether-pytest-" + [guid]::NewGuid().ToString("N"))
-    python -m pytest tests/test_database_integration.py -v --basetemp "$pytestTemp" -p no:cacheprovider
+    python -m pytest tests/ -v --basetemp "$pytestTemp" -p no:cacheprovider
 }
 finally {
     Remove-Item Env:\RUN_MYSQL_TESTS -ErrorAction SilentlyContinue
 }
-python -m database.repository --smoke-test
+
+python -m uvicorn app.main --app-dir ../web/ai-backend --host 127.0.0.1 --port 8002
 ```
 
-The README also contains the requested offline/full-suite commands and the
-optional Docker alternative on a separate port. No server upgrade, service
-change, root Compose modification, or PostgreSQL data transfer was attempted.
+Workbench verification:
 
-## Actual verification performed
-
-| Check | Observed result |
-| --- | --- |
-| Offline Task 10 tests | **69 passed** |
-| Full multimedia tests/ regression | **505 passed, 15 skipped**, 520 collected; no failures or errors |
-| Previous-task regression | All 436 existing non-database tests included in the passing full run |
-| Explicit RUN_MYSQL_TESTS=1 run | **15 setup errors**: DATABASE_URL missing; no test reached a MySQL server |
-| python -m database.connection --init | Exit 1: DATABASE_URL missing |
-| python -m database.connection --check | Exit 1: DATABASE_URL missing |
-| python -m database.repository --smoke-test | Exit 1: DATABASE_URL missing; no test frames created |
-| Dependency consistency | python -m pip check: No broken requirements found |
-| Canonical schema consistency | Offline checks confirm schema.sql equals repeatable render_schema() output |
-| Whitespace review | git diff --check passed |
-
-Python is 3.13.7 on Windows. PyMySQL 1.2.3 and its RSA authentication dependencies
-were installed in multimedia/.venv. Server discovery found mysql.exe/mysqld.exe
-under MySQL Server 8.0, the MySQL80 Windows service, and a listener on 127.0.0.1:3306.
-A read-only unauthenticated protocol greeting identified **8.0.43**. This is
-not an authenticated MySQL 8.4 readiness check. No Docker executable was found.
-The current private configuration does not provide DATABASE_URL.
-
-No MySQL 8.4 schema execution, real JSON/vector round-trip, persisted frame,
-or successful smoke result is claimed. The explicit integration run fails
-visibly when opted in; it does not silently skip unsupported/missing servers.
-Offline mocks and SQL compilation are not substitutes for server execution.
-
-## Compatibility and Git
-
-The Python repository retains save/get/list/count/load JPEG/delete/get embedding
-interfaces and UUID/aware-UTC return values. The external fields frame_id,
-session_id, timestamp, image_url, ocr_text, objects, caption and relevance_score
-are unchanged. No mobile/, web/, shared/contracts/, API endpoints or repository
-root docker-compose.yml were changed. No cloud AI requests were made. Task 11
-search is documented only and has not been implemented.
-
-Branch: feature/multimedia. No unresolved Git merge entries. No commit or push.
-The working tree already contained earlier task changes; the following Git
-snapshot includes those pre-existing changes as well as this correction.
-
-```text
- M .gitignore
- M multimedia/README.md
- M multimedia/api/.env.example
- M multimedia/api/requirements.txt
- M multimedia/database/__init__.py
- M multimedia/database/connection.py
- M multimedia/database/repository.py
- M multimedia/database/schema.sql
- M multimedia/processing/duplicate_filter.py
- M multimedia/processing/frame_extractor.py
- M multimedia/processing/quality_filter.py
-?? multimedia/database/README.md
-?? multimedia/database/VERIFICATION.md
-?? multimedia/database/compose.db.yml
-?? multimedia/database/errors.py
-?? multimedia/database/models.py
-?? multimedia/database/schema.py
-?? multimedia/database/smoke.py
-?? multimedia/database/validation.py
-?? multimedia/processing/caption_service.py
-?? multimedia/processing/embedding_service.py
-?? multimedia/processing/frame_selector.py
-?? multimedia/processing/image_utils.py
-?? multimedia/processing/object_detector.py
-?? multimedia/processing/ocr_service.py
-?? multimedia/processing/video_reader.py
-?? multimedia/pytest.ini
-?? multimedia/scripts/
-?? multimedia/tests/
+```sql
+USE multimedia_project;
+SHOW TABLES;
+DESCRIBE users;
+DESCRIBE login_sessions;
+DESCRIBE sessions;
+DESCRIBE frames;
 ```
+
+Refresh Workbench's SCHEMAS panel to see the tables. Restart a backend that was
+already running before configuration changed. Run the dashboard separately;
+its existing Vite proxy forwards auth/stream requests to port 8002.
+
+## Source changes
+
+- database/models.py: canonical account, refresh-session and stream tables.
+- database/schema.py and schema.sql: repeatable SQL for all four tables.
+- database/connection.py: supported versions, generic table validation and init.
+- database/compose.db.yml: consistent multimedia_project database default;
+  the optional container still uses mysql:8.4.
+- tests/test_database.py and test_database_integration.py: retain previous
+  coverage and accept the supported server versions.
+- tests/test_auth_database_integration.py: 8 real authentication/stream tests.
+- web/ai-backend/app/auth.py: shared configuration fallback, proper dotenv
+  parsing, UTC sessions, readiness checks and account-scoped expired cleanup.
+- web/ai-backend/requirements.txt: dotenv dependency and verified PyJWT range.
+- .env.example files and READMEs: current database name, setup and startup.
+
+No frontend, API contract, server installation, or root Compose changes were
+made. Task 11 semantic search was not implemented. Changes from this session
+remain local and uncommitted; the database has been initialized locally.

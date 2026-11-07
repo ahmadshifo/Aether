@@ -1,4 +1,4 @@
-"""Lazy SQLAlchemy/PyMySQL connections and explicit MySQL Community 8.4 setup."""
+"""Lazy SQLAlchemy/PyMySQL connections and explicit MySQL Community 8.0/8.4 setup."""
 
 import argparse
 import os
@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import dotenv_values
-from sqlalchemy import CheckConstraint, create_engine, inspect, text
+from sqlalchemy import Boolean, CheckConstraint, UniqueConstraint, create_engine, inspect, text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -75,19 +75,23 @@ class Database:
     def _server_version(connection) -> str:
         version = str(connection.scalar(text("SELECT VERSION()")))
         comment = str(connection.scalar(text("SELECT @@version_comment")))
-        if "mariadb" in (version + comment).lower() or not re.fullmatch(r"8\.4\.\d+(?:[-.][A-Za-z0-9_.-]+)?", version):
-            raise DatabaseConnectionError("MySQL Community Server 8.4 LTS is required; MySQL 8.0 and MariaDB are not supported targets.")
+        match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:[-.][A-Za-z0-9_.-]+)?", version)
+        supported = bool(match) and ((int(match[1]), int(match[2])) == (8, 4) or
+                                     ((int(match[1]), int(match[2])) == (8, 0) and int(match[3]) >= 17))
+        if "mariadb" in (version + comment).lower() or not supported:
+            raise DatabaseConnectionError("MySQL Community Server 8.0.17+ or 8.4 LTS is required; MariaDB is not supported.")
         return version
 
     @staticmethod
-    def _validate_schema(connection):
+    def _validate_schema(connection, table=None):
         from .models import Frame
         from sqlalchemy.types import TypeDecorator
+        expected = Frame.__table__ if table is None else table
+        table_name = expected.name
         inspector = inspect(connection)
-        if not inspector.has_table("frames"):
-            raise DatabaseConnectionError("The frames table is missing; run --init.")
-        actual = {column["name"]: column for column in inspector.get_columns("frames")}
-        expected = Frame.__table__
+        if not inspector.has_table(table_name):
+            raise DatabaseConnectionError(f"The {table_name} table is missing; run --init.")
+        actual = {column["name"]: column for column in inspector.get_columns(table_name)}
         compatible = set(actual) == set(expected.columns.keys())
         for column in expected.columns:
             if column.name not in actual:
@@ -95,39 +99,47 @@ class Database:
             definition = actual[column.name]
             wanted = column.type.impl if isinstance(column.type, TypeDecorator) else column.type
             found = definition["type"]
-            compatible &= isinstance(found, type(wanted)) and definition["nullable"] == column.nullable
+            type_matches = isinstance(found, type(wanted))
+            if isinstance(wanted, Boolean):
+                from sqlalchemy.dialects.mysql import TINYINT
+                type_matches = isinstance(found, (Boolean, TINYINT))
+            compatible &= type_matches and definition["nullable"] == column.nullable
             for attribute in ("length", "fsp"):
                 compatible &= getattr(found, attribute, None) == getattr(wanted, attribute, None)
             compatible &= bool(getattr(found, "unsigned", False)) == bool(getattr(wanted, "unsigned", False))
-            if column.name in ("frame_id", "session_id", "image_path"):
+            if getattr(wanted, "charset", None) == "ascii":
                 compatible &= getattr(found, "charset", None) == "ascii"
                 compatible &= getattr(found, "collation", None) == "ascii_bin"
-            elif column.name in ("ocr_text", "caption", "embedding_model"):
+            elif hasattr(wanted, "charset"):
                 compatible &= getattr(found, "charset", None) in (None, "utf8mb4")
-        compatible &= inspector.get_pk_constraint("frames")["constrained_columns"] == ["frame_id"]
-        unique_keys = inspector.get_unique_constraints("frames")
-        compatible &= any(key["column_names"] == ["image_path"] for key in unique_keys)
-        checks = {check["name"] for check in inspector.get_check_constraints("frames")}
+        compatible &= inspector.get_pk_constraint(table_name)["constrained_columns"] == list(expected.primary_key.columns.keys())
+        unique_keys = inspector.get_unique_constraints(table_name)
+        for constraint in expected.constraints:
+            if isinstance(constraint, UniqueConstraint):
+                compatible &= any(key["column_names"] == list(constraint.columns.keys()) for key in unique_keys)
+        checks = {check["name"] for check in inspector.get_check_constraints(table_name)}
         compatible &= {constraint.name for constraint in expected.constraints
                        if isinstance(constraint, CheckConstraint)} <= checks
-        indexes = {index["name"]: index for index in inspector.get_indexes("frames")}
+        indexes = {index["name"]: index for index in inspector.get_indexes(table_name)}
         for index in expected.indexes:
             if index.name in indexes:
                 compatible &= indexes[index.name]["column_names"] == list(index.columns.keys())
-        options = inspector.get_table_options("frames")
+        options = inspector.get_table_options(table_name)
         compatible &= options.get("mysql_engine", "").lower() == "innodb"
         compatible &= options.get("mysql_collate", "").startswith("utf8mb4_")
         if not compatible:
-            raise DatabaseConnectionError("Existing frames schema is incompatible; initialization will not rewrite or drop it. Review the schema manually.")
+            raise DatabaseConnectionError(f"Existing {table_name} schema is incompatible; initialization will not rewrite or drop it. Review the schema manually.")
 
     def check(self) -> dict:
         try:
             with self.engine.connect() as connection:
                 version = self._server_version(connection)
-                self._validate_schema(connection)
-                indexes = {item["name"] for item in inspect(connection).get_indexes("frames")}
-                if not {"frames_session_time_idx", "frames_expires_at_idx"} <= indexes:
-                    raise DatabaseConnectionError("Required frames indexes are missing; run --init.")
+                from .models import Base
+                for table in Base.metadata.sorted_tables:
+                    self._validate_schema(connection, table)
+                    indexes = {item["name"] for item in inspect(connection).get_indexes(table.name)}
+                    if not {index.name for index in table.indexes} <= indexes:
+                        raise DatabaseConnectionError(f"Required {table.name} indexes are missing; run --init.")
             return {"mysql_version": version, "frames_table": "frames"}
         except DatabaseError:
             raise
@@ -135,22 +147,24 @@ class Database:
             raise DatabaseConnectionError("MySQL connection/readiness check failed; verify server, credentials and schema initialization.") from None
 
     def initialize_schema(self):
-        from .models import Frame
+        from .models import Base
         from .schema import SCHEMA_FILE, create_table_sql, render_schema
         if SCHEMA_FILE.read_text(encoding="utf-8") != render_schema():
             raise DatabaseConfigurationError("schema.sql differs from models; regenerate with python -m database.schema --write.")
         try:
-            # MySQL DDL implicitly commits. Only create missing objects; never
-            # claim atomic schema migration or rewrite an incompatible table.
+            # MySQL DDL implicitly commits. Validate existing tables before
+            # adding objects; never rewrite incompatible tables or delete rows.
             with self.engine.begin() as connection:
                 self._server_version(connection)
-                if inspect(connection).has_table("frames"):
-                    self._validate_schema(connection)
-                else:
-                    connection.exec_driver_sql(create_table_sql())
-                for index in sorted(Frame.__table__.indexes, key=lambda item: item.name):
-                    index.create(connection, checkfirst=True)
-                self._validate_schema(connection)
+                for table in Base.metadata.sorted_tables:
+                    if inspect(connection).has_table(table.name):
+                        self._validate_schema(connection, table)
+                for table in Base.metadata.sorted_tables:
+                    if not inspect(connection).has_table(table.name):
+                        connection.exec_driver_sql(create_table_sql(table))
+                    for index in sorted(table.indexes, key=lambda item: item.name):
+                        index.create(connection, checkfirst=True)
+                    self._validate_schema(connection, table)
         except DatabaseError:
             raise
         except Exception:
@@ -178,10 +192,11 @@ def main(argv=None) -> int:
             if args.init:
                 database.initialize_schema()
                 print("Schema initialized without deleting records")
-            print("Checking MySQL Community Server 8.4 LTS...")
+            print("Checking MySQL Community Server 8.0.17+ / 8.4 LTS...")
             info = database.check()
             print("Connection successful")
             print(f"MySQL version: {info['mysql_version']}")
+            print("Tables ready: frames, users, login_sessions, sessions")
             print("Database ready")
         return 0
     except DatabaseError as error:

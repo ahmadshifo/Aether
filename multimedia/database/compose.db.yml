@@ -5,7 +5,7 @@ services:
     image: mysql:8.4
     environment:
       MYSQL_USER: ${MYSQL_USER:-multimedia_user}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-aether_multimedia}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-multimedia_project}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in api/.env}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in api/.env}
     ports:
