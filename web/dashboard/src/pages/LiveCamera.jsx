@@ -1,10 +1,11 @@
-// Member 2: full-size live view of the phone's camera. Connect finds the stream this account's phone is publishing: no link needed.
-import { useContext, useEffect, useRef, useState } from 'react';
+// Member 2: full-size live view of the phone's camera. Connect finds the stream this account's phone is publishing
+// (no link needed) and Disconnect stops watching it; the phone keeps streaming either way.
+import { useContext, useEffect, useState } from 'react';
 import { AUTH_ENABLED } from '../auth.js';
 import LiveStream from '../components/LiveStream.jsx';
 import { DynamicButton, MagneticDropZone, ScrambleText } from '../components/ui/index.js';
 import { Icon, PageHeader, UserContext, formatShortTime } from '../components/ui.jsx';
-import { findLiveSessionId, useLiveSessionId } from '../components/useLiveSessionId.js';
+import { useWatchedSession } from '../components/useWatchedSession.js';
 import { useQuestions } from '../components/useBackend.js';
 import { STREAM } from '../data/mockData.js';
 
@@ -12,49 +13,13 @@ const BUTTON_STATE = { idle: 'busy', connecting: 'busy', waiting: 'busy', live: 
 
 export default function LiveCamera() {
   const user = useContext(UserContext);
-  const liveId = useLiveSessionId();
-  const [watching, setWatching] = useState(null); // the session being played; null = not connected
-  const [looking, setLooking] = useState(false);
+  const { watching, looking, notice, liveId, connect, disconnect } = useWatchedSession(user?.email);
   const [streamState, setStreamState] = useState('idle');
-  const [notice, setNotice] = useState('');
   const [revealKey, setRevealKey] = useState(0);
-  const watchingRef = useRef(null);
-  watchingRef.current = watching;
   const history = useQuestions();
   const question = history.questions[0];
 
-  // Follow the phone while connected: a new session after Stop and Start is picked up; Stop disconnects.
-  useEffect(() => {
-    const current = watchingRef.current;
-    if (!current || liveId === undefined) return;
-    if (liveId === null) {
-      setWatching(null);
-      setNotice('The phone stopped streaming. Press Connect when it starts again.');
-    } else if (liveId !== current) {
-      setWatching(liveId);
-      setRevealKey((n) => n + 1);
-    }
-  }, [liveId]);
-
-  async function connect() {
-    if (watching) {
-      setWatching(null);
-      setNotice('');
-      return;
-    }
-    setLooking(true);
-    setNotice('');
-    const id = await findLiveSessionId();
-    setLooking(false);
-    if (!id) {
-      setNotice(AUTH_ENABLED
-        ? `Your phone isn't streaming yet. Open the Aether app, signed in as ${user.email}, press Start, then press Connect.`
-        : 'No phone is streaming yet. Press Start in the Aether app, then press Connect.');
-      return;
-    }
-    setWatching(id);
-    setRevealKey((n) => n + 1);
-  }
+  useEffect(() => { if (watching) setRevealKey((n) => n + 1); }, [watching]);
 
   const buttonState = looking ? 'busy' : watching ? BUTTON_STATE[streamState] : 'idle';
   const facts = [
@@ -71,7 +36,9 @@ export default function LiveCamera() {
       <div className="grid grid-live">
         <section className="card section section-tight live-panel" aria-label="Live stream">
           <LiveStream sessionId={watching} aspect="16x10" full onState={setStreamState}
-            idleText={AUTH_ENABLED ? 'Press Connect to watch the phone’s camera.' : undefined} />
+            idleText={AUTH_ENABLED
+              ? (liveId ? 'Your phone is streaming. Press Connect to watch it.' : 'Press Connect to watch the phone’s camera.')
+              : undefined} />
           <div className="under-stage">
             {question ? (
               <span>
@@ -96,10 +63,14 @@ export default function LiveCamera() {
               )}
             </div>
             {notice && <p className="note" role="status"><Icon name="alert" size={16} />{notice}</p>}
-            <DynamicButton state={buttonState} onClick={connect}
-              labels={{ idle: 'Connect', busy: 'Connecting…', done: 'Connected' }} />
+            <div className="btn-row">
+              <DynamicButton state={buttonState} onClick={connect} disabled={Boolean(watching) || looking}
+                labels={{ idle: 'Connect', busy: 'Connecting…', done: 'Connected' }} />
+              <button type="button" className="btn" onClick={disconnect} disabled={!watching && !looking}>Disconnect</button>
+            </div>
             <p className="hint">
-              Sign in to the Aether app on the phone with this same account and press Start. Connect then shows its camera here.
+              Sign in to the Aether app on the phone with this same account and press Start. Connect then shows its camera
+              here; Disconnect stops watching without stopping the phone.
             </p>
             <dl className="facts">
               {facts.map(([term, detail]) => (

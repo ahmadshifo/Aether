@@ -5,9 +5,9 @@ import { AUTH_ENABLED } from '../auth.js';
 import LiveStream from '../components/LiveStream.jsx';
 import { Barcode, LogoTraceLoader, ReceiptPrinter, ScrambleText, Stamp } from '../components/ui/index.js';
 import {
-  PageHeader, SceneArt, STATUS_LABELS, StatusPill, UserContext, formatTime, frameTitle, signText,
+  Icon, PageHeader, SceneArt, STATUS_LABELS, StatusPill, UserContext, formatTime, frameTitle, signText,
 } from '../components/ui.jsx';
-import { useLiveSessionId } from '../components/useLiveSessionId.js';
+import { useWatchedSession } from '../components/useWatchedSession.js';
 import { useQuestions, useStatus } from '../components/useBackend.js';
 // Saved-frame cards stay sample scenes until the Visual Memory page is wired to the multimedia service.
 import { FRAMES, sceneFor } from '../data/mockData.js';
@@ -49,8 +49,8 @@ function AnswerSlip({ question, evidence }) {
 
 export default function Overview() {
   const user = useContext(UserContext);
-  // Plays this account's phone stream here as soon as the phone presses Start.
-  const liveSessionId = useLiveSessionId() ?? null;
+  // The phone's stream plays here only after Connect (shared with the Live camera page); Disconnect stops it.
+  const { watching, looking, notice, liveId, connect, disconnect } = useWatchedSession(user?.email);
   const { status, checking, check: recheck } = useStatus();
   const history = useQuestions();
   const latest = history.questions[0];
@@ -60,7 +60,7 @@ export default function Overview() {
   const recent = RECENT.map(([id, tilt]) => ({ frame: FRAMES.find((frame) => frame.frame_id === id), tilt }));
   const [readKey, setReadKey] = useState(0);
   const [checkKey, setCheckKey] = useState(0);
-  const streaming = Boolean(liveSessionId);
+  const streaming = Boolean(liveId);
   const questionCount = history.demo ? 'Samples only' : String(history.questions.length);
 
   const check = () => {
@@ -82,7 +82,7 @@ export default function Overview() {
       <section className="stat-row" aria-label="Summary">
         <div className="card stat">
           <span className="label">Live connection</span>
-          <p className="stat-value">{streaming ? 'Connected' : status.streaming === 'online' ? 'Waiting for phone' : STATUS_LABELS[status.streaming]}</p>
+          <p className="stat-value">{watching ? 'Watching' : streaming ? 'Phone streaming' : status.streaming === 'online' ? 'Waiting for phone' : STATUS_LABELS[status.streaming]}</p>
         </div>
         <div className="card stat"><span className="label">Questions · 24 h</span><p className="stat-value">{history.loading ? '…' : questionCount}</p></div>
         <div className="card stat">
@@ -95,10 +95,18 @@ export default function Overview() {
         <section className="card section" aria-labelledby="live-title">
           <div className="card-head">
             <h2 id="live-title" className="card-title">Live stream</h2>
-            <Link to="/live" className="btn">Open full view</Link>
+            <div className="btn-row">
+              {watching
+                ? <button type="button" className="btn" onClick={disconnect}>Disconnect</button>
+                : <button type="button" className="btn" onClick={connect} disabled={looking}>{looking ? 'Connecting…' : 'Connect'}</button>}
+              <Link to="/live" className="btn">Open full view</Link>
+            </div>
           </div>
-          <LiveStream sessionId={liveSessionId} aspect="16x9"
-            idleText={AUTH_ENABLED ? 'Your phone isn’t streaming. Press Start in the Aether app.' : undefined} />
+          <LiveStream sessionId={watching} aspect="16x9"
+            idleText={AUTH_ENABLED
+              ? (streaming ? 'Your phone is streaming. Press Connect to watch it.' : 'Your phone isn’t streaming. Press Start in the Aether app.')
+              : undefined} />
+          {notice && <p className="note" role="status"><Icon name="alert" size={16} />{notice}</p>}
           <div className="ocr-panel inset">
             <span>
               <span className="label">Text read just now</span>
