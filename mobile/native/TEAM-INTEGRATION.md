@@ -1,5 +1,11 @@
 # Mobile integration with the team backend
 
+Current setup and teammate handoff: [TEAM-SETUP.md](TEAM-SETUP.md). The earlier route, storage and pending-work descriptions below are historical; the current stack includes the implemented Ask/History APIs, live ingestion and RustFS.
+
+Current History/recovery update (2026-11-08): see [HISTORY-STREAMING.md](HISTORY-STREAMING.md) for the mobile changes, current checks and backend pagination blocker. Older results below are historical.
+
+Historical validation for 2026-11-07. See [FRENCH-ONBOARDING.md](FRENCH-ONBOARDING.md) for the 2026-11-08 update, current database, new teammate APIs, French support and first-use notice.
+
 Verified 2026-11-07 against `main` commit `439ea412e895993a8a942ae40a5b221443a69e81`.
 Work branch: `codex/mobile-team-integration`. Implementation changes are confined to `mobile/native`.
 

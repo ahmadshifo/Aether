@@ -25,7 +25,8 @@ import { listenForWakeWord } from '../voice/wakeWord';
 import { SpeechOwner } from '../voice/speech';
 import { StreamRegistry } from '../streaming/registry';
 import { HistoryRepository } from '../storage/history';
-import { fetchServerHistory } from '../storage/serverHistory';
+import { createHistoryApi } from '../storage/serverHistory';
+import { HistorySync } from '../storage/historySync';
 import { discardPhoto, nativeStorage, savePhoto } from '../storage/nativeStorage';
 import { ConnectionScreen } from './ConnectionScreen';
 import { HelpScreen } from './HelpScreen';
@@ -65,9 +66,11 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       discardPhoto: photo => { void discardPhoto(repository.key, photo).catch(() => {}); }, answer: entry => repository.upsert(entry),
       discardSnapshot: snapshot => { void FileSystem.deleteAsync(snapshot.uri, { idempotent: true }).catch(() => {}); },
     });
-    return { repository, camera, controller, caps, api };
+    const historySync = new HistorySync(repository, createHistoryApi(endpoints.backend, nativeFetch, unauthorized), allowed);
+    return { repository, camera, controller, caps, api, historySync };
   });
   const media = useSyncExternalStore(runtime.controller.subscribe, runtime.controller.getSnapshot), history = useSyncExternalStore(runtime.repository.subscribe, runtime.repository.getSnapshot);
+  const syncedHistory = useSyncExternalStore(runtime.historySync.subscribe, runtime.historySync.getSnapshot);
   const prefsKey = `${runtime.repository.key}:display`;
   useEffect(() => {
     void AsyncStorage.getItem(prefsKey).then(raw => {
@@ -75,26 +78,22 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       const value = raw ? JSON.parse(raw) : {}; const safe = { welcome: value.welcome === true, motion: value.motion !== false, haptics: value.haptics === true, wake: value.wake === true };
       currentPrefs.current = safe; setPreferences(safe); setPage(safe.welcome ? 'home' : 'welcome'); setLoaded(true);
     }).catch(() => { if (alive.current) setLoaded(true); });
-    const lock = auth.onLock(() => { runtime.controller.stop(); setConfirm(null); setNotice(''); });
-    return () => { alive.current = false; lock(); runtime.controller.dispose(); runtime.repository.dispose(); };
+    const lock = auth.onLock(() => { runtime.controller.stop(); runtime.historySync.cancel(); setConfirm(null); setNotice(''); });
+    return () => { alive.current = false; lock(); runtime.controller.dispose(); runtime.historySync.dispose(); runtime.repository.dispose(); };
   }, [auth, prefsKey, runtime, session.owner]);
   useEffect(() => { focus(); }, [page, focus]);
-  // Opening History pulls the account's answers from the AI backend (sample records until real answers exist).
+  // Requests are scoped to the verified owner and cancelled when leaving History.
   useEffect(() => {
     if (page !== 'history') return;
-    let current = true;
-    void fetchServerHistory(endpoints.backend, nativeFetch).then(result => {
-      if (!current || !result || !alive.current || !auth.authorized(session.owner)) return;
-      for (const entry of [...result.entries].reverse()) runtime.repository.upsert(entry);
-    });
-    return () => { current = false; };
-  }, [page, endpoints.backend, runtime, auth, session.owner]);
+    void runtime.historySync.refresh();
+    return () => runtime.historySync.cancel();
+  }, [page, runtime]);
   useEffect(() => {
-    const timer = setInterval(() => runtime.repository.expire(), 30000);
+    const timer = setInterval(() => { runtime.repository.expire(); runtime.historySync.expire(); }, 30000);
     const sub = AppState.addEventListener('change', value => { if ((value === 'background' || value === 'inactive') && !permissionPending()) runtime.controller.stop(true); else if (value === 'active') runtime.repository.expire(); });
     return () => { clearInterval(timer); sub.remove(); };
   }, [runtime]);
-  const navigate = (next: Page) => { setNotice(''); if (next === 'history') runtime.controller.pause(); setPage(next); };
+  const navigate = (next: Page) => { setNotice(''); if (next === 'history' || next === 'help') runtime.controller.pause(); setPage(next); };
   const back = () => { if (page === 'assistant' && media.active) setConfirm('leave'); else navigate('home'); };
   useEffect(() => { const sub = BackHandler.addEventListener('hardwareBackPress', () => { if (confirm) { setConfirm(null); return true; } if (page !== 'home') { if (page === 'assistant' && media.active) setConfirm('leave'); else setPage('home'); return true; } return false; }); return () => sub.remove(); }, [page, media.active, confirm]);
   const updatePrefs = (patch: Preferences) => {
@@ -108,7 +107,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
     const sub = AppState.addEventListener('change', value => setForeground(value === 'active' || permissionPending()));
     return () => sub.remove();
   }, []);
-  const wakeOn = loaded && preferences.wake === true && runtime.caps.recognition && foreground && !media.active && media.phase !== 'speaking' && page !== 'assistant' && !confirm;
+  const wakeOn = loaded && preferences.wake === true && runtime.caps.recognition && foreground && !media.active && media.phase !== 'speaking' && page !== 'assistant' && page !== 'help' && page !== 'history' && !confirm;
   useEffect(() => {
     if (!wakeOn) return;
     const stop = listenForWakeWord(() => start(), () => { updatePrefs({ wake: false }); setNotice(m.wakeUnavailable); });
@@ -138,7 +137,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
           {history.loading ? <T>{u.loading}</T> : history.items[0] ? <Card><T variant="small">{entryTime(history.items[0], language)}</T><T language={history.items[0].language}>{history.items[0].question}</T><Button label={m.viewHistory} onPress={() => navigate('history')} /></Card> : <T>{u.emptyTitle}</T>}
           {history.error && <Notice danger>{u.storageError}</Notice>}
         </View>}
-        {page === 'history' && <HistoryScreen repository={runtime.repository} state={history} replay={entry => { void runtime.controller.replay(entry); }} active={media.active} speaking={media.phase === 'speaking'} stopSpeech={() => runtime.controller.stopPlayback()} focus={focus} />}
+        {page === 'history' && <HistoryScreen repository={runtime.repository} state={{ ...history, items: syncedHistory.items }} sync={runtime.historySync} network={syncedHistory} stopSession={() => runtime.controller.stop()} replay={entry => { void runtime.controller.replay(entry); }} active={media.active} speaking={media.phase === 'speaking'} stopSpeech={() => runtime.controller.stopPlayback()} focus={focus} />}
         {page === 'settings' && <View style={{ gap: 24 }}><T variant="title">{m.settings}</T>
           <T variant="heading">{m.appearance}</T><Card><View style={{ gap: 8 }}>{themeModes.map(mode => <Button key={mode} label={mode === 'system' ? m.themeSystem : mode === 'light' ? m.themeLight : m.themeDark} icon={themeMode === mode ? 'check' : mode === 'system' ? 'phone' : mode === 'light' ? 'sun' : 'moon'} selected={themeMode === mode} onPress={() => changeTheme(mode)} />)}</View></Card>
           <T variant="heading">{m.voice}</T><Card>

@@ -18,12 +18,16 @@ import { dark, light, parseThemeMode, resolveScheme, type ThemeMode } from './sr
 import type { Language } from './src/shared/types';
 import { nativeFetch } from './src/platform/network';
 import { permissionPending } from './src/platform/permissions';
+import { FirstUseGate } from './src/components/FirstUseGate';
 const CONFIG_KEY = 'aether-native-connection-v1';
 const THEME_KEY = 'aether-native-theme-v1';
+const LANGUAGE_KEY = 'aether-native-language-v1';
 const waiting: AuthState = { status: 'checking', session: null, error: '', notice: '' };
 const failed: AuthState = { status: 'service_unavailable', session: null, error: 'backend_unavailable', notice: '' };
 const noSubscription = () => () => {};
 export default function App() {
+  const [languageReady, setLanguageReady] = useState(false);
+  const languageQueue = useRef(Promise.resolve());
   const systemScheme = useColorScheme();
   const [themeMode, setThemeMode] = useState<ThemeMode>('system'), scheme = resolveScheme(themeMode, systemScheme);
   const [language, setLanguage] = useState<Language>('en'), [reduced, setReduced] = useState(false), [endpoints, setEndpoints] = useState(defaultEndpoints), [publicPage, setPublicPage] = useState<'auth' | 'connection' | 'help'>('auth');
@@ -48,6 +52,7 @@ export default function App() {
     void AccessibilityInfo.isReduceMotionEnabled().then(value => { if (alive) setReduced(value); });
     const motion = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduced);
     void AsyncStorage.getItem(THEME_KEY).then(raw => { if (alive) setThemeMode(parseThemeMode(raw)); }).catch(() => {});
+    void AsyncStorage.getItem(LANGUAGE_KEY).then(raw => { if (alive && (raw === 'en' || raw === 'ar' || raw === 'fr')) setLanguage(raw); }).catch(() => {}).finally(() => { if (alive) setLanguageReady(true); });
     void AsyncStorage.getItem(CONFIG_KEY).then(raw => {
       if (!alive) return;
       // A saved connection always wins over build-time defaults, including in development.
@@ -68,12 +73,13 @@ export default function App() {
   const save = (value: Endpoints) => { setPublicPage('auth'); void connect(value, true, true); };
   const retry = () => { if (current.current) void current.current.check(); else void connect(endpointRef.current, false); };
   const changeTheme = (mode: ThemeMode) => { setThemeMode(mode); void AsyncStorage.setItem(THEME_KEY, mode).catch(() => {}); };
+  const changeLanguage = (value: Language) => { setLanguage(value); languageQueue.current = languageQueue.current.then(() => AsyncStorage.setItem(LANGUAGE_KEY, value)).catch(() => {}); };
   const ui = { language, colors: scheme === 'dark' ? dark : light, fonts, motion: !reduced, haptics: false };
   return <SafeAreaProvider><UIContext.Provider value={ui}><StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-    {auth && state.status === 'signed_in' && state.session ? <Account key={`${state.session.owner.source}:${state.session.owner.epoch}`} auth={auth} session={state.session} endpoints={endpoints} saveEndpoints={save} changeLanguage={setLanguage} themeMode={themeMode} changeTheme={changeTheme} />
-      : <Frame languageChange={setLanguage} back={publicPage !== 'auth' ? () => setPublicPage('auth') : undefined}>
+    {languageReady && <FirstUseGate changeLanguage={changeLanguage}>{auth && state.status === 'signed_in' && state.session ? <Account key={`${state.session.owner.source}:${state.session.owner.epoch}`} auth={auth} session={state.session} endpoints={endpoints} saveEndpoints={save} changeLanguage={changeLanguage} themeMode={themeMode} changeTheme={changeTheme} />
+      : <Frame languageChange={changeLanguage} back={publicPage !== 'auth' ? () => setPublicPage('auth') : undefined}>
         {fontError && <Notice>{copies(language).n.fontFallback}</Notice>}
         {publicPage === 'connection' ? <ConnectionScreen endpoints={endpoints} onSave={save} signedIn={false} /> : publicPage === 'help' ? <HelpScreen /> : <AuthScreen state={state} auth={auth} retry={retry} connection={() => setPublicPage('connection')} help={() => setPublicPage('help')} />}
-      </Frame>}
+      </Frame>}</FirstUseGate>}
   </UIContext.Provider></SafeAreaProvider>;
 }

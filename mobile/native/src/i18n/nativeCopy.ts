@@ -2,6 +2,7 @@ import { monoCopy } from './monoCopy';
 import { uiCopy } from './uiCopy';
 import { authCopy } from './authCopy';
 import { teamCopy } from './teamCopy';
+import { frMono, frAuth, frUI, frNative, frTeam } from './french';
 import type { Language } from '../shared/types';
 export const nativeCopy = {
   en: {
@@ -25,9 +26,9 @@ export const nativeCopy = {
     signaling: 'Media signaling', signalingReachable: 'Signaling reachable', signalingUnavailable: 'Signaling unverified or unavailable',
     registry: 'Session link', registered: 'Session linked', registry_failed: 'Session link failed',
     transportConnected: 'Stream connected', transportFailed: 'Stream failed · preview only',
-    privacy: 'History is stored on this app installation, per account and server. It is not encrypted or synchronized.',
-    retention: 'New History expires after 24 hours (50 entries maximum). Suspension can delay physical deletion; cleanup runs on launch and resume.',
-    clearBody: 'This removes this account’s saved questions and photos from this app. Clear all cannot be undone.',
+    privacy: 'Local History is cached per account and server. Opening History also loads available server answers.',
+    retention: 'History shows the last 24 hours. Up to 50 answers are cached on this phone; older answers load from the server. Local cleanup runs on launch and resume.',
+    clearBody: 'This removes local copies from this app. Server records are not deleted and may appear again when History reloads.',
     accountNote: 'Signed in to your Aether account on this app.', audioLimits: 'Device speech. Replay and Stop speech are available; pause and duration are unavailable.',
     aloudNote: 'Answers play automatically through device speech. No speed or voice selector is implemented.',
     steps: [ ['Start together', 'Tap Start, or enable “Hey Aether” in Settings and say it while the app is open.'], ['Ask out loud', 'After the greeting, wait for Listening and ask your question.'], ['Listen or read', 'Hear the reply. Tap Answer to read it or replay it.'], ['Stop when you choose', 'Tap Stop session. Leaving the app also stops the camera and microphone.'] ],
@@ -56,9 +57,9 @@ export const nativeCopy = {
     signaling: 'إشارات البث', signalingReachable: 'الإشارات متاحة', signalingUnavailable: 'الإشارات غير متاحة أو غير متحقق منها',
     registry: 'ربط الجلسة', registered: 'تم ربط الجلسة', registry_failed: 'فشل ربط الجلسة',
     transportConnected: 'البث متصل', transportFailed: 'فشل البث · معاينة فقط',
-    privacy: 'يُحفظ السجل في تثبيت التطبيق هذا لكل حساب وخادم. لا يُشفّر ولا يتزامن.',
-    retention: 'تنتهي صلاحية السجل الجديد بعد ٢٤ ساعة (٥٠ سجلًا كحد أقصى). قد يؤخر تعليق التطبيق الحذف الفعلي؛ يُنظّف السجل عند الفتح والاستئناف.',
-    clearBody: 'ستُحذف الأسئلة والصور المحفوظة لهذا الحساب من التطبيق. لا يمكن التراجع عن مسح الكل.',
+    privacy: 'تُحفظ نسخة محلية من السجل لكل حساب وخادم. يحمّل فتح السجل أيضًا الإجابات المتاحة على الخادم.',
+    retention: 'يعرض السجل آخر ٢٤ ساعة. تُحفظ حتى ٥٠ إجابة على هذا الهاتف، وتُحمّل الإجابات الأقدم من الخادم. يُنظّف السجل المحلي عند الفتح والاستئناف.',
+    clearBody: 'ستُحذف النسخ المحلية فقط. لن تُحذف سجلات الخادم وقد تظهر مجددًا عند إعادة تحميل السجل.',
     accountNote: 'مسجّل الدخول إلى حساب Aether في هذا التطبيق.', audioLimits: 'نطق الجهاز. تتوفر الإعادة وإيقاف النطق؛ لا يتوفر الإيقاف المؤقت أو عرض المدة.',
     aloudNote: 'تُنطق الإجابات تلقائيًا بصوت الجهاز. لم تُنفّذ أدوات لاختيار الصوت أو السرعة.',
     steps: [ ['ابدأ معًا', 'اضغط ابدأ، أو فعّل «Hey Aether» في الإعدادات وقلها أثناء فتح التطبيق.'], ['اسأل بصوتك', 'بعد الترحيب، انتظر حالة أستمع إليك ثم اطرح سؤالك.'], ['استمع أو اقرأ', 'استمع إلى الرد. اضغط الإجابة لقراءتها أو إعادة سماعها.'], ['توقف متى شئت', 'اضغط إنهاء الجلسة. مغادرة التطبيق توقف الكاميرا والميكروفون أيضًا.'] ],
@@ -68,8 +69,9 @@ export const nativeCopy = {
   },
 };
 export function copies(language: Language) {
-  const n = { ...nativeCopy[language], ...teamCopy[language] };
-  return { m: { ...monoCopy[language], retention: n.retention, clearBody: n.clearBody, accountNote: n.accountNote, audioLimits: n.audioLimits, aloudNote: n.aloudNote, steps: n.steps },
-    u: { ...uiCopy[language], local: `${n.privacy} ${n.retention}`, clearBody: n.clearBody, photoNote: n.photoNote, playback: n.audioLimits },
-    a: { ...authCopy[language], privacy: n.privacy }, n };
+  const n = { ...(language === 'fr' ? frNative : nativeCopy[language]), ...(language === 'fr' ? frTeam : teamCopy[language]),
+    server_language_unavailable: language === 'fr' ? 'Ce serveur ne prend pas encore en charge les questions en français. Choisissez explicitement une autre langue ou attendez sa mise à jour.' : language === 'ar' ? 'لا يدعم هذا الخادم لغة السؤال بعد. اختر لغة أخرى أو انتظر تحديثه.' : 'This server does not support the question language yet. Choose another language or wait for its update.' };
+  return { m: { ...(language === 'fr' ? frMono : monoCopy[language]), retention: n.retention, clearBody: n.clearBody, accountNote: n.accountNote, audioLimits: n.audioLimits, aloudNote: n.aloudNote, steps: n.steps },
+    u: { ...(language === 'fr' ? frUI : uiCopy[language]), local: `${n.privacy} ${n.retention}`, clearBody: n.clearBody, photoNote: n.photoNote, playback: n.audioLimits },
+    a: { ...(language === 'fr' ? frAuth : authCopy[language]), privacy: n.privacy }, n };
 }

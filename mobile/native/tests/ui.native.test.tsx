@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useSyncExternalStore } from 'react';
 import renderer, { act } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Dimensions, Pressable, Share, TextInput, View } from 'react-native';
@@ -21,9 +21,12 @@ import { SpeechOwner } from '../src/voice/speech';
 import * as Speech from 'expo-speech';
 import * as Clipboard from 'expo-clipboard';
 import { HistoryScreen } from '../src/screens/HistoryScreen';
+import { historyStreamCopy } from '../src/i18n/historyStreamCopy';
 import { HistoryRepository } from '../src/storage/history';
+import { HistorySync } from '../src/storage/historySync';
+import type { Language } from '../src/shared/types';
 const user = { user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', name: 'Synthetic test account', email: 'test@example.test', created_at: new Date().toISOString() };
-const wrapper = (children: React.ReactNode, language: 'en' | 'ar' = 'en', colors = light) => <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 402, height: 874 }, insets: { top: 59, bottom: 34, left: 0, right: 0 } }}><UIContext.Provider value={{ language, colors, fonts: false, motion: false, haptics: false }}>{children}</UIContext.Provider></SafeAreaProvider>;
+const wrapper = (children: React.ReactNode, language: Language = 'en', colors = light) => <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 402, height: 874 }, insets: { top: 59, bottom: 34, left: 0, right: 0 } }}><UIContext.Provider value={{ language, colors, fonts: false, motion: false, haptics: false }}>{children}</UIContext.Provider></SafeAreaProvider>;
 async function render(element: React.ReactNode) { let tree!: renderer.ReactTestRenderer; await act(async () => { tree = renderer.create(element); }); return tree; }
 async function press(tree: renderer.ReactTestRenderer, label: string) { const item = tree.root.findAllByType(Button).find(x => x.props.label === label); expect(item).toBeTruthy(); await act(async () => { item!.props.onPress(); }); }
 afterEach(() => jest.clearAllMocks());
@@ -104,7 +107,7 @@ test('History detail preserves Arabic, explicitly copies/shares, and Clear confi
   const shared = jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.dismissedAction });
   await press(tree, u.share); expect(JSON.stringify(tree.toJSON())).toContain(nativeCopy.en.shareCancelled); shared.mockRestore();
   await press(tree, nativeCopy.en.stopSpeech); expect(stopSpeech).toHaveBeenCalledTimes(1);
-  await press(tree, u.delete); await act(async () => tree.update(make())); expect(repository.getSnapshot().undo?.id).toBe('one');
+  await press(tree, historyStreamCopy.en.removeLocal); await act(async () => tree.update(make())); expect(repository.getSnapshot().undo?.id).toBe('one');
   await press(tree, u.undo); await act(async () => tree.update(make())); expect(repository.getSnapshot().items).toHaveLength(1);
   await press(tree, u.clear); await press(tree, u.cancel); expect(repository.getSnapshot().items).toHaveLength(1);
   await press(tree, u.clear);
@@ -126,4 +129,33 @@ test('timed Stop requires release inside; leaving cancels; normal accessibility 
   await act(async () => gesture.props.onResponderRelease({ nativeEvent: { locationX: 40, locationY: 40 } })); expect(confirm).toHaveBeenCalledTimes(1);
   await act(async () => gesture.props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } })); expect(options).toHaveBeenCalledTimes(1);
   now.mockRestore(); await act(async () => tree.unmount());
+});
+
+test.each(['en', 'ar', 'fr'] as const)('account History keeps cached answers offline, retries pages and confirms server deletion: %s', async language => {
+  const repository = new HistoryRepository({ userId: user.user_id, source: `history-sync-ui-${language}`, epoch: 1 }, { read: async () => null, write: async () => {}, collect: async () => {} }, () => true);
+  await repository.ready;
+  const entry = { id: 'cached', sessionId: 's', questionId: 'q', language, question: 'Cached question', answer: 'Cached answer', input: 'speech' as const, provenance: 'server' as const, uncertain: false, evidenceFrameIds: [], createdAt: new Date(Date.now() - 10000).toISOString() };
+  repository.upsert(entry);
+  let offline = true, resolveDelete!: (value: number) => void;
+  const deleted = new Promise<number>(resolve => { resolveDelete = resolve; });
+  const api = { page: jest.fn(async (cursor: string | null) => {
+    if (offline) throw Error('offline');
+    return { entries: cursor ? [{ ...entry, id: 'older', questionId: 'older', question: 'Older question' }] : [entry], nextCursor: cursor ? null : 'next', demo: false };
+  }), clear: jest.fn(() => deleted) };
+  const sync = new HistorySync(repository, api, () => true), stop = jest.fn();
+  function Screen() {
+    const local = useSyncExternalStore(repository.subscribe, repository.getSnapshot), network = useSyncExternalStore(sync.subscribe, sync.getSnapshot);
+    return <HistoryScreen repository={repository} state={{ ...local, items: network.items }} sync={sync} network={network} stopSession={stop} replay={() => {}} active speaking={false} stopSpeech={() => {}} focus={() => {}} />;
+  }
+  const tree = await render(wrapper(<Screen />, language)), h = historyStreamCopy[language];
+  await act(async () => sync.refresh());
+  expect(JSON.stringify(tree.toJSON())).toContain(h.offline); expect(JSON.stringify(tree.toJSON())).toContain(entry.question);
+  offline = false; await press(tree, h.retry); await press(tree, h.more);
+  expect(api.page).toHaveBeenLastCalledWith('next', expect.anything()); expect(JSON.stringify(tree.toJSON())).toContain('Older question');
+  await press(tree, h.clear); expect(api.clear).not.toHaveBeenCalled(); expect(tree.root.findByType(Sheet).props.title).toBe(h.clearTitle);
+  const confirm = tree.root.findByType(Sheet).findAllByType(Button).find(button => button.props.label === h.clear)!;
+  await act(async () => confirm.props.onPress());
+  expect(stop).toHaveBeenCalledTimes(1); expect(api.clear).toHaveBeenCalledTimes(1); expect(confirm.props.disabled).toBe(true); expect(repository.getSnapshot().items).toHaveLength(2);
+  await act(async () => resolveDelete(2)); expect(repository.getSnapshot().items).toHaveLength(0); expect(JSON.stringify(tree.toJSON())).toContain(h.cleared);
+  await act(async () => tree.unmount()); sync.dispose(); repository.dispose();
 });

@@ -25,6 +25,18 @@ function peer(ice = 'complete') {
   };
 }
 const answer = (location = '/resource/one') => new Response('v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=recvonly\r\n', { status: 201, headers: { 'Content-Type': 'application/sdp', Location: location } });
+
+test('a brief disconnect recovers without closing; sustained loss closes once after grace', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const pc = peer(), states = [], publisher = new WhipPublisher(pc, value => states.push(value), async (_, o) => o.method === 'POST' ? answer() : new Response(null, { status: 204 }), 12000, 4000);
+  await publisher.start('https://media.example/live/id/whip');
+  pc.connectionState = 'connected'; pc.change('connectionstatechange');
+  pc.connectionState = 'disconnected'; pc.change('connectionstatechange'); assert.equal(states.at(-1), 'reconnecting');
+  t.mock.timers.tick(3999); assert.equal(pc.closed(), 0);
+  pc.connectionState = 'connected'; pc.change('connectionstatechange'); t.mock.timers.tick(4000); assert.equal(pc.closed(), 0);
+  pc.connectionState = 'disconnected'; pc.change('connectionstatechange'); t.mock.timers.tick(4000);
+  assert.equal(states.at(-1), 'failed'); assert.equal(pc.closed(), 1); publisher.stop(); assert.equal(pc.closed(), 1);
+});
 test('WHIP validates SDP/Location, video-only offer contract and actual connection state; Stop sends bounded DELETE', async () => {
   const pc = peer(), calls = [], states = [];
   const publisher = new WhipPublisher(pc, state => states.push(state), async (url, options) => { calls.push({ url, options }); return options.method === 'POST' ? answer() : new Response(null, { status: 204 }); }, 100);

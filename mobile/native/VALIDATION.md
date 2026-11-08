@@ -1,5 +1,11 @@
 # Current integration validation — 2026-11-07
 
+Current publication checks and live RustFS/MySQL results: [TEAM-SETUP.md](TEAM-SETUP.md). Older results below are historical.
+
+Current History/recovery update (2026-11-08): see [HISTORY-STREAMING.md](HISTORY-STREAMING.md) for the mobile changes, current checks and backend pagination blocker. Older results below are historical.
+
+Latest validation and remaining device checks: [FRENCH-ONBOARDING.md](FRENCH-ONBOARDING.md), updated 2026-11-08. Results below describe the previous revision.
+
 The current evidence and reproducible commands are in [TEAM-INTEGRATION.md](TEAM-INTEGRATION.md). Older runtime artifacts are historical and do not describe the active database setup.
 
 | Check | Result |

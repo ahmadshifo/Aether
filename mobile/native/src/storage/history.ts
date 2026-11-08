@@ -17,17 +17,17 @@ export function validPhoto(value: unknown): value is Photo {
   const p = value as Photo | null;
   return !!p && typeof p.path === 'string' && /^[a-f\d-]+\.jpg$/i.test(p.path) && Number.isFinite(p.bytes) && p.bytes > 0 && p.bytes <= MAX_PHOTO && Number.isFinite(Date.parse(p.capturedAt));
 }
-export function boundEntries(value: unknown, now = Date.now()): Entry[] {
+export function boundEntries(value: unknown, now = Date.now(), limit = MAX_ENTRIES): Entry[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>(); let bytes = 0;
   return value.filter((row): row is Entry => {
     if (!row || typeof row.id !== 'string' || seen.has(row.id) || typeof row.sessionId !== 'string' || typeof row.questionId !== 'string'
       || typeof row.question !== 'string' || row.question.length > 4000 || typeof row.answer !== 'string' || row.answer.length > 32000
-      || !['en', 'ar'].includes(row.language) || !['speech', 'typed'].includes(row.input) || row.provenance !== 'server'
+      || !['en', 'ar', 'fr'].includes(row.language) || !['speech', 'typed'].includes(row.input) || row.provenance !== 'server'
       || typeof row.uncertain !== 'boolean' || !Array.isArray(row.evidenceFrameIds) || row.evidenceFrameIds.length > 100 || !row.evidenceFrameIds.every((id: unknown) => typeof id === 'string' && /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(id))
       || !Number.isFinite(Date.parse(row.createdAt)) || now - Date.parse(row.createdAt) >= RETENTION_MS || Date.parse(row.createdAt) > now + 60000) return false;
     seen.add(row.id); return true;
-  }).slice(0, MAX_ENTRIES).map(row => {
+  }).slice(0, limit).map(row => {
     const photo = validPhoto(row.photo) && bytes + row.photo.bytes <= MAX_TOTAL ? row.photo : undefined;
     if (photo) bytes += photo.bytes;
     // Explicit fields exclude unknown payloads/credentials/prototypes.
@@ -35,6 +35,16 @@ export function boundEntries(value: unknown, now = Date.now()): Entry[] {
       language: row.language, createdAt: row.createdAt, provenance: 'server', input: row.input, ...(photo ? { photo } : {}),
       uncertain: row.uncertain, evidenceFrameIds: [...new Set(row.evidenceFrameIds)] };
   });
+}
+// Server rows use question_id as their UI id; live answers originally had a different id.
+// Keep the local id, input method and photo while taking canonical answer fields from the server.
+export function mergeHistory(remote: Entry[], local: Entry[]): Entry[] {
+  const entries = new Map(local.map(entry => [entry.questionId, entry]));
+  for (const entry of remote) {
+    const cached = entries.get(entry.questionId);
+    entries.set(entry.questionId, { ...cached, ...entry, id: cached?.id ?? entry.id, input: cached?.input ?? entry.input, ...(cached?.photo ? { photo: cached.photo } : {}) });
+  }
+  return boundEntries([...entries.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || b.questionId.localeCompare(a.questionId)), Date.now(), Number.MAX_SAFE_INTEGER);
 }
 export class HistoryRepository {
   readonly key: string;
@@ -87,7 +97,8 @@ export class HistoryRepository {
     this.publish({ items: boundEntries(op(this.state.items)) });
     if (!this.state.loading) this.persist();
   }
-  upsert(entry: Entry) { this.mutate(items => [entry, ...items.filter(x => x.id !== entry.id)]); }
+  upsert(entry: Entry) { this.mutate(items => [entry, ...items.filter(x => x.id !== entry.id && x.questionId !== entry.questionId)]); }
+  merge(entries: Entry[]) { this.mutate(items => mergeHistory(entries, items)); }
   remove(id: string) {
     if (!this.allowed() || this.disposed || this.state.loading) return;
     const index = this.state.items.findIndex(x => x.id === id); if (index < 0) return;
@@ -101,7 +112,7 @@ export class HistoryRepository {
     this.publish({ undo: null }); this.undoPosition = undefined;
     if (!item || !position) return;
     this.mutate(items => {
-      const next = items.filter(x => x.id !== item.id);
+      const next = items.filter(x => x.id !== item.id && x.questionId !== item.questionId);
       const before = next.findIndex(x => x.id === position.before), after = next.findIndex(x => x.id === position.after);
       next.splice(before >= 0 ? before : after >= 0 ? after + 1 : Math.min(position.index, next.length), 0, item); return next;
     });

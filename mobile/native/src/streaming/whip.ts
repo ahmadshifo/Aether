@@ -1,5 +1,5 @@
 // Native protocol adaptation of mobile/frontend/src/whipPublisher.ts at bb54dbd.
-export type Transport = 'off' | 'connecting' | 'connected' | 'failed';
+export type Transport = 'off' | 'connecting' | 'reconnecting' | 'connected' | 'failed';
 type Description = { type: 'offer' | 'answer'; sdp?: string };
 export interface Peer {
   iceGatheringState: string; connectionState: string; localDescription: Description | null;
@@ -19,14 +19,20 @@ export class WhipPublisher {
   private abort = new AbortController();
   private listeners: (() => void)[] = [];
   private transportTimer?: ReturnType<typeof setTimeout>;
-  constructor(private pc: Peer, private state: (value: Transport) => void, private fetcher: typeof fetch = fetch, private timeout = 12000) {}
+  private disconnectTimer?: ReturnType<typeof setTimeout>;
+  constructor(private pc: Peer, private state: (value: Transport) => void, private fetcher: typeof fetch = fetch, private timeout = 12000, private disconnectGrace = 4000) {}
+  private fail() { if (this.stopped) return; try { this.stop(); } finally { this.state('failed'); } }
   async start(endpoint: string) {
     if (this.stopped) return;
     this.state('connecting');
     const onConnection = () => {
       if (this.stopped) return;
-      if (this.pc.connectionState === 'connected') { clearTimeout(this.transportTimer); this.state('connected'); }
-      else if (['failed', 'closed', 'disconnected'].includes(this.pc.connectionState)) { this.state('failed'); this.stop(); }
+      if (this.pc.connectionState === 'connected') { clearTimeout(this.transportTimer); clearTimeout(this.disconnectTimer); this.disconnectTimer = undefined; this.state('connected'); }
+      else if (this.pc.connectionState === 'disconnected') {
+        this.state('reconnecting');
+        // ICE can recover on its own during a short Wi-Fi interruption.
+        this.disconnectTimer ??= setTimeout(() => this.fail(), this.disconnectGrace);
+      } else if (['failed', 'closed'].includes(this.pc.connectionState)) this.fail();
     };
     this.pc.addEventListener('connectionstatechange', onConnection);
     this.listeners.push(() => this.pc.removeEventListener('connectionstatechange', onConnection));
@@ -50,13 +56,15 @@ export class WhipPublisher {
         await this.pc.setRemoteDescription({ type: 'answer', sdp: answer });
         if (this.stopped) return;
         onConnection();
-        if (this.pc.connectionState !== 'connected') this.transportTimer = setTimeout(() => { this.state('failed'); this.stop(); }, this.timeout);
+        if (!this.stopped && this.pc.connectionState !== 'connected') this.transportTimer = setTimeout(() => this.fail(), this.timeout);
       } finally { clearTimeout(timer); }
-    } catch (error) { if (!this.stopped) { this.state('failed'); this.stop(); throw error; } }
+    } catch (error) { if (!this.stopped) { this.fail(); throw error; } }
   }
   stop() {
-    this.stopped = true; this.abort.abort(); clearTimeout(this.transportTimer);
-    this.listeners.splice(0).forEach(fn => fn()); this.pc.close(); this.deleteResource();
+    if (this.stopped) return;
+    this.stopped = true; this.abort.abort(); clearTimeout(this.transportTimer); clearTimeout(this.disconnectTimer);
+    this.listeners.splice(0).forEach(fn => fn());
+    try { this.pc.close(); } finally { this.deleteResource(); }
   }
   private deleteResource() {
     const resource = this.resource; this.resource = undefined; if (!resource) return;

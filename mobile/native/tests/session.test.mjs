@@ -20,6 +20,17 @@ function harness(overrides = {}) {
   const controller = new SessionController(ports);
   return { controller, ports, events, answers, counts, snapshots, lock: () => { allowed = false; controller.stop(); } };
 }
+
+test('manual stream retry keeps camera/session and cannot overwrite state after replacement or Stop', async () => {
+  const publishers = [], ids = [];
+  const h = harness({ publish: (_, id, state) => { ids.push(id); publishers.push(state); return { start: async () => state('connecting'), stop: () => {} }; } });
+  await h.controller.start('en'); publishers[0]('failed'); h.controller.retryStream(); h.controller.retryStream();
+  assert.equal(publishers.length, 2); assert.equal(h.counts.capture, 1); assert.equal(ids[0], ids[1]);
+  publishers[0]('connected'); assert.equal(h.controller.getSnapshot().transport, 'connecting');
+  publishers[1]('connected'); assert.equal(h.controller.getSnapshot().transport, 'connected');
+  h.controller.stop(); publishers[1]('failed'); h.controller.retryStream();
+  assert.equal(h.controller.getSnapshot().transport, 'off'); assert.equal(publishers.length, 2); assert.equal(h.counts.release, 1);
+});
 test('real answer is spoken and stored with server evidence', async () => {
   const evidence = crypto.randomUUID(); let received;
   const h = harness({ ask: async (request, signal) => { received = request; assert.equal(signal.aborted, false); return { question_id: request.question_id, language: request.language, answer: 'Server answer', uncertain: true, evidence_frame_ids: [evidence] }; } });

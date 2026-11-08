@@ -23,13 +23,18 @@ export function createTeamApi(origin: string, fetcher: typeof fetch = fetch, onU
     if (signal.aborted) throw Error('cancelled');
     if (response.status === 401) { onUnauthorized(); throw Error('auth_lost'); }
     if ([404, 405, 501].includes(response.status)) throw Error(path.endsWith('/ask') ? 'answers_unavailable' : 'profile_unavailable');
+    if (response.status === 422 && path.endsWith('/ask')) {
+      const detail = await response.json().catch(() => null);
+      const languageRejected = /\blanguage\b/i.test(detail?.error?.message ?? '') || detail?.detail?.some?.((item: { loc?: string[] }) => item.loc?.includes('language'));
+      throw Error(languageRejected ? 'server_language_unavailable' : 'answer_invalid');
+    }
     if (response.status === 429) throw Error('server_busy');
     if (!response.ok) throw Error('server_unavailable');
     return response.json().catch(() => { throw Error('answer_invalid'); });
   }
   return {
     async ask(request: AskRequest, signal: AbortSignal): Promise<AskResponse> {
-      if (!uuid(request.session_id) || !uuid(request.question_id) || !request.question.trim() || request.question.length > 4000 || !['en', 'ar'].includes(request.language)) throw Error('answer_invalid');
+      if (!uuid(request.session_id) || !uuid(request.question_id) || !request.question.trim() || request.question.length > 4000 || !['en', 'ar', 'fr'].includes(request.language)) throw Error('answer_invalid');
       return parseAnswer(await send('/api/v1/ask', 'POST', request, signal), request);
     },
     async updateName(name: string, userId: string, signal: AbortSignal) {

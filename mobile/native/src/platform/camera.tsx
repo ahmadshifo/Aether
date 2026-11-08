@@ -7,6 +7,7 @@ import { nativeFetch } from './network';
 import { duringPermission } from './permissions';
 import type { CameraHandle } from '../session/controller';
 import { WhipPublisher, type Peer, type Transport } from '../streaming/whip';
+import { RecoveringPublisher } from '../streaming/recovery';
 import { preferH264 } from '../streaming/codecs';
 
 export class GoCamera {
@@ -67,19 +68,21 @@ export function nativeCamera(signal: AbortSignal): Promise<CameraHandle> {
 export function nativePublisher(camera: CameraHandle, endpoint: string, state: (value: Transport) => void) {
   const rtc = loadRtc(), stream = (camera as CameraHandle & { stream: import('react-native-webrtc').MediaStream }).stream;
   const track = stream?.getVideoTracks()[0]; if (!track) throw Error('camera_unavailable');
-  const peer = new rtc.RTCPeerConnection({ iceServers: [] });
-  try {
-    const transceiver = peer.addTransceiver(track, { direction: 'sendonly', streams: [stream] });
-    preferH264(() => rtc.RTCRtpSender.getCapabilities?.('video'), codecs => transceiver.setCodecPreferences?.(codecs));
-  } catch (error) { peer.close(); throw error; }
-  const publisher = new WhipPublisher(peer as unknown as Peer, state, nativeFetch);
-  return { start: async () => {
-    try { await publisher.start(endpoint); }
-    catch (error) {
-      if (__DEV__) console.warn('Aether stream failed', new URL(endpoint).origin, error instanceof Error ? error.message : String(error));
-      throw error;
-    }
-  }, stop: () => publisher.stop() };
+  return new RecoveringPublisher(update => {
+    const peer = new rtc.RTCPeerConnection({ iceServers: [] });
+    try {
+      const transceiver = peer.addTransceiver(track, { direction: 'sendonly', streams: [stream] });
+      preferH264(() => rtc.RTCRtpSender.getCapabilities?.('video'), codecs => transceiver.setCodecPreferences?.(codecs));
+    } catch (error) { peer.close(); throw error; }
+    const publisher = new WhipPublisher(peer as unknown as Peer, update, nativeFetch);
+    return { start: async () => {
+      try { await publisher.start(endpoint); }
+      catch (error) {
+        if (__DEV__) console.warn('Aether stream attempt failed', new URL(endpoint).origin, error instanceof Error ? error.message : String(error));
+        throw error;
+      }
+    }, stop: () => publisher.stop() };
+  }, state);
 }
 export function RtcPreview({ url }: { url: string }) {
   const { RTCView } = loadRtc();

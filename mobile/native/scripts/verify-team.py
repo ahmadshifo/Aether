@@ -66,6 +66,21 @@ def main():
                 with db.cursor() as cursor:
                     cursor.execute('SELECT user_id,status FROM sessions WHERE session_id=%s', (session_id,))
                     verify(cursor.fetchone() == (user_id, 'live'), 'stream ownership persisted in MySQL')
+                # History reads/deletes are account-scoped; exercise only these two synthetic accounts.
+                other_session = str(uuid4())
+                verify(b.post('/api/v1/streams/start', json={'session_id': other_session}).status_code == 200, 'second synthetic account has its own stream')
+                question_a, question_b = str(uuid4()), str(uuid4())
+                for client, sid, qid in [(a, session_id, question_a), (b, other_session, question_b)]:
+                    verify(client.post('/api/v1/ask', json={'session_id': sid, 'question_id': qid, 'question': 'History isolation test', 'language': 'en'}).status_code == 200, 'synthetic answer stored through shared API')
+                own_rows = a.get('/api/v1/questions').json()['questions']
+                verify(any(row['question_id'] == question_a for row in own_rows) and all(row['question_id'] != question_b for row in own_rows), 'History GET isolates account ownership')
+                cleared = a.delete('/api/v1/questions')
+                verify(cleared.status_code == 200 and cleared.json()['deleted'] == 1, 'History DELETE clears only the signed-in synthetic account')
+                with db.cursor() as cursor:
+                    cursor.execute('SELECT question_id FROM questions WHERE question_id IN (%s,%s)', (question_a, question_b))
+                    verify(cursor.fetchall() == ((question_b,),), 'SQL confirms own History deleted and other account History retained')
+                verify(any(row['question_id'] == question_b for row in b.get('/api/v1/questions').json()['questions']), 'other account can still read its answer after clear')
+                b.post('/api/v1/streams/stop', json={'session_id': other_session})
                 verify(a.post('/api/v1/streams/stop', json={'session_id': session_id}).status_code == 204 and a.get('/api/v1/streams/active').json()['session'] is None, 'Stop ends registered session')
                 # A second independent server process reads the same persistent account and login.
                 with (RUNTIME / 'secondary-backend.log').open('w', encoding='utf-8') as log:

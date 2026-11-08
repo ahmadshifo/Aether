@@ -35,6 +35,7 @@ export class SessionController {
   private recognitionGeneration = 0;
   private capture?: CameraHandle;
   private publisher?: ReturnType<SessionPorts['publish']>;
+  private publisherGeneration = 0;
   private stopRecognition?: () => Promise<void>;
   private recognitionStartup?: Promise<() => Promise<void>>;
   private sessionStartup?: Promise<void>;
@@ -103,12 +104,31 @@ export class SessionController {
         if (this.valid(g)) this.set({ registry: 'registered' });
         else void this.ports.register('stop', id).catch(() => {});
       }).catch(() => { if (this.valid(g)) this.set({ registry: 'failed' }); });
-      try {
-        const publisher = this.ports.publish(capture, id, transport => { if (this.valid(g)) this.set({ transport }); });
-        this.publisher = publisher;
-        void publisher.start().catch(() => { if (this.valid(g)) this.set({ transport: 'failed' }); });
-      } catch { if (this.valid(g)) this.set({ transport: 'failed' }); }
+      this.publishCamera(g, id, capture);
     } catch { if (this.valid(g)) this.set({ camera: false, cameraError: 'camera_denied' }); }
+  }
+  private publishCamera(g: number, id: string, capture: CameraHandle) {
+    const p = ++this.publisherGeneration;
+    this.publisher?.stop(); this.publisher = undefined;
+    const valid = () => this.valid(g) && p === this.publisherGeneration;
+    this.set({ transport: 'connecting' });
+    try {
+      const publisher = this.ports.publish(capture, id, transport => { if (valid()) this.set({ transport }); });
+      this.publisher = publisher;
+      void publisher.start().catch(() => { if (valid()) this.set({ transport: 'failed' }); });
+    } catch { if (valid()) this.set({ transport: 'failed' }); }
+  }
+  retryStream() {
+    const g = this.generation, id = this.state.id;
+    if (!this.valid(g) || !id || !this.capture || !this.ports.streamingAvailable) return;
+    if (this.state.registry === 'failed') {
+      this.set({ registry: 'pending' });
+      void this.ports.register('start', id).then(() => {
+        if (this.valid(g)) this.set({ registry: 'registered' });
+        else void this.ports.register('stop', id).catch(() => {});
+      }).catch(() => { if (this.valid(g)) this.set({ registry: 'failed' }); });
+    }
+    if (this.state.transport === 'failed') this.publishCamera(g, id, this.capture);
   }
   private async listen(g: number) {
     if (!this.valid(g) || !this.ports.recognitionAvailable) return;
@@ -220,7 +240,7 @@ export class SessionController {
   changeLanguage(lang: Language) { if (lang === this.language) return; this.language = lang; this.pause(); }
   stop(background = false) {
     const id = this.state.id, wasActive = this.state.active;
-    this.generation++; this.questionGeneration++; this.speechGeneration++;
+    this.generation++; this.questionGeneration++; this.speechGeneration++; this.publisherGeneration++;
     this.request.abort(); this.questionRequest?.abort(); void this.silenceInput(); this.ports.stopSpeech();
     try { this.publisher?.stop(); } catch { /* Continue every independent cleanup. */ } this.publisher = undefined;
     try { this.capture?.release(); } catch { /* Native resource may already be released. */ } this.capture = undefined;

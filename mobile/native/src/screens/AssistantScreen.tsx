@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Button, Card, Cassette, Field, Mark, Notice, Reveal, Row, Sheet, T, useUI } from '../components/ui';
 import { copies } from '../i18n/nativeCopy';
+import { historyStreamCopy } from '../i18n/historyStreamCopy';
 import { GoCameraPreview, RtcPreview, type GoCamera } from '../platform/camera';
 import type { SessionController, SessionState } from '../session/controller';
 import type { Language } from '../shared/types';
@@ -15,7 +16,7 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
   start(): void; back(): void; changeLanguage(language: Language): void;
   backRef?: React.Ref<React.ComponentRef<typeof View>>;
 }) {
-  const { language, colors } = useUI(), { m, n } = copies(language);
+  const { language, colors } = useUI(), { m, n } = copies(language), h = historyStreamCopy[language];
   const dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const [height, setHeight] = useState(dimensions.height), [details, setDetails] = useState(false), [typed, setTyped] = useState('');
   const detailsRef = useRef<React.ComponentRef<typeof View>>(null);
@@ -39,10 +40,12 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
           <View style={{ flex: 1, backgroundColor: '#141414E8', borderRadius: 10, padding: 12 }}>
             <T accessibilityLiveRegion={['speaking', 'greeting', 'hearing'].includes(media.phase) ? 'none' : 'polite'} style={{ color: 'white' }}>{phase}</T>
             {media.active && !media.camera && <T variant="small" style={{ color: '#D0D0D0' }}>{media.cameraError ? m.voiceOnly : m.preparing}</T>}
+            {media.transport === 'reconnecting' && <T accessibilityLiveRegion="polite" variant="small" style={{ color: '#D0D0D0' }}>{h.reconnecting}</T>}
           </View>
         </Row>
         {media.active && media.phase === 'paused' && <Button label={m.resume} onPress={() => controller.resume()} />}
         {!!errors.length && <Pressable accessibilityRole="button" accessibilityLabel={errorText(errors[0])} accessibilityHint={n.details} onPress={() => setDetails(true)} style={{ padding: 12, backgroundColor: colors.dangerBg, borderRadius: 10 }}><T numberOfLines={2} style={{ color: colors.danger }}>{errorText(errors[0])}</T></Pressable>}
+        {media.active && media.camera && (media.transport === 'failed' || media.registry === 'failed') && <Button label={h.retryStream} onPress={() => controller.retryStream()} />}
       </View>
       <Pressable accessibilityRole="button" accessibilityLabel={excerpt ? `${answerLabel}. ${excerpt}` : answerLabel} accessibilityHint={n.details} onPress={() => setDetails(true)} style={{ position: 'absolute', bottom: 12, left: insets.left + 12, right: insets.right + 12, borderRadius: 10, padding: 12, gap: 4, backgroundColor: '#141414E8' }}>
         <T variant="small" style={{ color: '#D0D0D0' }}>{answerLabel}{media.answer?.uncertain ? ` · ${n.uncertain}` : ''}</T>
@@ -56,7 +59,7 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
       </Row>
     </ScrollView>
     {details && <Sheet title={m.assistant} onClose={() => setDetails(false)} restoreFocus={restoreFocus}>
-      <Row><Button label="EN" selected={language === 'en'} onPress={() => changeLanguage('en')} /><Button label="ع" selected={language === 'ar'} onPress={() => changeLanguage('ar')} /></Row>
+      <Row><Button label="EN" selected={language === 'en'} onPress={() => changeLanguage('en')} /><Button label="ع" selected={language === 'ar'} onPress={() => changeLanguage('ar')} /><Button label="FR" selected={language === 'fr'} onPress={() => changeLanguage('fr')} /></Row>
       {media.answer?.uncertain && <Notice>{n.uncertain}</Notice>}
       {!!media.answer?.evidenceFrameIds?.length && <T variant="small">{n.evidence}: {media.answer.evidenceFrameIds.length}</T>}
       {prompt !== null && <Card><T>{m.questions[prompt]}</T><T variant="small">{m.say}</T></Card>}

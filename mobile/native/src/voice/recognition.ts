@@ -16,7 +16,7 @@ export async function recognize(language: Language, events: RecognitionEvents, s
   const supported = await module.getSupportedLocales({}).catch(() => ({ locales: [] as string[], installedLocales: [] as string[] }));
   if (signal.aborted) return async () => {};
 
-  const choices = language === 'ar' ? ['ar-LB', 'ar-SA', ...supported.locales.filter(x => x.startsWith('ar'))] : ['en-US', ...supported.locales.filter(x => x.startsWith('en'))];
+  const choices = [...(language === 'ar' ? ['ar-LB', 'ar-SA'] : language === 'fr' ? ['fr-FR', 'fr-CA'] : ['en-US']), ...supported.locales.filter(x => x.toLowerCase().startsWith(language))];
   // Android's list can hold only offline languages, so a language missing from it may still work online.
   const locale = choices.find(x => supported.locales.includes(x)) ?? (options.onDevice && supported.locales.length ? undefined : choices[0]);
   if (!locale) { events.error('language-not-supported'); return async () => {}; }
