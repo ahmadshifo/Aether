@@ -196,6 +196,31 @@ and report the problem. No automatic orphan cleanup or retention worker is
 implemented. Local permissions are best effort; configure Windows directory
 ACLs so only the application account can access stored_frames.
 
+## Optional RustFS object storage (S3-compatible)
+
+By default JPEGs stay on local disk (`FRAME_STORAGE_BACKEND=local`). To keep
+them in RustFS instead, run RustFS (it listens on `http://localhost:9000`,
+console on `:9001`) and set in `api/.env`:
+
+```dotenv
+FRAME_STORAGE_BACKEND=s3
+S3_ENDPOINT_URL=http://localhost:9000
+S3_BUCKET=aether-frames
+S3_REGION=us-east-1
+S3_ACCESS_KEY_ID=YOUR_RUSTFS_ACCESS_KEY
+S3_SECRET_ACCESS_KEY=YOUR_RUSTFS_SECRET_KEY
+```
+
+Nothing in MySQL changes: `image_path` keeps the same
+`<session_id>/<frame_id>.jpg` value, which becomes the object key in the
+bucket. `FrameRepository.from_database` creates the bucket if it is missing;
+the bucket stays private and no public URLs are generated. The same rules
+apply as on disk: writes never overwrite an existing key (a head check plus a
+conditional `If-None-Match` put), failed inserts remove the new object, and
+deletion copies the object to `.quarantine/<key>.deleted-<uuid>` before the row
+is deleted, restoring it if the row delete fails. MinIO works with the same
+settings. `boto3` is required only for this backend.
+
 Image paths are internal. Future API responses must map them to authorized
 image URLs; they must not expose filesystem paths. External contract fields
 remain frame_id, session_id, timestamp, image_url, ocr_text, objects, caption,

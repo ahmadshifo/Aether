@@ -8,6 +8,10 @@ import react from '@vitejs/plugin-react';
 const proxy = {
   '/api/v1/auth': 'http://localhost:8002',
   '/api/v1/streams': 'http://localhost:8002',
+  // AI history (the AI backend) and evidence-frame images (Member 3's multimedia service, 127.0.0.1 only).
+  '/api/v1/questions': 'http://localhost:8002',
+  '/api/v1/status': 'http://localhost:8002',
+  '/api/v1/frames': 'http://127.0.0.1:8003',
   '/api/v1/voice': 'http://localhost:8001',
   '/v3': 'http://127.0.0.1:9997',
 };

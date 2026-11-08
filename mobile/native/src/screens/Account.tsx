@@ -24,6 +24,7 @@ import { listenForWakeWord } from '../voice/wakeWord';
 import { SpeechOwner } from '../voice/speech';
 import { StreamRegistry } from '../streaming/registry';
 import { HistoryRepository } from '../storage/history';
+import { fetchServerHistory } from '../storage/serverHistory';
 import { discardPhoto, nativeStorage, savePhoto } from '../storage/nativeStorage';
 import { ConnectionScreen } from './ConnectionScreen';
 import { HelpScreen } from './HelpScreen';
@@ -72,6 +73,16 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
     return () => { alive.current = false; lock(); runtime.controller.dispose(); runtime.repository.dispose(); };
   }, [auth, prefsKey, runtime, session.owner]);
   useEffect(() => { focus(); }, [page, focus]);
+  // Opening History pulls the account's answers from the AI backend (sample records until real answers exist).
+  useEffect(() => {
+    if (page !== 'history') return;
+    let current = true;
+    void fetchServerHistory(endpoints.backend, nativeFetch).then(result => {
+      if (!current || !result || !alive.current || !auth.authorized(session.owner)) return;
+      for (const entry of [...result.entries].reverse()) runtime.repository.upsert(entry);
+    });
+    return () => { current = false; };
+  }, [page, endpoints.backend, runtime, auth, session.owner]);
   useEffect(() => {
     const timer = setInterval(() => runtime.repository.expire(), 30000);
     const sub = AppState.addEventListener('change', value => { if ((value === 'background' || value === 'inactive') && !permissionPending()) runtime.controller.stop(true); else if (value === 'active') runtime.repository.expire(); });

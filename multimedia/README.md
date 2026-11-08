@@ -1068,6 +1068,40 @@ behavior, and offline/real-server test commands. PostgreSQL/pgvector is no
 longer the active storage backend. Existing Tasks 1-9 and external API fields
 remain unchanged. Task 11 semantic search has not begun.
 
+Frame JPEGs can optionally live in RustFS (S3-compatible object storage) instead of
+local disk by setting `FRAME_STORAGE_BACKEND=s3`; see "Optional RustFS object storage"
+in database/README.md. The MySQL schema is unchanged.
+
+## Live video, short memory and saved answer frames
+
+**While the phone streams** (`processing/pipeline.py`): the API watches MediaMTX's local API
+(`http://127.0.0.1:9997`, enabled by `npm start`) for `live/<session_id>` streams and reads each one
+over RTSP at about one frame per second. FrameSelector skips blurry and duplicate frames, YuNet
+blurs every face (`processing/face_blur.py`; a frame whose faces cannot be checked is dropped), and
+the frame goes into **FrameMemory: the multimedia server's RAM, last 2 minutes only**
+(`processing/frame_memory.py`). No AI calls, no database, nothing on the phone.
+
+**When an answer is given**, the AI backend sends the frames it used to
+`POST /api/v1/frames/keep`. Only those frames are analyzed (Mistral OCR, one OpenAI vision call,
+text embedding) and saved to MySQL + RustFS, in the background, under the same `frame_id`.
+Everything else is forgotten after 2 minutes.
+
+Endpoints (port 8003, `api/app/routes.py`, following `shared/contracts/api-v1.yaml`):
+
+- `POST /api/v1/search` `{session_id, query, mode, limit 1-20}`:
+  `latest` = live frames from the last 10 s, newest first; `recent` = live frames from the last
+  2 min, spread over the window; `history` = saved answer frames, ranked by meaning (embeddings)
+  plus word matches. `relevance_score` is a 0-1 ranking score, not a probability. Empty = no match.
+- `POST /api/v1/frames/keep` `{session_id, frame_ids: 1-20}` returns 202 `{accepted, missing}`.
+  **New endpoint (contract addition, see docs/decision-log.md).**
+- `GET /api/v1/frames?session_id=&limit=&cursor=` timeline of saved frames, newest first.
+- `GET /api/v1/frames/{frame_id}/image` the (blurred) JPEG from RAM or storage; 404 if gone/expired.
+- `GET /health` storage, ingest, MediaMTX and `frames_in_memory`.
+- Errors use `{"error": {"code", "message"}}`. The service listens on 127.0.0.1 only.
+
+Switches in `api/.env` (default on): `MULTIMEDIA_INGEST`, `MULTIMEDIA_FACE_BLUR`,
+`MULTIMEDIA_AI_ANALYSIS`. Faces are only located and blurred, never identified.
+
 MySQL 8.4 verification is required for final acceptance. The local server
 identified during this correction is MySQL 8.0.43; it is not the specified
 8.4 LTS target. See database/VERIFICATION.md for actual test outcomes.

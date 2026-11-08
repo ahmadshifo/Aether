@@ -7,18 +7,25 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.auth import ApiError, init_db, router as auth_router
+from app.history import init_history_table, router as history_router
+from app.routes import router as ask_router
+from app.status import router as status_router
 from app.streams import router as streams_router
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    init_history_table()
     yield
 
 
 app = FastAPI(title="Web AI Service", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(streams_router)
+app.include_router(history_router)
+app.include_router(status_router)
+app.include_router(ask_router)
 
 
 @app.exception_handler(ApiError)

@@ -67,17 +67,35 @@ def _rollback(session):
 
 
 class FrameRepository:
-    def __init__(self, sessions, storage_root: str | Path, retention_hours: int = 24):
+    def __init__(self, sessions, storage_root: str | Path, retention_hours: int = 24, *, image_store=None):
         if isinstance(retention_hours, bool) or not isinstance(retention_hours, Integral) or retention_hours <= 0:
             raise ValueError("retention_hours must be a positive integer.")
         self.sessions = sessions
         root = Path(storage_root)
         self.storage_root = (root if root.is_absolute() else Path(__file__).resolve().parents[1] / root).resolve()
         self.retention_hours = int(retention_hours)
+        # None = JPEGs on local disk under storage_root; otherwise an S3ImageStore (RustFS).
+        self.image_store = image_store
 
     @classmethod
     def from_database(cls, database):
-        return cls(database.sessions, database.settings.storage_root, database.settings.retention_hours)
+        settings = database.settings
+        store = None
+        if getattr(settings, "storage_backend", "local") == "s3":
+            from .object_storage import S3ImageStore
+            try:
+                store = S3ImageStore.from_settings(settings.s3)
+                store.ensure_bucket()
+            except OSError:
+                raise ImageStorageError("RustFS/S3 object storage is unavailable; check S3_* settings and that RustFS is running.") from None
+        return cls(database.sessions, settings.storage_root, settings.retention_hours, image_store=store)
+
+    @staticmethod
+    def _check_key(row) -> str:
+        expected = f"{row.session_id}/{row.frame_id}.jpg"
+        if row.image_path != expected:
+            raise ImageStorageError("Stored image path does not match its session/frame UUIDs.")
+        return expected
 
     def _safe_path(self, relative: str) -> Path:
         candidate = Path(relative)
@@ -96,8 +114,11 @@ class FrameRepository:
             raise ImageStorageError("Stored image path does not match its session/frame UUIDs.")
         return self._safe_path(row.image_path)
 
-    def _remove_created_image(self, path: Path, frame_id: UUID):
+    def _remove_created_image(self, path: Path | str, frame_id: UUID):
         try:
+            if self.image_store is not None:
+                self.image_store.delete(path)  # `path` is the object key here.
+                return
             path.unlink(missing_ok=True)
         except OSError:
             raise StorageConsistencyError(f"Image cleanup failed for frame {frame_id}; local recovery is required.") from None
@@ -118,17 +139,22 @@ class FrameRepository:
         embedding = validate_embedding(embedding, embedding_model)
         jpeg = encode_jpeg(image)
         relative = f"{session_id}/{frame_id}.jpg"
-        path = self._safe_path(relative)
+        store = self.image_store
+        path = relative if store is not None else self._safe_path(relative)
         created = committed = False
         try:
-            self.storage_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            path = self._safe_path(relative)  # Recheck parent links after creation.
-            with path.open("xb") as output:
+            if store is not None:
+                store.write_new(relative, jpeg)
                 created = True
-                output.write(jpeg)
-                output.flush()
-                os.fsync(output.fileno())
+            else:
+                self.storage_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+                path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                path = self._safe_path(relative)  # Recheck parent links after creation.
+                with path.open("xb") as output:
+                    created = True
+                    output.write(jpeg)
+                    output.flush()
+                    os.fsync(output.fileno())
             with self.sessions() as session:
                 try:
                     session.add(Frame(
@@ -211,11 +237,23 @@ class FrameRepository:
         row = self.get_frame(frame_id)
         if row is None:
             return None
+        if self.image_store is not None:
+            key = self._check_key(row)
+            try:
+                return self.image_store.read(key)
+            except OSError:
+                raise ImageStorageError("The frame exists but its private JPEG is unavailable.") from None
         path = self._row_path(row)
         try:
             return path.read_bytes()
         except OSError:
             raise ImageStorageError("The frame exists but its private JPEG is unavailable.") from None
+
+    def image_exists(self, record: FrameRecord) -> bool:
+        """Whether the JPEG for this record is present in the active storage backend."""
+        if self.image_store is not None:
+            return self.image_store.exists(self._check_key(record))
+        return self._row_path(record).exists()
 
     def get_embedding(self, frame_id) -> StoredEmbedding | None:
         row = self.get_frame(frame_id)
@@ -226,6 +264,7 @@ class FrameRepository:
     def delete_frame(self, frame_id) -> bool:
         frame_id = as_uuid(frame_id, "frame_id")
         path = quarantine = None
+        store = self.image_store
         commit_started = committed = False
         try:
             with self.sessions() as session:
@@ -233,10 +272,14 @@ class FrameRepository:
                     row = session.scalar(select(Frame).where(Frame.frame_id == frame_id).with_for_update())
                     if row is None:
                         return False
-                    path = self._row_path(row)
-                    if path.exists():
-                        quarantine = path.with_name(f".{frame_id}.deleted-{uuid4()}.jpg")
-                        path.rename(quarantine)
+                    if store is not None:
+                        path = self._check_key(row)
+                        quarantine = store.quarantine(path)
+                    else:
+                        path = self._row_path(row)
+                        if path.exists():
+                            quarantine = path.with_name(f".{frame_id}.deleted-{uuid4()}.jpg")
+                            path.rename(quarantine)
                     session.delete(row)
                     session.flush()
                     commit_started = True
@@ -246,7 +289,7 @@ class FrameRepository:
                     _rollback(session)
                     raise
             if quarantine is not None:
-                quarantine.unlink()
+                store.delete(quarantine) if store is not None else quarantine.unlink()
             return True
         except (SQLAlchemyError, OSError):
             if commit_started:
@@ -254,7 +297,12 @@ class FrameRepository:
                 raise StorageConsistencyError(
                     f"Delete {outcome} for frame {frame_id}; any quarantined JPEG was retained for local recovery."
                 ) from None
-            if quarantine is not None and quarantine.exists():
+            if store is not None and quarantine is not None:
+                try:
+                    store.restore(quarantine, path)
+                except OSError:
+                    raise StorageConsistencyError(f"Delete rollback image restoration failed for frame {frame_id}.") from None
+            elif quarantine is not None and quarantine.exists():
                 try:
                     quarantine.rename(path)
                 except OSError:

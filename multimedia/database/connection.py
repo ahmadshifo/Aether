@@ -13,6 +13,7 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import sessionmaker
 
 from .errors import DatabaseConfigurationError, DatabaseConnectionError, DatabaseError
+from .object_storage import S3Settings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = PROJECT_ROOT / "api" / ".env"
@@ -23,9 +24,24 @@ class DatabaseSettings:
     url: URL = field(repr=False)
     storage_root: Path
     retention_hours: int = 24
+    # "local" keeps JPEGs under storage_root; "s3" keeps them in RustFS (S3-compatible) using `s3`.
+    storage_backend: str = "local"
+    s3: S3Settings | None = None
 
 
-def load_settings(database_url=None, storage_path=None, retention_hours=None) -> DatabaseSettings:
+def _load_s3_settings(values) -> S3Settings:
+    def setting(name, default=None):
+        value = os.environ.get(name, values.get(name, default))
+        return value.strip() if isinstance(value, str) else value
+    endpoint, bucket = setting("S3_ENDPOINT_URL"), setting("S3_BUCKET", "aether-frames")
+    access, secret = setting("S3_ACCESS_KEY_ID"), setting("S3_SECRET_ACCESS_KEY")
+    if not all((endpoint, bucket, access, secret)) or not endpoint.startswith(("http://", "https://")):
+        raise DatabaseConfigurationError(
+            "FRAME_STORAGE_BACKEND=s3 needs S3_ENDPOINT_URL, S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY; credentials were suppressed.")
+    return S3Settings(endpoint, bucket, access, secret, setting("S3_REGION", "us-east-1") or "us-east-1")
+
+
+def load_settings(database_url=None, storage_path=None, retention_hours=None, storage_backend=None) -> DatabaseSettings:
     try:
         values = dotenv_values(ENV_FILE, interpolate=False)
         raw_url = database_url if database_url is not None else os.environ.get("DATABASE_URL", values.get("DATABASE_URL"))
@@ -45,11 +61,17 @@ def load_settings(database_url=None, storage_path=None, retention_hours=None) ->
         hours = retention_hours if retention_hours is not None else os.environ.get("FRAME_RETENTION_HOURS", values.get("FRAME_RETENTION_HOURS", "24"))
         if isinstance(hours, bool) or str(int(hours)) != str(hours).strip() or int(hours) <= 0:
             raise ValueError()
-        return DatabaseSettings(url, root, int(hours))
+        backend = storage_backend if storage_backend is not None else os.environ.get(
+            "FRAME_STORAGE_BACKEND", values.get("FRAME_STORAGE_BACKEND", "local"))
+        backend = str(backend or "local").strip().lower()
+        if backend not in ("local", "s3"):
+            raise ValueError()
+        s3 = _load_s3_settings(values) if backend == "s3" else None
+        return DatabaseSettings(url, root, int(hours), backend, s3)
     except DatabaseError:
         raise
     except Exception:
-        raise DatabaseConfigurationError("Invalid database URL, storage directory, or retention configuration; credentials were suppressed.") from None
+        raise DatabaseConfigurationError("Invalid database URL, storage directory, storage backend, or retention configuration; credentials were suppressed.") from None
 
 
 def create_db_engine(settings: DatabaseSettings):
