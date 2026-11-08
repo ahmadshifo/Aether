@@ -8,7 +8,9 @@ import {
   PageHeader, SceneArt, STATUS_LABELS, StatusPill, UserContext, formatTime, frameTitle, signText,
 } from '../components/ui.jsx';
 import { useLiveSessionId } from '../components/useLiveSessionId.js';
-import { FRAMES, QUESTIONS, SESSION_ID, STATUS, sceneFor } from '../data/mockData.js';
+import { useQuestions, useStatus } from '../components/useBackend.js';
+// Saved-frame cards stay sample scenes until the Visual Memory page is wired to the multimedia service.
+import { FRAMES, sceneFor } from '../data/mockData.js';
 
 const RECENT = [
   ['a1e5c9f3-7d2b-4c8e-9a6f-3b0d5e1c7a94', -1.5],
@@ -32,7 +34,7 @@ function AnswerSlip({ question, evidence }) {
   return (
     <div className="receipt">
       <div className="receipt-row"><span>Aether · Answer slip</span><span>{formatTime(question.asked_at)}</span></div>
-      <span className="receipt-muted">Session {SESSION_ID.slice(0, 8)}</span>
+      <span className="receipt-muted">Session {question.session_id.slice(0, 8)}</span>
       <span className="receipt-rule" />
       <span lang={question.language} dir="auto">Q&nbsp; {question.question}</span>
       <span lang={question.language} dir="auto">A&nbsp; {question.answer}</span>
@@ -49,18 +51,21 @@ export default function Overview() {
   const user = useContext(UserContext);
   // Plays this account's phone stream here as soon as the phone presses Start.
   const liveSessionId = useLiveSessionId() ?? null;
-  const latest = QUESTIONS[0];
-  const evidence = FRAMES.filter((frame) => latest.evidence_frame_ids.includes(frame.frame_id));
-  const readText = evidence.find((frame) => frame.ocr_text)?.ocr_text ?? '';
+  const { status, checking, check: recheck } = useStatus();
+  const history = useQuestions();
+  const latest = history.questions[0];
+  // Demo answers point at the sample scenes, which carry the text that was read.
+  const sampleEvidence = latest ? FRAMES.filter((frame) => latest.evidence_frame_ids.includes(frame.frame_id)) : [];
+  const readText = sampleEvidence.find((frame) => frame.ocr_text)?.ocr_text ?? '';
   const recent = RECENT.map(([id, tilt]) => ({ frame: FRAMES.find((frame) => frame.frame_id === id), tilt }));
   const [readKey, setReadKey] = useState(0);
   const [checkKey, setCheckKey] = useState(0);
-  const [checking, setChecking] = useState(false);
+  const streaming = Boolean(liveSessionId);
+  const questionCount = history.demo ? 'Samples only' : String(history.questions.length);
 
   const check = () => {
     setCheckKey((n) => n + 1);
-    setChecking(true);
-    window.setTimeout(() => setChecking(false), 1100);
+    recheck();
   };
 
   return (
@@ -69,18 +74,20 @@ export default function Overview() {
         eyebrow="Monitoring / Overview"
         title={`${greeting()}, ${user?.user_id ? user.name.split(' ')[0] : 'team'}`}
         subtitle="One live session. Everything the phone sees and hears shows up here."
-        actions={<span className="pill pill-ok"><span className="dot" />Session active</span>}
+        actions={streaming
+          ? <span className="pill pill-ok"><span className="dot" />Phone streaming</span>
+          : <span className="pill pill-warn"><span className="dot" />Phone not streaming</span>}
       />
 
       <section className="stat-row" aria-label="Summary">
         <div className="card stat">
           <span className="label">Live connection</span>
-          <p className="stat-value">{STATUS.streaming === 'online' ? 'Connected' : STATUS_LABELS[STATUS.streaming]}</p>
+          <p className="stat-value">{streaming ? 'Connected' : status.streaming === 'online' ? 'Waiting for phone' : STATUS_LABELS[status.streaming]}</p>
         </div>
-        <div className="card stat"><span className="label">Saved frames</span><p className="stat-value">{FRAMES.length}</p></div>
+        <div className="card stat"><span className="label">Questions · 24 h</span><p className="stat-value">{history.loading ? '…' : questionCount}</p></div>
         <div className="card stat">
           <span className="label">Assistant</span>
-          <p className="stat-value">{STATUS.ai === 'online' ? 'Ready' : STATUS_LABELS[STATUS.ai]}</p>
+          <p className="stat-value">{status.ai === 'online' ? 'Ready' : status.ai === 'offline' ? 'Not ready' : STATUS_LABELS[status.ai]}</p>
         </div>
       </section>
 
@@ -104,12 +111,20 @@ export default function Overview() {
         <div className="stack">
           <section className="card section section-tight" aria-labelledby="answer-title">
             <div className="card-head">
-              <h2 id="answer-title" className="card-title">Latest answer</h2>
-              <span className="label">Just now · {latest.language.toUpperCase()}</span>
+              <h2 id="answer-title" className="card-title">
+                Latest answer {history.demo && <span className="chip-warn">DEMO</span>}
+              </h2>
+              {latest && <span className="label">{formatTime(latest.asked_at)} · {latest.language.toUpperCase()}</span>}
             </div>
-            <p className="answer-q" lang={latest.language} dir="auto">“{latest.question}”</p>
-            <p className="answer-a" lang={latest.language} dir="auto">{latest.answer}</p>
-            <ReceiptPrinter><AnswerSlip question={latest} evidence={evidence.length} /></ReceiptPrinter>
+            {latest ? (
+              <>
+                <p className="answer-q" lang={latest.language} dir="auto">“{latest.question}”</p>
+                <p className="answer-a" lang={latest.language} dir="auto">{latest.answer}</p>
+                <ReceiptPrinter><AnswerSlip question={latest} evidence={latest.evidence_frame_ids.length} /></ReceiptPrinter>
+              </>
+            ) : (
+              <p className="empty">{history.loading ? 'Loading…' : history.error ? `Couldn't load answers: ${history.error}` : 'No answers yet.'}</p>
+            )}
           </section>
 
           <section className="card section section-tight" aria-labelledby="health-title">
@@ -126,7 +141,7 @@ export default function Overview() {
               {SERVICES.map((service) => (
                 <li key={service.key} className="service-row inset">
                   <span><strong className="service-name">{service.name}</strong><span className="service-owner">{service.owner}</span></span>
-                  <StatusPill status={STATUS[service.key]} />
+                  <StatusPill status={status[service.key]} />
                 </li>
               ))}
             </ul>
@@ -136,7 +151,7 @@ export default function Overview() {
 
       <section className="card section" aria-labelledby="recent-title">
         <div className="card-head">
-          <h2 id="recent-title" className="card-title">Recently remembered</h2>
+          <h2 id="recent-title" className="card-title">Recently remembered <span className="chip">SAMPLE</span></h2>
           <Link to="/memory" className="btn">View all {FRAMES.length}</Link>
         </div>
         <ul className="stamps">

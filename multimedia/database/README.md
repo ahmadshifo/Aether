@@ -1,13 +1,18 @@
-# Task 10: MySQL Community 8.4 LTS and private JPEG storage
+# Task 10: MySQL Community 8.0/8.4, accounts and private JPEG storage
 
 Task 10 uses SQLAlchemy 2.x, PyMySQL, MySQL native JSON and private local JPEGs.
-The Python repository interfaces remain compatible with Tasks 1-9. No HTTP
-endpoints, semantic search, cloud requests, or automatic expiration deletion
-are implemented here. Task 11 will add retrieval.
+MySQL Community 8.0.17+ (verified on 8.0.43) and 8.4 LTS are supported.
+The shared schema includes frames, users, login_sessions and sessions. Existing
+signup/login routes use these tables rather than maintaining a second schema.
+The Python repository interfaces remain compatible with Tasks 1-9. No new HTTP endpoints, semantic search, cloud requests, or automatic expiration
+deletion are implemented in Task 10. Task 13 adds an explicit cleanup worker;
+see [pipeline and retention](../processing/PIPELINE.md). Existing authentication and stream routes are
+connected to the shared schema. Task 11 adds time/semantic retrieval through api.search_service.
 
 ## Native Windows 11 setup (primary option)
 
-Install **MySQL Community Server 8.4 LTS**, not the Innovation release, from
+Use an existing **MySQL Community Server 8.0.17+** installation, or install
+**MySQL Community Server 8.4 LTS** from
 [MySQL Community downloads](https://dev.mysql.com/downloads/mysql/8.4.html).
 Use its Windows MSI and MySQL Configurator, configure a Windows service,
 TCP/IP port (normally 3306), and a private administrator password. Add its
@@ -26,12 +31,12 @@ schema and account. Replace the example password privately before running:
 
 ```sql
 SELECT VERSION(), @@version_comment;
-CREATE DATABASE IF NOT EXISTS aether_multimedia
+CREATE DATABASE IF NOT EXISTS multimedia_project
   CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE USER IF NOT EXISTS 'multimedia_user'@'localhost'
   IDENTIFIED BY 'REPLACE_WITH_A_PRIVATE_PASSWORD';
 GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, INDEX, REFERENCES
-  ON aether_multimedia.* TO 'multimedia_user'@'localhost';
+  ON multimedia_project.* TO 'multimedia_user'@'localhost';
 SHOW GRANTS FOR 'multimedia_user'@'localhost';
 EXIT;
 ```
@@ -42,13 +47,12 @@ as administrator. Application operations do not require global privileges,
 DROP, or access to other databases. This application does not create database
 accounts or modify server services.
 
-A MySQL 8.0 installation is **not** the specified 8.4 target. Back up existing
-data and use MySQL's documented upgrade process, or provision a separate 8.4
-instance on another port. Do not replace another project's server blindly.
-XAMPP commonly supplies **MariaDB**; its `mysql.exe` name does not establish
-MySQL compatibility. `SELECT VERSION(), @@version_comment` identifies it.
-The Python check rejects MariaDB and non-8.4 servers before initializing tables.
-See [MySQL's upgrade documentation](https://dev.mysql.com/doc/refman/8.4/en/upgrading.html).
+The existing local MySQL 8.0.43 server is supported; no server upgrade is
+required for this setup. JSON schema validation requires at least 8.0.17.
+XAMPP commonly supplies MariaDB; its mysql.exe filename does not establish
+MySQL compatibility. The Python check rejects MariaDB, older 8.0 servers,
+and untested version families before creating tables.
+See [MySQL JSON validation requirements](https://dev.mysql.com/doc/refman/8.0/en/json-validation-functions.html).
 
 From the repository root:
 
@@ -61,7 +65,7 @@ python -m pip install -r api/requirements.txt
 Edit your existing private `api/.env` (preserving its AI credentials):
 
 ```dotenv
-DATABASE_URL=mysql+pymysql://multimedia_user:YOUR_LOCAL_DATABASE_PASSWORD@localhost:3306/aether_multimedia?charset=utf8mb4
+DATABASE_URL=mysql+pymysql://multimedia_user:YOUR_LOCAL_DATABASE_PASSWORD@localhost:3306/multimedia_project?charset=utf8mb4
 FRAME_STORAGE_PATH=./stored_frames
 FRAME_RETENTION_HOURS=24
 ```
@@ -79,7 +83,7 @@ Initialize and verify from `multimedia/`:
 ```powershell
 python -m database.connection --init
 python -m database.connection --check
-mysql -h localhost -P 3306 -u multimedia_user -p aether_multimedia
+mysql -h localhost -P 3306 -u multimedia_user -p multimedia_project
 ```
 
 In the MySQL client:
@@ -95,9 +99,10 @@ SELECT COUNT(*) FROM frames;
 EXIT;
 ```
 
-`--init` verifies MySQL 8.4 first, creates a missing table and indexes, and
+`--init` verifies a supported MySQL version first, creates missing tables and indexes, and
 validates existing columns, primary/unique keys, named checks and table
-encoding. Existing incompatible tables stop initialization for manual review;
+encoding. All existing tables are validated before missing tables are added.
+Existing incompatible tables stop initialization for manual review;
 no rows or tables are dropped or rewritten. MySQL DDL implicitly commits:
 initialization is repeatable but is not an atomic multi-statement migration.
 `database/schema.sql` is generated from `models.py`, includes inline indexes,
@@ -113,7 +118,46 @@ result. This correction changes the active storage backend; it does not
 transfer any pre-existing PostgreSQL data to MySQL. Back up old data before
 planning a separate data transfer. Legacy PostgreSQL volumes are untouched.
 
-## Schema
+## Accounts and application startup
+
+The local database multimedia_project has already been initialized. Refresh
+Workbench's SCHEMAS tree to see the four tables. No account is pre-seeded;
+normal signup creates the first real user. The configured root database login
+is a MySQL administrator account, not an application signup/login account.
+
+- users: UUID, unique email, name, scrypt password hash and UTC creation time.
+- login_sessions: hashed refresh token, account UUID, creation and expiry times.
+- sessions: stream UUID, optional account UUID, live/ended status and UTC times.
+- frames: the multimedia metadata and JSON embeddings documented below.
+
+Passwords and JWT signing secrets belong only in ignored private .env files.
+The backend reads web/ai-backend/.env, with database defaults from
+multimedia/api/.env and process environment taking precedence. Quoted passwords
+are parsed with python-dotenv. The configured private files point both services
+to the same multimedia_project database. Existing unrelated settings are kept.
+
+From multimedia/ using its virtual environment:
+
+```powershell
+python -m pip install -r ../web/ai-backend/requirements.txt
+python -m database.connection --init
+python -m database.connection --check
+python -m uvicorn app.main:app --app-dir ../web/ai-backend --host 127.0.0.1 --port 8002
+```
+
+The backend checks table readiness at startup; it does not create databases or
+tables automatically. Initialization is explicit and repeatable. Restart an
+already-running backend after changing its configuration. Existing frontend
+proxies send /api/v1/auth and /api/v1/streams to this backend on port 8002.
+Application endpoints remain /api/v1/auth/signup, /login, /logout and /me.
+Stream routes are /api/v1/streams/start, /stop and /active. Refresh tokens are
+hashed in MySQL; access tokens are signed JWTs in HttpOnly cookies.
+
+Frames retain their existing session UUID interface without a required stream
+row, so offline frame extraction and synthetic repository callers still work.
+No frame processing automatically creates user accounts or stream sessions.
+
+## Frame schema
 
 | Column | MySQL type | Meaning |
 | --- | --- | --- |
@@ -196,8 +240,8 @@ and report the problem. No automatic orphan cleanup or retention worker is
 implemented. Local permissions are best effort; configure Windows directory
 ACLs so only the application account can access stored_frames.
 
-Image paths are internal. Future API responses must map them to authorized
-image URLs; they must not expose filesystem paths. External contract fields
+Image paths are internal. Task 12 maps them to authorized image URLs and
+serves JPEGs through the repository; it does not expose filesystem paths. External contract fields
 remain frame_id, session_id, timestamp, image_url, ocr_text, objects, caption,
 and relevance_score. No contract files or existing endpoints are changed.
 
@@ -205,7 +249,7 @@ and relevance_score. No contract files or existing endpoints are changed.
 
 Docker is not required. If native MySQL occupies port 3306, select an unused
 port such as 3307 and update **both** MYSQL_PORT and DATABASE_URL in api/.env.
-Set MYSQL_DATABASE=aether_multimedia, MYSQL_USER, MYSQL_PASSWORD and a separate
+Set MYSQL_DATABASE=multimedia_project, MYSQL_USER, MYSQL_PASSWORD and a separate
 MYSQL_ROOT_PASSWORD there, then run from multimedia/:
 
 ```powershell
@@ -229,7 +273,9 @@ Compose configuration is unchanged.
 Run these from multimedia/ with the virtual environment active. All data is
 synthetic; tests make no OpenAI or Mistral calls. Offline mocks check validation,
 query construction and failure recovery; they do not establish server support.
-The 15 real tests have been adapted to MySQL, not removed. They skip unless
+The original 15 real frame-storage tests are retained. Eight additional real
+authentication tests verify signup, password hashing, login/logout, refresh,
+expiry, persistence and stream ownership. They skip unless
 RUN_MYSQL_TESTS=1; opting in makes configuration/version failures fail visibly.
 Only generated test UUIDs are deleted. Avoid concurrent full-database cleanup
 jobs during verification and use a dedicated test database when appropriate.
@@ -241,7 +287,7 @@ python -m pytest tests/test_database.py -v --basetemp "$pytestTemp" -p no:cachep
 $env:RUN_MYSQL_TESTS = "1"
 try {
     $pytestTemp = Join-Path $env:TEMP ("aether-pytest-" + [guid]::NewGuid().ToString("N"))
-    python -m pytest tests/test_database_integration.py -v --basetemp "$pytestTemp" -p no:cacheprovider
+    python -m pytest tests/test_database_integration.py tests/test_auth_database_integration.py -v --basetemp "$pytestTemp" -p no:cacheprovider
 }
 finally {
     Remove-Item Env:\RUN_MYSQL_TESTS -ErrorAction SilentlyContinue
@@ -259,11 +305,14 @@ session isolation, chronological ordering, targeted deletion and persistence
 in a separate Python process. It cleans only its own tracked frame UUIDs.
 A failed server check creates no frame data.
 
-## Task 11 preparation
+## Task 11 search
 
-For the small university demonstration dataset, Task 11 can fetch candidate
-frames/JSON embeddings with session and capture-time filters, compute cosine
-similarity with NumPy, rank matches in Python and return the most relevant
-frames. Standard MySQL Community JSON storage provides no pgvector index;
-this design is not optimized for millions of embeddings. Actual search and
-relevance_score calculation remain outside Task 10.
+Task 11 uses the existing frames model and read-only repository projection.
+Session/capture/expiry filters run in MySQL; JSON embeddings are processed in
+bounded keyset batches and ranked using Task 9 cosine similarity in Python.
+There is no additional search database or vector implementation. All retained
+candidate batches are examined without a hidden history count cap. This remains
+a small-demonstration design, not an index for millions of embeddings.
+See [../api/SEARCH.md](../api/SEARCH.md) for modes, score semantics, commands and
+limits. Task 12 now exposes the protected HTTP endpoints; see
+[../api/README.md](../api/README.md) for login cookies, session ownership and commands.

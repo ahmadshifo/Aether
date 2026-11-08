@@ -7,6 +7,7 @@ Pillow>=10,<13
 
 # REST API
 fastapi>=0.115,<1
+pydantic>=2.7,<3
 uvicorn[standard]>=0.30,<1
 python-multipart>=0.0.20,<1
 
@@ -14,12 +15,16 @@ python-multipart>=0.0.20,<1
 openai>=2.54.0,<3
 mistralai>=2.10.1,<3
 
-# Database: MySQL Community 8.4
+# Database: MySQL Community 8.0.17+ / 8.4
 PyMySQL[rsa]>=1.1,<2
 SQLAlchemy>=2.0.39,<3
+PyJWT>=2.8,<3
 # Legacy setup-check compatibility; unused by the active MySQL database layer.
 psycopg[binary]>=3.2,<4
 pgvector>=0.3,<1
+
+# Object storage: RustFS through the S3 API (only used when FRAME_STORAGE_BACKEND=s3)
+boto3>=1.35,<2
 
 # Configuration
 python-dotenv>=1,<2

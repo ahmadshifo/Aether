@@ -1,1 +1,5 @@
-"""Member 3: implement /api/v1/search, /api/v1/frames, /api/v1/frames/{id}/image and /health."""
+"""Compatibility import; routes are implemented once in api.routes."""
+
+from api.routes import router
+
+__all__ = ["router"]

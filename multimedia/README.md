@@ -3,6 +3,14 @@
 
 Own `processing/`, `database/` and `api/`. Begin with sample videos, not the live phone stream. Only send selected informative frames to cloud vision/OCR APIs.
 
+Task 14 adds explicit RTSP acquisition and a bounded live runner over Task 13.
+See [live startup, testing and team handoff](processing/LIVE.md) and
+[actual Task 14 verification](processing/LIVE_VERIFICATION.md).
+
+Task 13 adds the complete local-video pipeline and explicit retention worker.
+See [pipeline and retention commands](processing/PIPELINE.md) and
+[Task 13 verification](processing/TASK13_VERIFICATION.md). Task 14 is not implemented.
+
 Expose the exact endpoints in `shared/contracts/api-v1.yaml`. The Web AI service must never access your tables directly.
 
 ## Task 2: local video reader
@@ -1056,18 +1064,95 @@ still required before final integration to verify account access, numerical
 output and semantic behavior. Task 9 added no database tables, indexes, permanent vector storage, or search
 endpoint. Storage is implemented separately in Task 10 below.
 
-## Task 10: MySQL Community 8.4 LTS and private frame storage
+## Task 10: MySQL Community 8.0/8.4, accounts and private frame storage
 
-The corrected database layer uses SQLAlchemy/PyMySQL, native MySQL JSON for
-objects and 1536-dimensional embeddings, UTC DATETIME(6), transactional private
-JPEG storage, session-scoped pagination, deletion and a synthetic smoke test.
+The database layer supports MySQL Community 8.0.17+ and 8.4 LTS, verified against
+this workstation's MySQL 8.0.43 server and multimedia_project database. It uses
+SQLAlchemy/PyMySQL, JSON object labels and 1536-dimensional embeddings, UTC
+DATETIME(6), transactional JPEG storage and session-scoped pagination.
 
-See [database/README.md](database/README.md) for native Windows setup (primary),
-optional MySQL-only Docker setup, schema, repository interfaces, recovery
-behavior, and offline/real-server test commands. PostgreSQL/pgvector is no
-longer the active storage backend. Existing Tasks 1-9 and external API fields
-remain unchanged. Task 11 semantic search has not begun.
+The shared schema also creates users, login_sessions and sessions for the
+existing signup/login and phone-stream routes. Both services are configured
+privately to use multimedia_project. No accounts are pre-seeded; signup creates
+users with hashed passwords. MySQL credentials are separate from application
+signup/login credentials.
 
-MySQL 8.4 verification is required for final acceptance. The local server
-identified during this correction is MySQL 8.0.43; it is not the specified
-8.4 LTS target. See database/VERIFICATION.md for actual test outcomes.
+See [database/README.md](database/README.md) for startup, native Windows setup,
+optional Docker setup, schema and test commands. See
+[database/VERIFICATION.md](database/VERIFICATION.md) for real test outcomes.
+Task 11 search is documented below.
+
+
+## Task 11: search by time and semantic meaning
+
+SearchService in api/search_service.py implements latest (10 seconds), recent
+(2 minutes) and retained history search using the existing MySQL repository,
+Task 9 query embeddings and cosine function. SQL applies session/time/expiry
+filters, candidates are read in bounded keyset batches, and ranking keeps only
+the best requested results. Original OCR, captions and labels are preserved.
+The confirmed response includes identical UTC timestamp/captured_at fields.
+Task 11 remains a reusable Python service; Task 12 now exposes its HTTP API below.
+
+See [api/SEARCH.md](api/SEARCH.md) for configuration, algorithm, score/fallback
+semantics, limitations, all manual scenarios and exact PowerShell test commands.
+See [api/SEARCH_VERIFICATION.md](api/SEARCH_VERIFICATION.md) for actual test results.
+
+```powershell
+# From multimedia/: synthetic in-memory data, no database or AI calls.
+python -m scripts.demo_search
+
+# Real configured MySQL, synthetic vectors/data, cleans only its own UUIDs.
+python -m scripts.demo_search --mysql
+```
+
+
+## Task 12: FastAPI multimedia HTTP API
+
+The canonical server is api.main:app, titled Aether Multimedia API, version
+1.0.0. It exposes POST /api/v1/search, GET /api/v1/frames,
+GET /api/v1/frames/{frame_id}/image and GET /health. The HTTP layer reuses
+Task 10 repository methods and Task 11 ranking, with strict public schemas,
+safe errors, explicit CORS, keyset timeline pagination and private JPEG bytes.
+
+Data requests reuse the existing account backend cookies and verify account
+ownership of the session. UUIDs are not authorization. Health and Swagger are
+available without a database connection; schema initialization remains explicit.
+Both timestamp and captured_at are returned with identical UTC values. HTTP
+search includes all four required shared fields, including limit (normally 5).
+
+From multimedia/:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Open http://127.0.0.1:8000/docs or /health; the API root / has no homepage.
+See [api/README.md](api/README.md) for existing login-cookie reuse, owned demo
+sessions, every endpoint's PowerShell command, tests, CORS, Docker packaging and
+limits. See [api/API_VERIFICATION.md](api/API_VERIFICATION.md) for exact results.
+Tasks 13/14 were not implemented.
+
+## Combined live mode (merged 2026-11-08, Member 2 with Member 3's API)
+
+`npm start` runs `api.main:app` from `multimedia/`. Besides Task 12's search, timeline and image
+endpoints (login cookie + session ownership required), the API now reads phone streams by itself
+(`processing/live_service.py`): when MediaMTX lists `live/<session_id>`, a Task 14
+`LiveMultimediaRunner` starts for it and stops when the stream ends. Each sampled frame (1/s):
+
+1. YuNet blurs every face (`processing/face_blur.py`); a frame whose faces cannot be checked is dropped.
+2. The blurred frame is kept in RAM for 2 minutes (`processing/frame_memory.py`); `latest`/`recent`
+   search include these live frames (empty text fields, freshness as relevance).
+3. Every `LIVE_SAVE_EVERY_SECONDS` (default 15) one frame goes through the Task 13 pipeline
+   (sharpness/duplicate selection, OCR, vision, embedding) and is saved for 24 h.
+4. `POST /api/v1/frames/keep` (new, logged in docs/decision-log.md) saves the frames an answer used.
+
+Images go to local disk or RustFS (`FRAME_STORAGE_BACKEND=s3`, `database/object_storage.py`). The
+retention worker deletes from either. Without OpenAI and Mistral keys (or `MULTIMEDIA_AI_ANALYSIS=off`)
+"no-AI" services store frames with empty text and an uncertain empty caption instead of stopping the
+fail-closed pipeline. Switches: `MULTIMEDIA_INGEST`, `MULTIMEDIA_FACE_BLUR`, `MULTIMEDIA_AI_ANALYSIS`,
+`LIVE_SAVE_EVERY_SECONDS`, `MEDIAMTX_API_URL` (see api/.env.example).
+
+Known gap: `python -m database.connection --check` rejects account tables created by the earlier
+AI backend (extra profile columns, DATETIME(3), index names). The running services do not need that
+check; migrating those tables is left for an agreed schema update.
+

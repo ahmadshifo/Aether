@@ -20,18 +20,21 @@ from pathlib import Path
 
 import jwt
 import pymysql
+from dotenv import dotenv_values
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 
 
 def _load_env_file() -> None:
-    # uvicorn doesn't read .env, so settings not already in the environment come from web/ai-backend/.env.
-    path = Path(__file__).resolve().parent.parent / ".env"
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            key, sep, value = line.strip().partition("=")
-            if sep and key and not key.startswith("#"):
-                os.environ.setdefault(key.strip(), value.strip())
+    # Process settings override the backend file; shared database settings fall
+    # back to the same private file used by multimedia. Parse quoted passwords.
+    root = Path(__file__).resolve().parents[3]
+    shared = dotenv_values(root / "multimedia" / "api" / ".env", interpolate=False)
+    defaults = {key: value for key, value in shared.items() if key.startswith("MYSQL_")}
+    own = dotenv_values(Path(__file__).resolve().parent.parent / ".env", interpolate=False)
+    for key, value in {**defaults, **own}.items():
+        if value is not None:
+            os.environ.setdefault(key, value)
 
 
 _load_env_file()
@@ -97,63 +100,34 @@ class UserResponse(BaseModel):
 def _connect() -> pymysql.connections.Connection:
     try:
         return pymysql.connect(
-            host=os.getenv("MYSQL_HOST", "127.0.0.1"), port=int(os.getenv("MYSQL_PORT", "3307")),
+            host=os.getenv("MYSQL_HOST", "127.0.0.1"), port=int(os.getenv("MYSQL_PORT", "3306")),
             user=os.getenv("MYSQL_USER", ""), password=os.getenv("MYSQL_PASSWORD", ""),
-            database=os.getenv("MYSQL_DATABASE", "aether_multimedia"),
+            database=os.getenv("MYSQL_DATABASE", "multimedia_project"),
             charset="utf8mb4", cursorclass=pymysql.cursors.DictCursor, autocommit=True,
+            connect_timeout=5, read_timeout=15, write_timeout=15,
+            init_command="SET SESSION time_zone = '+00:00'",
         )
     except pymysql.err.OperationalError:
         raise ApiError(503, "database_unavailable", "Can't reach the database. Is MySQL running?") from None
 
 
-# The backend's own tables, created at startup in the multimedia database (Member 3 owns the frames table there).
-# expires_at slides forward with use (idle limit); created_at caps the whole login (absolute limit).
-# A session is one Start/Stop on the phone; session_id is the UUID its stream is published under.
-ACCOUNT_TABLES = (
-    """CREATE TABLE IF NOT EXISTS users (
-        user_id            CHAR(36)     NOT NULL PRIMARY KEY,
-        email              VARCHAR(254) NOT NULL UNIQUE,
-        name               VARCHAR(80)  NOT NULL,
-        password_hash      VARCHAR(255) NOT NULL,
-        preferred_language VARCHAR(5)   NULL,
-        speech_rate        FLOAT        NULL,
-        created_at         DATETIME(3)  NOT NULL
-    )""",
-    """CREATE TABLE IF NOT EXISTS login_sessions (
-        token_hash CHAR(64)    NOT NULL PRIMARY KEY,
-        user_id    CHAR(36)    NOT NULL,
-        created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-        expires_at DATETIME(3) NOT NULL,
-        INDEX login_sessions_expires_idx (expires_at),
-        CONSTRAINT login_sessions_user_fk FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
-    )""",
-    """CREATE TABLE IF NOT EXISTS sessions (
-        session_id    CHAR(36)              NOT NULL PRIMARY KEY,
-        user_id       CHAR(36)              NULL,
-        status        ENUM('live', 'ended') NOT NULL DEFAULT 'live',
-        started_at    DATETIME(3)           NOT NULL,
-        ended_at      DATETIME(3)           NULL,
-        consent_given BOOLEAN               NOT NULL DEFAULT FALSE,
-        INDEX sessions_user_status_idx (user_id, status, started_at),
-        CONSTRAINT sessions_user_fk FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE SET NULL
-    )""",
-)
-
 
 def init_db() -> None:
     try:
         with closing(_connect()) as conn, conn.cursor() as cur:
-            for statement in ACCOUNT_TABLES:
-                cur.execute(statement)
-    except (ApiError, pymysql.err.MySQLError) as error:
+            cur.execute("SELECT u.user_id, u.email, u.name, u.password_hash, u.created_at, "
+                        "s.token_hash, s.created_at, s.expires_at "
+                        "FROM users u JOIN login_sessions s USING (user_id) LIMIT 0")
+            cur.execute("SELECT session_id, user_id, status, started_at, ended_at FROM sessions LIMIT 0")
+    except (ApiError, pymysql.err.MySQLError):
         raise RuntimeError(
-            "Auth needs the multimedia MySQL database: set up MySQL as in multimedia/database/README.md, "
-            "then set MYSQL_* in web/ai-backend/.env."
-        ) from error
+            "Auth needs the shared MySQL database: set MYSQL_* in web/ai-backend/.env "
+            "and run `python -m database.connection --init` in the multimedia folder."
+        ) from None
 
 
 def _now() -> datetime:
-    # Naive UTC: the schema stores every time as UTC in DATETIME(3).
+    # Raw PyMySQL values are naive UTC; the schema preserves DATETIME(6).
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
@@ -211,7 +185,8 @@ def _issue_access_token(response: Response, user_id: str) -> None:
 def _start_session(cur: pymysql.cursors.Cursor, response: Response, user_id: str) -> None:
     token = secrets.token_urlsafe(32)
     now = _now()
-    cur.execute("DELETE FROM login_sessions WHERE expires_at < %s OR created_at < %s", (now, now - MAX_TTL))
+    cur.execute("DELETE FROM login_sessions WHERE user_id = %s AND (expires_at < %s OR created_at < %s)",
+                (user_id, now, now - MAX_TTL))
     cur.execute(
         "INSERT INTO login_sessions (token_hash, user_id, created_at, expires_at) VALUES (%s, %s, %s, %s)",
         (_token_hash(token), user_id, now, now + IDLE_TTL),

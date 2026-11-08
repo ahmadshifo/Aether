@@ -115,7 +115,9 @@ def test_check_reports_actual_mocked_values_and_closes_connection(tmp_path):
     with patch("database.connection.create_db_engine", return_value=engine), \
             patch.object(Database, "_validate_schema"), patch("database.connection.inspect") as inspector:
         inspector.return_value.get_indexes.return_value = [
-            {"name": "frames_session_time_idx"}, {"name": "frames_expires_at_idx"}]
+            {"name": "frames_session_time_idx"}, {"name": "frames_expires_at_idx"},
+            {"name": "login_sessions_expires_idx"}, {"name": "login_sessions_created_idx"},
+            {"name": "sessions_user_status_idx"}]
         info = Database(settings).check()
     assert info == dict(mysql_version="8.4.8", frames_table="frames")
     engine.connect.return_value.__exit__.assert_called_once()
@@ -399,14 +401,15 @@ def test_imports_and_database_construction_do_not_connect(tmp_path):
 
 
 @pytest.mark.parametrize("version, comment", [
-    ("8.0.43", "MySQL Community Server - GPL"),
+    ("8.0.16", "MySQL Community Server - GPL"),
+    ("5.7.44", "MySQL Community Server - GPL"),
     ("11.4.5-MariaDB", "MariaDB Server"),
     ("8.4.1", "MariaDB"),
 ])
 def test_wrong_server_rejected(version, comment):
     sql_connection = MagicMock()
     sql_connection.scalar.side_effect = [version, comment]
-    with pytest.raises(DatabaseConnectionError, match="8.4 LTS"):
+    with pytest.raises(DatabaseConnectionError, match=r"8.0.17\+ or 8.4 LTS"):
         Database._server_version(sql_connection)
 
 
@@ -506,3 +509,20 @@ def test_incompatible_schema_drift_is_rejected(compatible_schema_inspector, drif
     with patch("database.connection.inspect", return_value=inspector):
         with pytest.raises(DatabaseConnectionError, match="incompatible"):
             Database._validate_schema(MagicMock())
+
+
+@pytest.mark.parametrize("version", ["8.0.17", "8.0.43", "8.4.8"])
+def test_supported_mysql_versions(version):
+    sql_connection = MagicMock()
+    sql_connection.scalar.side_effect = [version, "MySQL Community Server - GPL"]
+    assert Database._server_version(sql_connection) == version
+
+
+def test_schema_contains_accounts_refresh_sessions_and_stream_sessions():
+    from database.models import Base
+    assert set(Base.metadata.tables) == {"frames", "users", "login_sessions", "sessions"}
+    schema = render_schema()
+    assert schema.count("CREATE TABLE IF NOT EXISTS") == 4
+    assert "password_hash" in schema and "token_hash" in schema
+    assert "REFERENCES users (user_id) ON DELETE CASCADE" in schema
+    assert "REFERENCES users (user_id) ON DELETE SET NULL" in schema

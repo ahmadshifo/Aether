@@ -1,5 +1,5 @@
-"""Member 3: FastAPI entry point for the frame listing, image retrieval, search and health endpoints."""
+"""Compatibility entry point for the one canonical multimedia application."""
 
-from fastapi import FastAPI
+from api.main import app, create_app
 
-app = FastAPI(title="Multimedia Memory Service")
+__all__ = ["app", "create_app"]

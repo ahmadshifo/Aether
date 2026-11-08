@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 const HOLD_MS = 1000;
 const UNDO_SECONDS = 5;
 
-export default function HoldToConfirm({ label, doneLabel, finalLabel, undoMessage, onConfirm, onUndo }) {
+// onCommit runs once the Undo window has passed without Undo: do the irreversible work there.
+export default function HoldToConfirm({ label, doneLabel, finalLabel, undoMessage, onConfirm, onUndo, onCommit, disabled = false }) {
   const [phase, setPhase] = useState('idle'); // idle | holding | undo | done
   const [progress, setProgress] = useState(0);
   const [left, setLeft] = useState(UNDO_SECONDS);
@@ -19,6 +20,7 @@ export default function HoldToConfirm({ label, doneLabel, finalLabel, undoMessag
     if (phase !== 'undo') return undefined;
     if (left <= 0) {
       setPhase('done');
+      onCommit?.();
       return undefined;
     }
     const timer = window.setTimeout(() => setLeft((n) => n - 1), 1000);
@@ -39,7 +41,7 @@ export default function HoldToConfirm({ label, doneLabel, finalLabel, undoMessag
   };
 
   const begin = () => {
-    if (phase !== 'idle' || holding.current) return;
+    if (disabled || phase !== 'idle' || holding.current) return;
     holding.current = true;
     setPhase('holding');
     startedAt.current = performance.now();
@@ -63,7 +65,7 @@ export default function HoldToConfirm({ label, doneLabel, finalLabel, undoMessag
 
   return (
     <>
-      <button type="button" className="hold" aria-disabled={phase === 'undo' || phase === 'done'}
+      <button type="button" className="hold" aria-disabled={disabled || phase === 'undo' || phase === 'done'}
         aria-label={phase === 'idle' || phase === 'holding' ? `${label}. Press and hold for one second.` : text}
         onPointerDown={begin} onPointerUp={cancel} onPointerLeave={cancel} onPointerCancel={cancel}
         onKeyDown={(event) => { if (isKey(event)) { event.preventDefault(); if (!event.repeat) begin(); } }}
