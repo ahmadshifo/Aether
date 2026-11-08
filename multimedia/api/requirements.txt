@@ -23,6 +23,9 @@ PyJWT>=2.8,<3
 psycopg[binary]>=3.2,<4
 pgvector>=0.3,<1
 
+# Object storage: RustFS through the S3 API (only used when FRAME_STORAGE_BACKEND=s3)
+boto3>=1.35,<2
+
 # Configuration
 python-dotenv>=1,<2
 

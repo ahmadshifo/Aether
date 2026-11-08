@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { updateProfile } from '../auth.js';
 import { DynamicButton, HoldToConfirm, Segmented } from '../components/ui/index.js';
 import { Avatar, Icon, PageHeader, formatDate } from '../components/ui.jsx';
-import { QUESTIONS } from '../data/mockData.js';
+import { useQuestions } from '../components/useBackend.js';
+import { assistantClient } from '../services/assistantClient.js';
 
 const THEMES = [{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }];
 
@@ -12,6 +13,30 @@ export default function Profile({ user, authEnabled, onUserChange, onLogout, the
   const [save, setSave] = useState('idle'); // idle | busy | done
   const [error, setError] = useState('');
   const changed = name.trim() !== user.name;
+  const history = useQuestions();
+  const [cleared, setCleared] = useState(null); // number deleted by the last clear
+  const [clearError, setClearError] = useState('');
+  const [clearKey, setClearKey] = useState(0);
+  const real = history.demo ? 0 : history.questions.length;
+  const canClear = authEnabled && !history.loading && !history.error && real > 0;
+  const clearText = !authEnabled ? 'Log in to manage your question history.'
+    : history.loading ? 'Checking your saved questions…'
+    : history.error ? `Couldn't check your history: ${history.error}`
+    : real > 0 ? `Permanently deletes your ${real} saved question${real === 1 ? '' : 's'} and answers. This can't be undone after 5 seconds.`
+    : cleared !== null ? `History cleared (${cleared} deleted).`
+    : 'Nothing to clear yet: only sample questions are shown until the assistant answers real ones.';
+
+  async function clearHistory() {
+    setClearError('');
+    try {
+      const { deleted } = await assistantClient.deleteQuestions();
+      setCleared(deleted);
+      await history.reload();
+    } catch (err) {
+      setClearError(err.message);
+      setClearKey((n) => n + 1); // reset the hold button so it can be tried again
+    }
+  }
 
   async function submit(event) {
     event.preventDefault();
@@ -71,9 +96,12 @@ export default function Profile({ user, authEnabled, onUserChange, onLogout, the
 
           <section className="card section section-tight" aria-labelledby="clear-title">
             <h2 id="clear-title" className="card-title">Clear question history</h2>
-            <p className="sub">Removes the {QUESTIONS.length} saved questions and answers from this session.</p>
-            <HoldToConfirm label="Hold to clear history" doneLabel="History cleared" finalLabel="History cleared"
-              undoMessage={(seconds) => `History cleared. Undo in ${seconds} s`} />
+            <p className="sub" aria-live="polite">{clearText}</p>
+            {clearError && <p className="form-error" role="alert"><Icon name="alert" size={16} />{clearError}</p>}
+            {canClear && (
+              <HoldToConfirm key={clearKey} label="Hold to clear history" doneLabel="Clearing…" finalLabel="History cleared"
+                undoMessage={(seconds) => `History will be cleared. Undo in ${seconds} s`} onCommit={clearHistory} />
+            )}
           </section>
 
           {authEnabled && (

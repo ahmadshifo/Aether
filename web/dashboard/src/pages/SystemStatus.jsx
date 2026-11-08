@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { HoldToConfirm, LogoTraceLoader, Selector, Ticket } from '../components/ui/index.js';
 import { Icon, PageHeader, StatusPill, formatShortTime } from '../components/ui.jsx';
-import { FRAMES, SESSION_ID, STATUS, STREAM } from '../data/mockData.js';
+import { useStatus } from '../components/useBackend.js';
 
 const portOf = (url, fallback) => {
   try { return `:${new URL(url).port || fallback}`; } catch { return `:${fallback}`; }
@@ -32,7 +32,7 @@ const SOURCES = [
 
 const RULES = [
   ['clock', 'Frames and question history are deleted after 24 hours.'],
-  ['eye', 'No face recognition. People are only detected as “person”.'],
+  ['eye', 'No face recognition. Faces are blurred before any frame is kept or sent to an AI service.'],
   ['alert', 'The assistant never says a place is safe and admits when it is not sure.'],
   ['key', 'Provider API keys stay on the backend services, never in this dashboard.'],
 ];
@@ -40,13 +40,12 @@ const RULES = [
 export default function SystemStatus() {
   const [source, setSource] = useState('recent');
   const [checkKey, setCheckKey] = useState(0);
-  const [checking, setChecking] = useState(false);
-  const online = SERVICES.filter((service) => STATUS[service.key] === 'online').length;
+  const { status, details, liveSession, checking, check: recheck } = useStatus();
+  const online = SERVICES.filter((service) => status[service.key] === 'online').length;
 
   const check = () => {
     setCheckKey((n) => n + 1);
-    setChecking(true);
-    window.setTimeout(() => setChecking(false), 1100);
+    recheck();
   };
 
   return (
@@ -54,12 +53,18 @@ export default function SystemStatus() {
       <PageHeader eyebrow="Monitoring / System status" title="System status"
         subtitle="This session, the services behind it, and the rules it follows." />
 
-      <Ticket id={SESSION_ID} facts={[
-        ['Started', `${formatShortTime(FRAMES[0].captured_at)} UTC`],
-        ['Device', STREAM.device],
-        ['Languages', 'EN · AR'],
-        ['Kept for', '24 hours'],
-      ]} />
+      {liveSession ? (
+        <Ticket id={liveSession.session_id} facts={[
+          ['Started', `${formatShortTime(liveSession.started_at)} UTC`],
+          ['Video', liveSession.streaming === false ? 'Not reaching server' : 'Streaming'],
+          ['Languages', 'EN · AR'],
+          ['Kept for', '24 hours'],
+        ]} />
+      ) : (
+        <section className="card section section-tight" aria-label="Session">
+          <p className="sub">No live session. Press Start in the Aether app to begin one.</p>
+        </section>
+      )}
 
       <div className="grid grid-status">
         <section className="card section section-tight" aria-labelledby="svc-title">
@@ -77,10 +82,10 @@ export default function SystemStatus() {
               <li key={service.key} className="service-full inset">
                 <span>
                   <strong>{service.name}</strong>
-                  <span className="service-desc">{service.description}</span>
+                  <span className="service-desc">{details[service.key] ?? service.description}</span>
                   <span className="label">{service.owner} · {service.endpoint}</span>
                 </span>
-                <StatusPill status={STATUS[service.key]} />
+                <StatusPill status={status[service.key]} />
               </li>
             ))}
           </ul>

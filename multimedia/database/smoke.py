@@ -68,7 +68,7 @@ def run_smoke_test():
             repository = FrameRepository.from_database(database)
             repository.delete_frame(ids[0])
             if (repository.get_frame(ids[0]) is not None or repository.count_frames(session_a) != 2
-                    or (repository.storage_root / record.image_path).exists()):
+                    or repository.image_exists(record)):
                 raise RepositoryError("Smoke deletion verification failed.")
             if repository.count_frames(session_b) != 1:
                 raise RepositoryError("Smoke deletion affected another session.")

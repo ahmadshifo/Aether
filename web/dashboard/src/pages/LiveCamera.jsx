@@ -5,7 +5,8 @@ import LiveStream from '../components/LiveStream.jsx';
 import { DynamicButton, MagneticDropZone, ScrambleText } from '../components/ui/index.js';
 import { Icon, PageHeader, UserContext, formatShortTime } from '../components/ui.jsx';
 import { findLiveSessionId, useLiveSessionId } from '../components/useLiveSessionId.js';
-import { QUESTIONS, STREAM } from '../data/mockData.js';
+import { useQuestions } from '../components/useBackend.js';
+import { STREAM } from '../data/mockData.js';
 
 const BUTTON_STATE = { idle: 'busy', connecting: 'busy', waiting: 'busy', live: 'done' };
 
@@ -19,7 +20,8 @@ export default function LiveCamera() {
   const [revealKey, setRevealKey] = useState(0);
   const watchingRef = useRef(null);
   watchingRef.current = watching;
-  const question = QUESTIONS[0];
+  const history = useQuestions();
+  const question = history.questions[0];
 
   // Follow the phone while connected: a new session after Stop and Start is picked up; Stop disconnects.
   useEffect(() => {
@@ -71,11 +73,14 @@ export default function LiveCamera() {
           <LiveStream sessionId={watching} aspect="16x10" full onState={setStreamState}
             idleText={AUTH_ENABLED ? 'Press Connect to watch the phone’s camera.' : undefined} />
           <div className="under-stage">
-            <span>
-              <span className="label">Last question · {formatShortTime(question.asked_at)}</span>
-              <span className="last-question" lang={question.language} dir="auto">“{question.question}”</span>
-            </span>
-            <span className="chip">Speaking answer</span>
+            {question ? (
+              <span>
+                <span className="label">Last question · {formatShortTime(question.asked_at)}{history.demo ? ' · demo' : ''}</span>
+                <span className="last-question" lang={question.language} dir="auto">“{question.question}”</span>
+              </span>
+            ) : (
+              <span className="label">{history.loading ? 'Loading the last question…' : 'No questions yet'}</span>
+            )}
           </div>
         </section>
 

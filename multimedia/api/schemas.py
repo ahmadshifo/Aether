@@ -84,6 +84,17 @@ class TimelineResponse(PublicModel):
     next_cursor: str | None
 
 
+class KeepRequest(PublicModel):
+    """Member 2 -> Member 3 after an answer: save the frames it used (AskResponse.evidence_frame_ids)."""
+    session_id: UUID
+    frame_ids: Annotated[list[UUID], Field(min_length=1, max_length=20)]
+
+
+class KeepResponse(PublicModel):
+    accepted: list[UUID]
+    missing: list[UUID]
+
+
 class HealthResponse(PublicModel):
     status: Literal["ok"] = "ok"
     service: Literal["aether-multimedia"] = "aether-multimedia"

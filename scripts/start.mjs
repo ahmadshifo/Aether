@@ -1,6 +1,7 @@
 // `npm start`: runs every Aether service inside this one terminal. Ctrl+C stops them all; so does closing the terminal.
 // Anything already running is left alone, so it is safe to run this again.
 import { spawn, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +11,16 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const python = path.join('.venv', 'Scripts', 'python');
 // ahmadshifo's multimedia code needs MySQL 8.4; it runs privately on port 3307, separate from MySQL 8.0 on 3306.
 const mysqlDir = process.env.AETHER_MYSQL_DIR ?? path.join(os.homedir(), 'mysql84');
+// RustFS keeps the multimedia frame images (S3-compatible, this PC only). Its keys come from multimedia/api/.env.
+const rustfsDir = process.env.AETHER_RUSTFS_DIR ?? path.join(os.homedir(), 'rustfs');
+function multimediaEnv() {
+  try {
+    const text = fs.readFileSync(path.join(root, 'multimedia', 'api', '.env'), 'utf8');
+    return Object.fromEntries(text.split(/\r?\n/).map(line => line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/)).filter(Boolean).map(m => [m[1], m[2]]));
+  } catch { return {}; }
+}
+const media = multimediaEnv();
+const useRustfs = media.FRAME_STORAGE_BACKEND === 's3' && fs.existsSync(path.join(rustfsDir, 'rustfs.exe'));
 
 // The phone needs this PC's current Wi-Fi address; home Wi-Fi addresses change.
 function wifiAddress() {
@@ -40,7 +51,11 @@ const services = [
   { name: 'video', port: 8889, dir: 'mobile/streaming', command: `${path.join('mediamtx-local', 'mediamtx.exe')} mediamtx.yml`, env: { MTX_API: 'yes', MTX_APIADDRESS: '127.0.0.1:9997', MTX_WEBRTCIPSFROMINTERFACESLIST: 'WiFi' } },
   { name: 'voice', port: 8001, dir: 'mobile/voice-service', command: `${python} -m uvicorn app.main:app --port 8001` },
   { name: 'backend', port: 8002, dir: 'web/ai-backend', command: `${python} -m uvicorn app.main:app --host 0.0.0.0 --port 8002` },
-  { name: 'multimedia', port: 8003, dir: 'multimedia/api', command: `${python} -m uvicorn app.main:app --port 8003` },
+  ...(useRustfs ? [{ name: 'rustfs', port: 9000, dir: rustfsDir, command: 'rustfs.exe server data', waitFor: true,
+    env: { RUSTFS_ADDRESS: '127.0.0.1:9000', RUSTFS_CONSOLE_ENABLE: 'true', RUSTFS_CONSOLE_ADDRESS: '127.0.0.1:9001',
+           RUSTFS_ACCESS_KEY: media.S3_ACCESS_KEY_ID, RUSTFS_SECRET_KEY: media.S3_SECRET_ACCESS_KEY } }] : []),
+  // ahmadshifo's API (api.main) runs from multimedia/ with the api/.venv environment; it also reads phone streams.
+  { name: 'multimedia', port: 8003, dir: 'multimedia', command: `${path.join('api', python)} -m uvicorn api.main:app --port 8003` },
   // HTTPS on the Wi-Fi (vite.phone.config.ts) so a phone browser gets camera access.
   { name: 'phone-web', port: 5173, dir: 'mobile/frontend', command: 'npm run dev -- --config vite.phone.config.ts', url: 'http://localhost:5173' },
   { name: 'dashboard', port: 5174, dir: 'web/dashboard', command: 'npm run dev', url: 'http://localhost:5174' },

@@ -7,12 +7,16 @@ import re
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response
+from datetime import timedelta
+from threading import Thread
+
+from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BeforeValidator, Field
 
 from api.dependencies import get_clock, get_repository, get_search_service, get_search_settings
 from api.errors import ApiError
-from api.schemas import ErrorResponse, FrameMetadata, HealthResponse, SearchRequest, SearchResponse, TimelineResponse
+from api.schemas import (ErrorResponse, FrameMetadata, HealthResponse, KeepRequest, KeepResponse, SearchRequest,
+                         SearchResponse, TimelineResponse)
 from api.security import get_principal, require_session_access
 from database.errors import ImageStorageError
 from database.repository import FrameCursor
@@ -60,6 +64,57 @@ def public_metadata(row):
                          ocr_text=row.ocr_text, objects=row.objects)
 
 
+def merge_live_frames(memory, stored, session_id, mode, limit, now, settings):
+    """latest/recent also see the blurred live frames held in RAM (not analyzed yet, so their text fields
+    are empty). latest: newest first. recent: ranked stored matches first, then live frames spread over
+    the window. Live relevance is freshness within the window, never a claim about content."""
+    seconds = settings.latest_seconds if mode == "latest" else settings.recent_seconds
+    now = as_utc(now)
+    live = memory.frames(session_id, since=now - timedelta(seconds=seconds)) if memory is not None else []
+    seen = {str(frame["frame_id"]) for frame in stored}
+    extra = []
+    for item in live:
+        if str(item.frame_id) in seen or item.captured_at > now:
+            continue
+        capture = as_utc(item.captured_at)
+        stamp = capture.isoformat().replace("+00:00", "Z")
+        extra.append({"frame_id": str(item.frame_id), "session_id": str(item.session_id), "timestamp": stamp,
+                      "captured_at": stamp, "image_url": f"/api/v1/frames/{item.frame_id}/image",
+                      "caption": "", "ocr_text": "", "objects": [],
+                      "relevance_score": round(min(1.0, max(0.0, 1 - (now - capture).total_seconds() / seconds)), 4)})
+    if mode == "latest":
+        merged = sorted(list(stored) + extra, key=lambda frame: frame["captured_at"], reverse=True)
+        return merged[:limit]
+    room = max(0, limit - len(stored))
+    if len(extra) > room > 1:
+        step = (len(extra) - 1) / (room - 1)
+        extra = [extra[round(i * step)] for i in range(room)]
+    return list(stored)[:limit] + extra[:room]
+
+
+@router.post("/api/v1/frames/keep", response_model=KeepResponse, status_code=202, responses=ERRORS, tags=["frames"],
+             summary="Save the frames an answer used (from the 2-minute live memory)")
+def keep(body: KeepRequest, request: Request, user_id=Depends(get_principal), repository=Depends(get_repository)):
+    require_session_access(repository, body.session_id, user_id)
+    keeper = request.app.state.keeper
+    if keeper is None:
+        raise ApiError(503, "live_unavailable", "Live frame saving is not running.")
+    accepted, missing, to_save = [], [], []
+    for frame_id in dict.fromkeys(body.frame_ids):
+        item = request.app.state.memory.get(frame_id)
+        if item is not None and item.session_id == body.session_id:
+            accepted.append(frame_id)
+            to_save.append(item)
+            continue
+        row = repository.get_frame(frame_id)
+        (accepted if row is not None and row.session_id == body.session_id else missing).append(frame_id)
+    if to_save:
+        from processing.live_service import keep_frames
+        # Analysis can take seconds per frame; the caller (the answer) must not wait for it.
+        Thread(target=keep_frames, args=(keeper, to_save), name="aether-keep", daemon=True).start()
+    return KeepResponse(accepted=accepted, missing=missing)
+
+
 @router.get("/health", response_model=HealthResponse, tags=["health"],
             summary="HTTP process liveness; does not claim database or AI readiness")
 def health():
@@ -69,13 +124,18 @@ def health():
 @router.post("/api/v1/search", response_model=SearchResponse, responses=ERRORS, tags=["frames"],
              summary="Search an owned session by latest, recent or retained history",
              description="Reuses Task 11 ranking. Latest prioritizes the last 10 seconds, recent searches two minutes, history searches all retained frames. Empty results are successful. Existing login cookies are required.")
-def search(body: SearchRequest, user_id=Depends(get_principal), repository=Depends(get_repository),
+def search(body: SearchRequest, request: Request, user_id=Depends(get_principal), repository=Depends(get_repository),
            search_service=Depends(get_search_service), settings=Depends(get_search_settings)):
     if body.limit > settings.max_limit:
         raise ApiError(422, "invalid_request", "limit exceeds the configured search maximum.")
     require_session_access(repository, body.session_id, user_id)
-    result = SearchResponse.model_validate(search_service.search(
-        session_id=body.session_id, query=body.query, mode=body.mode, limit=body.limit))
+    found = search_service.search(session_id=body.session_id, query=body.query, mode=body.mode, limit=body.limit)
+    if len(found["frames"]) > body.limit:  # checked before live frames are merged in, so it is never hidden
+        raise RuntimeError("Search returned inconsistent metadata.")
+    if body.mode != "history":
+        found = {"frames": merge_live_frames(request.app.state.memory, found["frames"], body.session_id,
+                                             body.mode, body.limit, request.app.state.clock(), settings)}
+    result = SearchResponse.model_validate(found)
     # Mapping mistakes are server errors, not quietly filtered success responses.
     if len(result.frames) > body.limit or any(frame.session_id != body.session_id for frame in result.frames):
         raise RuntimeError("Search returned inconsistent metadata.")
@@ -100,7 +160,13 @@ def timeline(session_id: UUID, limit: Annotated[TimelineLimit, Query()] = 20,
 
 @router.get("/api/v1/frames/{frame_id}/image", responses={**ERRORS, 200: {"content": {"image/jpeg": {}}, "description": "Authorized private JPEG bytes"}},
             response_class=Response, tags=["frames"], summary="Read a non-expired JPEG after checking session ownership")
-def image(frame_id: UUID, user_id=Depends(get_principal), repository=Depends(get_repository), clock=Depends(get_clock)):
+def image(frame_id: UUID, request: Request, user_id=Depends(get_principal), repository=Depends(get_repository),
+          clock=Depends(get_clock)):
+    live = request.app.state.memory.get(frame_id)
+    if live is not None:
+        require_session_access(repository, live.session_id, user_id)
+        return Response(content=live.jpeg, media_type="image/jpeg", headers={"Cache-Control": "private, no-store",
+                                                                            "X-Content-Type-Options": "nosniff"})
     row = repository.get_frame(frame_id)
     if row is None or as_utc(row.expires_at) <= as_utc(clock()):
         raise ApiError(404, "not_found", "Session or frame not found.")

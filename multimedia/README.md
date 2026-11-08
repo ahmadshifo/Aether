@@ -1131,3 +1131,28 @@ See [api/README.md](api/README.md) for existing login-cookie reuse, owned demo
 sessions, every endpoint's PowerShell command, tests, CORS, Docker packaging and
 limits. See [api/API_VERIFICATION.md](api/API_VERIFICATION.md) for exact results.
 Tasks 13/14 were not implemented.
+
+## Combined live mode (merged 2026-11-08, Member 2 with Member 3's API)
+
+`npm start` runs `api.main:app` from `multimedia/`. Besides Task 12's search, timeline and image
+endpoints (login cookie + session ownership required), the API now reads phone streams by itself
+(`processing/live_service.py`): when MediaMTX lists `live/<session_id>`, a Task 14
+`LiveMultimediaRunner` starts for it and stops when the stream ends. Each sampled frame (1/s):
+
+1. YuNet blurs every face (`processing/face_blur.py`); a frame whose faces cannot be checked is dropped.
+2. The blurred frame is kept in RAM for 2 minutes (`processing/frame_memory.py`); `latest`/`recent`
+   search include these live frames (empty text fields, freshness as relevance).
+3. Every `LIVE_SAVE_EVERY_SECONDS` (default 15) one frame goes through the Task 13 pipeline
+   (sharpness/duplicate selection, OCR, vision, embedding) and is saved for 24 h.
+4. `POST /api/v1/frames/keep` (new, logged in docs/decision-log.md) saves the frames an answer used.
+
+Images go to local disk or RustFS (`FRAME_STORAGE_BACKEND=s3`, `database/object_storage.py`). The
+retention worker deletes from either. Without OpenAI and Mistral keys (or `MULTIMEDIA_AI_ANALYSIS=off`)
+"no-AI" services store frames with empty text and an uncertain empty caption instead of stopping the
+fail-closed pipeline. Switches: `MULTIMEDIA_INGEST`, `MULTIMEDIA_FACE_BLUR`, `MULTIMEDIA_AI_ANALYSIS`,
+`LIVE_SAVE_EVERY_SECONDS`, `MEDIAMTX_API_URL` (see api/.env.example).
+
+Known gap: `python -m database.connection --check` rejects account tables created by the earlier
+AI backend (extra profile columns, DATETIME(3), index names). The running services do not need that
+check; migrating those tables is left for an agreed schema update.
+
