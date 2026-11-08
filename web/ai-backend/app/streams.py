@@ -6,6 +6,7 @@ for this account's live session and plays live/<session_id> from MediaMTX.
 
 import uuid
 from contextlib import closing
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
@@ -58,6 +59,20 @@ def stop(body: StreamRequest, user_id: str = Depends(signed_in_user_id)) -> None
             "UPDATE sessions SET status = 'ended', ended_at = %s WHERE session_id = %s AND user_id = %s AND status = 'live'",
             (_now(), session_id, user_id),
         )
+
+
+@router.get("/recent")
+def recent(user_id: str = Depends(signed_in_user_id)) -> dict:
+    """This account's camera sessions from the last 24 hours (as long as saved frames are kept), newest first."""
+    with closing(_connect()) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT session_id, status, started_at, ended_at FROM sessions WHERE user_id = %s AND started_at >= %s "
+            "ORDER BY started_at DESC LIMIT 50",
+            (user_id, _now() - timedelta(hours=24)),
+        )
+        rows = cur.fetchall()
+    return {"sessions": [{"session_id": row["session_id"], "status": row["status"], "started_at": _iso(row["started_at"]),
+                          "ended_at": _iso(row["ended_at"]) if row["ended_at"] else None} for row in rows]}
 
 
 @router.get("/active")

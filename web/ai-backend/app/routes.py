@@ -11,13 +11,14 @@ Asking again with the same question_id returns the saved answer instead of answe
 import logging
 import uuid
 from contextlib import closing
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import assistant
-from app.auth import ApiError, _connect, signed_in_user_id
+from app.auth import ApiError, _connect, _now, signed_in_user_id
 from app.history import get_question, record_question
 from app.memory_client import MemoryClient, MemoryUnavailable
 
@@ -66,9 +67,11 @@ def ask(body: AskRequest, user_id: str = Depends(signed_in_user_id),
                            uncertain=saved["uncertain"], evidence_frame_ids=saved["evidence_frame_ids"])
     _check_session_owner(session_id, user_id)
 
-    result = assistant.answer(question, body.language, session_id, memory)
+    # The question's time is when it arrived; "what's in front of me" then waits a few seconds for newer frames.
+    asked_at, arrived = _now(), datetime.now(UTC)
+    result = assistant.answer(question, body.language, session_id, memory, asked_at=arrived)
     record_question(user_id, session_id, question_id, question, result.text, body.language,
-                    result.uncertain, result.evidence_frame_ids)
+                    result.uncertain, result.evidence_frame_ids, asked_at=asked_at)
     if result.evidence_frame_ids:
         try:
             kept = memory.keep(session_id, result.evidence_frame_ids)
