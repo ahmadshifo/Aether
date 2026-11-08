@@ -74,7 +74,9 @@ def merge_live_frames(memory, stored, session_id, mode, limit, now, settings):
     seen = {str(frame["frame_id"]) for frame in stored}
     extra = []
     for item in live:
-        if str(item.frame_id) in seen or item.captured_at > now:
+        # An almost black frame (covered lens, phone face down) shows nothing, and a frozen picture is not what
+        # the camera sees now, so neither is ever evidence.
+        if str(item.frame_id) in seen or item.captured_at > now or item.too_dark or item.frozen:
             continue
         capture = as_utc(item.captured_at)
         stamp = capture.isoformat().replace("+00:00", "Z")

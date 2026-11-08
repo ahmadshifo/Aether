@@ -31,6 +31,14 @@ class StreamError(RuntimeError):
     pass
 
 
+# The phone's WebRTC encoder starts small and raises the video size within seconds (352x640 -> 528x960 ->
+# 720x1280). OpenCV's FFmpeg reader does not follow a size change in the middle of a stream: it keeps returning
+# the last picture from before the change while frames still arrive. A live camera never repeats a picture
+# exactly (sensor noise), so this long without any change means the reader is stuck: reconnect, which reads
+# the stream at its current size.
+FROZEN_RECONNECT_SECONDS = 3.0
+
+
 @dataclass(frozen=True)
 class LiveFrame:
     session_id: UUID
@@ -89,6 +97,7 @@ def _capture_worker(url, settings, frames, control, decoded, invalid, stop):
         capture, native_timeouts = _open_capture(cv2, url, settings)
         control.send(("opened", native_timeouts))
         failures = 0
+        last_view, same_since = None, None
         while not stop.is_set():
             success, image = capture.read()
             try:
@@ -105,6 +114,14 @@ def _capture_worker(url, settings, frames, control, decoded, invalid, stop):
                     raise StreamError("No valid decoded frames.")
                 continue
             failures = 0
+            view, now = image[::16, ::16].copy(), time.monotonic()
+            if last_view is not None and view.shape == last_view.shape and np.array_equal(view, last_view):
+                same_since = now if same_since is None else same_since
+                if now - same_since >= FROZEN_RECONNECT_SECONDS:
+                    raise StreamError("Decoded picture stopped changing.")
+            else:
+                same_since = None
+            last_view = view
             with decoded.get_lock():
                 decoded.value += 1
                 sequence = decoded.value
@@ -316,6 +333,7 @@ class RTSPFrameSource:
                     self.last_arrival = as_utc(arrival, "arrival")
                     self.dimensions = [int(image.shape[1]), int(image.shape[0])]
                     delay = self.settings.reconnect_initial_seconds
+                    retries = 0  # a good frame refills the reconnect budget for the next interruption
                     yield LiveFrame(self.session_id, index, image, self.last_arrival, monotonic, self.segment)
                 except Exception:
                     if stop.is_set() or self._stop.is_set():

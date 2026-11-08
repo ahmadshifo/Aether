@@ -251,6 +251,49 @@ def test_environment_precedence_and_stricter_sampling(monkeypatch):
     assert LiveSettings.from_env().sample_interval_seconds == 3
 
 
+def _run_worker(images, clock_step):
+    """Runs the capture worker over fake decoded images; returns (control messages, frames handed on)."""
+    from types import SimpleNamespace
+    from processing.live_stream import _capture_worker
+    stop, items, now = threading.Event(), iter(images), [0.0]
+    capture = Mock()
+    def read():
+        try:
+            return True, next(items)
+        except StopIteration:
+            stop.set()
+            return True, images[-1]
+    capture.read.side_effect = read
+    def monotonic():
+        now[0] += clock_step
+        return now[0]
+    fake_cv = SimpleNamespace(CAP_FFMPEG=1900, videoio_registry=Mock(hasBackend=Mock(return_value=True)))
+    frames, control = Mock(), Mock()
+    decoded, invalid = MagicMock(value=0), MagicMock(value=0)
+    with patch.dict("os.environ"), patch.dict(sys.modules, {"cv2": fake_cv}), patch("os.dup2"), \
+         patch("processing.live_stream.time.monotonic", side_effect=monotonic), \
+         patch("processing.live_stream._open_capture", return_value=(capture, False)):
+        _capture_worker("private", StreamSettings(), frames, control, decoded, invalid, stop)
+    return [call.args[0] for call in control.send.call_args_list], frames.put_nowait.call_count
+
+
+def test_capture_worker_reconnects_when_the_picture_stops_changing(image):
+    # 15 fps of the exact same decoded picture, as when the reader misses the phone's video size change.
+    messages, handed_on = _run_worker([image.copy() for _ in range(80)], clock_step=1 / 15)
+    assert messages[0] == ("opened", False)
+    assert messages[-1] == ("failed", "StreamError")
+    assert handed_on < 80
+
+
+def test_capture_worker_keeps_a_live_picture_flowing(image):
+    rng = np.random.default_rng(1)
+    noisy = [np.clip(image.astype(np.int16) + rng.integers(-2, 3, image.shape), 0, 255).astype(np.uint8)
+             for _ in range(80)]
+    messages, handed_on = _run_worker(noisy, clock_step=1 / 15)
+    assert ("failed", "StreamError") not in messages
+    assert handed_on >= 80
+
+
 def test_capture_worker_tolerates_missing_log_level_api(monkeypatch, image):
     from types import SimpleNamespace
     from processing.live_stream import _capture_worker

@@ -158,6 +158,80 @@ def test_latest_merges_live_frames_newest_first():
     assert all(f["session_id"] == str(SESSION) for f in frames)
 
 
+def test_a_repeated_view_is_one_frame_with_a_fresh_time():
+    memory = FrameMemory(clock=lambda: NOW)
+    first = memory.add(SESSION, scene(5), NOW - timedelta(seconds=40), 1, 1000)
+    for seconds in (30, 20, 10):  # a still camera repeats the same picture
+        repeat = memory.add(SESSION, scene(5), NOW - timedelta(seconds=seconds), 50 - seconds, 0)
+    frames = memory.frames(SESSION)
+    assert len(frames) == 1 and repeat.frame_id == first.frame_id
+    assert frames[0].captured_at == NOW - timedelta(seconds=10)  # still counts as the latest view
+    assert memory.get(first.frame_id).frame_index == 40
+
+
+def test_a_changed_view_is_a_new_frame():
+    memory = FrameMemory(clock=lambda: NOW)
+    memory.add(SESSION, scene(5), NOW - timedelta(seconds=2))
+    memory.add(SESSION, scene(6), NOW - timedelta(seconds=1))
+    memory.add(SESSION, scene(5), NOW)  # back to the first view, but not the frame just before
+    assert len(memory.frames(SESSION)) == 3
+
+
+def test_repeats_are_compared_only_within_one_phone():
+    memory = FrameMemory(clock=lambda: NOW)
+    memory.add(SESSION, scene(5), NOW)
+    memory.add(uuid4(), scene(5), NOW)
+    assert len(memory.frames(SESSION)) == 1 and memory.count() == 2
+
+
+def test_almost_black_frames_are_never_evidence():
+    memory = FrameMemory(clock=lambda: NOW)
+    dark = (scene(7) // 12).astype(np.uint8)  # mean grey about 10 of 255: covered lens
+    memory.add(SESSION, scene(8), NOW - timedelta(seconds=3))
+    memory.add(SESSION, dark, NOW - timedelta(seconds=1))
+    assert memory.frames(SESSION)[0].too_dark and not memory.frames(SESSION)[1].too_dark
+    settings = SimpleNamespace(latest_seconds=10, recent_seconds=120)
+    for mode in ("latest", "recent"):
+        frames = merge_live_frames(memory, [], SESSION, mode, 3, NOW, settings)
+        assert [f["frame_id"] for f in frames] == [str(memory.frames(SESSION)[1].frame_id)]
+
+
+def test_an_exactly_repeated_picture_counts_as_frozen_after_five_seconds():
+    memory = FrameMemory(clock=lambda: NOW)
+    for seconds in range(10, -1, -1):  # 15 fps of the same frame, sampled once a second
+        item = memory.add(SESSION, scene(5), NOW - timedelta(seconds=seconds))
+    assert item.frozen
+    settings = SimpleNamespace(latest_seconds=10, recent_seconds=120)
+    assert merge_live_frames(memory, [], SESSION, "latest", 3, NOW, settings) == []
+
+
+def test_a_still_but_live_camera_is_not_frozen():
+    memory = FrameMemory(clock=lambda: NOW)
+    base = scene(5).astype(np.int16)
+    for seconds in range(10, -1, -1):  # sensor noise: tiny changes every frame
+        noisy = np.clip(base + np.random.default_rng(seconds).integers(-2, 3, base.shape), 0, 255).astype(np.uint8)
+        item = memory.add(SESSION, noisy, NOW - timedelta(seconds=seconds))
+    assert len(memory.frames(SESSION)) == 1 and not item.frozen
+    settings = SimpleNamespace(latest_seconds=10, recent_seconds=120)
+    assert len(merge_live_frames(memory, [], SESSION, "latest", 3, NOW, settings)) == 1
+
+
+def test_a_short_identical_run_is_not_frozen_and_a_new_view_resets_it():
+    memory = FrameMemory(clock=lambda: NOW)
+    for seconds in (4, 2, 0):
+        item = memory.add(SESSION, scene(5), NOW - timedelta(seconds=seconds))
+    assert not item.frozen  # 4 seconds is under the limit
+    assert not memory.add(SESSION, scene(6), NOW).frozen
+
+
+def test_frozen_video_is_not_saved_again_every_interval():
+    repository, memory = FakeRepository(), FrameMemory(clock=lambda: NOW + timedelta(seconds=60))
+    combined, clock = pipeline(repository, memory)
+    outcomes = [feed(combined, clock, scene(9), i, i) for i in range(60)]
+    assert len(repository.saved) == 1  # the first picture, before it counted as frozen
+    assert outcomes[-1].selection_reason == "frozen_video"
+
+
 def test_recent_keeps_ranked_stored_matches_first_then_spreads_live_frames():
     memory = FrameMemory(clock=lambda: NOW)
     for seconds in range(100, 0, -10):

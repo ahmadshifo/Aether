@@ -106,7 +106,10 @@ class CombinedLivePipeline:
                 # Fail safe: a frame whose faces could not be checked is never kept or sent anywhere.
                 return FrameOutcome(source_frame_index, None, status="failed", error_stage="face_blur",
                                     error_type=type(error).__name__)
-        self.memory.add(session_id, image, captured_at, source_frame_index, elapsed_ms)
+        remembered = self.memory.add(session_id, image, captured_at, source_frame_index, elapsed_ms)
+        if getattr(remembered, "frozen", False):
+            # The phone keeps sending one unchanged picture: saving it again would only store copies.
+            return FrameOutcome(source_frame_index, None, selection_reason="frozen_video")
         now = self.clock()
         if self._last_save is not None and (now - self._last_save).total_seconds() < self.save_every:
             return FrameOutcome(source_frame_index, None, selection_reason="kept_in_memory")
