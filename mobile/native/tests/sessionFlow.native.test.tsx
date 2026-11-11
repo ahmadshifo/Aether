@@ -1,9 +1,8 @@
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
-import { AppState, Dimensions, ScrollView, Switch, View } from 'react-native';
+import { AppState, Dimensions, ScrollView, Switch, Vibration, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
 import { Account } from '../src/screens/Account';
 import { AuthController } from '../src/auth/authController';
@@ -38,7 +37,7 @@ jest.mock('../src/voice/recognition', () => ({
 
 const user = { user_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', name: 'UI QA', email: 'qa@example.test', created_at: new Date().toISOString() };
 const cleanup = new Set<() => Promise<void>>();
-afterEach(async () => { for (const close of cleanup) await close(); cleanup.clear(); });
+afterEach(async () => { for (const close of cleanup) await close(); cleanup.clear(); jest.restoreAllMocks(); });
 async function press(tree: renderer.ReactTestRenderer, label: string) {
   const surface = tree.root.findAllByType(Sheet).at(-1) ?? tree.root;
   const button = surface.findAllByType(Button).find(item => item.props.label === label); expect(button).toBeDefined();
@@ -61,7 +60,7 @@ beforeEach(async () => {
   jest.clearAllMocks(); await AsyncStorage.clear(); mockOrder.length = 0; mockWake = undefined; mockQuestion = undefined;
   Object.defineProperty(AppState, 'currentState', { value: 'active', configurable: true });
   Dimensions.set({ window: { width: 402, height: 874, scale: 3, fontScale: 1 } });
-  (Haptics.notificationAsync as jest.Mock).mockImplementation(async () => { mockOrder.push('vibrate'); });
+  jest.spyOn(Vibration, 'vibrate').mockImplementation(() => { mockOrder.push('vibrate'); });
   (Speech.speak as jest.Mock).mockImplementation((_text, options) => { mockOrder.push('greet'); options.onStart?.(); options.onDone?.(); });
 });
 
@@ -74,11 +73,14 @@ test.each(['en', 'ar'] as const)('Hey Aether opens one session, pulses before ca
   }
   expect(mockWake).toBeDefined();
   await act(async () => { mockWake!.result('Hey Aether', false); mockWake!.result('Hey Aether', true); });
+  expect(mockOrder).not.toContain('camera');
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 1000)); });
   expect(Speech.speak).toHaveBeenCalledTimes(1);
   expect(Speech.speak).toHaveBeenCalledWith(sessionGreeting[language], expect.objectContaining({ language: language === 'ar' ? 'ar-SA' : 'en-US' }));
-  expect(Haptics.notificationAsync).toHaveBeenCalledTimes(1);
+  expect(Vibration.vibrate).toHaveBeenCalledTimes(2);
   expect(mockOrder.indexOf('wake stopped')).toBeLessThan(mockOrder.indexOf('vibrate'));
   expect(mockOrder.indexOf('vibrate')).toBeLessThan(mockOrder.indexOf('camera'));
+  expect(mockOrder.lastIndexOf('vibrate')).toBeLessThan(mockOrder.indexOf('camera'));
   expect(mockOrder.indexOf('greet')).toBeLessThan(mockOrder.indexOf('question'));
   expect(tree.root.findAllByType(Button).filter(item => item.props.label === m.stop)).toHaveLength(1);
   expect(tree.root.findAllByType(HoldButton)).toHaveLength(0);
@@ -91,7 +93,7 @@ test.each(['en', 'ar'] as const)('Hey Aether opens one session, pulses before ca
 test('manual Start greets with vibration disabled; stopping prevents any second greeting', async () => {
   const { tree, close } = await setup();
   await press(tree, monoCopy.en.start);
-  expect(Haptics.notificationAsync).not.toHaveBeenCalled(); expect(Speech.speak).toHaveBeenCalledTimes(1);
+  expect(Vibration.vibrate).not.toHaveBeenCalled(); expect(Speech.speak).toHaveBeenCalledTimes(1);
   await press(tree, monoCopy.en.stop); expect(Speech.speak).toHaveBeenCalledTimes(1); expect(mockRelease).toHaveBeenCalledTimes(1);
   await close();
 });
@@ -136,7 +138,7 @@ test('History, Settings and Home omit repeated storage notes and unavailable set
 });
 
 test('unsupported haptics do not break the session and disabled preference never requests them', async () => {
-  await sessionHaptics(false); expect(Haptics.notificationAsync).not.toHaveBeenCalled();
-  (Haptics.notificationAsync as jest.Mock).mockRejectedValueOnce(Error('not supported'));
+  await sessionHaptics(false); expect(Vibration.vibrate).not.toHaveBeenCalled();
+  jest.mocked(Vibration.vibrate).mockImplementationOnce(() => { throw Error('not supported'); });
   await expect(sessionHaptics(true)).resolves.toBeUndefined();
 });

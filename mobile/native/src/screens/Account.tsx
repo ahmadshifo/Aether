@@ -53,7 +53,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       preview: caps.go && __DEV__, recognitionAvailable: caps.recognition, streamingAvailable: caps.webrtc,
       allowed, uuid: () => Crypto.randomUUID(), camera: caps.webrtc ? nativeCamera : caps.go ? camera.acquire : async () => { throw Error('native_required'); },
       prepareStart: async () => { await wakeListener.current?.(); },
-      sessionOpened: () => sessionHaptics(currentPrefs.current.haptics === true),
+      sessionOpened: signal => sessionHaptics(currentPrefs.current.haptics === true, signal),
       prepareRecognition, recognition: recognize, speak: speech.speak, stopSpeech: speech.stop,
       publish: (handle, id, state) => nativePublisher(handle, `${endpoints.media}/live/${id}/whip`, state), register: (action, id) => registry.request(action, id),
       keepAwake: active => {

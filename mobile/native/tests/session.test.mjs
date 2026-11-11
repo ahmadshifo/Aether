@@ -221,6 +221,21 @@ test('stopped wake handoff cannot open hardware; paused handoff keeps voice off;
   await h.controller.start('en'); assert.equal(h.controller.getSnapshot().phase, 'listening'); h.controller.stop();
 });
 
+test('Stop during opening vibration aborts feedback and never acquires camera or microphone', async () => {
+  let feedbackSignal;
+  const h = harness({ sessionOpened: signal => {
+    feedbackSignal = signal;
+    return new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+  } });
+  const pending = h.controller.start('ar'); await tick();
+  assert.equal(feedbackSignal.aborted, false);
+  h.controller.stop(); await pending;
+  assert.equal(feedbackSignal.aborted, true);
+  assert.equal(h.counts.capture, 0);
+  assert.equal(h.counts.speak, 0);
+  assert.equal(h.events.length, 0);
+});
+
 test('Resume during a pending wake handoff waits for release and respects the new language', async () => {
   const gate = deferred(); let heardLanguage;
   const h = harness({ prepareStart: () => gate.promise, recognition: async (language, events) => { heardLanguage = language; events.start(); return async () => {}; } });

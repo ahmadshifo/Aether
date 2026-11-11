@@ -10,7 +10,7 @@ export interface SessionPorts {
   preview: boolean; recognitionAvailable: boolean; streamingAvailable: boolean;
   uuid(): string; allowed(): boolean;
   prepareStart?(): Promise<void>;
-  sessionOpened?(): Promise<void>;
+  sessionOpened?(signal: AbortSignal): Promise<void>;
   prepareRecognition?(signal: AbortSignal): Promise<void>;
   camera(signal: AbortSignal): Promise<CameraHandle>;
   recognition(language: Language, events: RecognitionEvents, signal: AbortSignal): Promise<() => Promise<void>>;
@@ -72,7 +72,7 @@ export class SessionController {
     if (!this.valid(g)) return;
     await this.silenceInput();
     if (!this.valid(g)) return;
-    await this.ports.sessionOpened?.().catch(() => {});
+    await this.ports.sessionOpened?.(this.request.signal).catch(() => {});
     if (!this.valid(g)) return;
     const camera = this.openCamera(g, id);
     const voice = this.ports.recognitionAvailable ? this.openVoice(g, token) : Promise.resolve();
