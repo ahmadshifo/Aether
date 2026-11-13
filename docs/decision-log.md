@@ -66,3 +66,13 @@ Record the date, owner, affected services, reason, and approved new contract ver
   POST /api/v1/frames/keep, optional RustFS storage, "no-AI" services when keys are missing.
 - AI backend `/ask` forwards the user's login cookie to the multimedia API. npm start runs api.main:app.
 
+## 2026-11-13 - Live camera alerts on the dashboard (Member 2)
+
+- New multimedia endpoint `GET /api/v1/live/state?session_id=` (login + session ownership, read-only):
+  `{session_id, live_memory, last_frame_at, dark_since, frozen_since}` from the 2-minute RAM memory.
+  Nothing is stored; no frame bytes are returned.
+- New AI backend endpoint `GET /api/v1/alerts`: the signed-in account's live problems, worked out per
+  request: camera dark or frozen for 10 s, no pictures arriving, video not reaching MediaMTX, memory
+  service down. Nothing while the user said "camera off". SOS alerts stay on `GET /api/v1/sos`.
+- The dashboard shows them as an amber banner on every page and a list on System status.
+- Affected: multimedia (:8003, one read-only route), AI backend, dashboard. Needs ahmadshifo's approval.

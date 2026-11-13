@@ -239,3 +239,17 @@ def test_recent_keeps_ranked_stored_matches_first_then_spreads_live_frames():
     settings = SimpleNamespace(latest_seconds=10, recent_seconds=120)
     frames = merge_live_frames(memory, [stored(50, "PHARMACY")], SESSION, "recent", 4, NOW, settings)
     assert frames[0]["ocr_text"] == "PHARMACY" and len(frames) == 4
+
+
+def test_live_state_reports_how_long_the_camera_has_been_dark_or_frozen():
+    memory = FrameMemory(clock=lambda: NOW)
+    assert memory.state(SESSION) == {"last_frame_at": None, "dark_since": None, "frozen_since": None}
+    memory.add(SESSION, scene(8), NOW - timedelta(seconds=20))
+    for seconds in range(12, -1, -1):  # the same black picture for 12 seconds: covered and still
+        memory.add(SESSION, np.zeros((240, 320, 3), np.uint8), NOW - timedelta(seconds=seconds))
+    state = memory.state(SESSION)
+    assert state["last_frame_at"] == NOW
+    assert state["dark_since"] == NOW - timedelta(seconds=12)  # when it went dark, not the latest repeat
+    assert state["frozen_since"] == NOW - timedelta(seconds=12)
+    memory.add(SESSION, scene(9), NOW)  # the lens is uncovered
+    assert memory.state(SESSION)["dark_since"] is None and memory.state(SESSION)["frozen_since"] is None

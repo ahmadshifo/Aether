@@ -48,6 +48,7 @@ class MemoryFrame:
     brightness: float = 255.0
     signature: np.ndarray | None = field(default=None, repr=False, compare=False)
     identical_since: datetime | None = None  # start of the current run of exactly identical pictures
+    first_seen: datetime | None = None  # when this view first appeared (captured_at moves on while it repeats)
 
     @property
     def too_dark(self) -> bool:
@@ -108,7 +109,8 @@ class FrameMemory:
                 frames[-1] = item
                 return item
             item = MemoryFrame(uuid4(), session_id, captured_at, int(frame_index), float(timestamp_ms),
-                               encode_jpeg(image), brightness=float(thumbnail.mean()), signature=thumbnail)
+                               encode_jpeg(image), brightness=float(thumbnail.mean()), signature=thumbnail,
+                               first_seen=captured_at)
             frames.append(item)
         return item
 
@@ -120,6 +122,23 @@ class FrameMemory:
         if since is not None:
             items = [item for item in items if item.captured_at >= since]
         return items[::-1]
+
+    def state(self, session_id) -> dict:
+        """How the live camera is doing, for the dashboard's alerts. Times are None when they don't apply:
+        last_frame_at: the newest picture (None: nothing in the last 2 minutes),
+        dark_since: start of the current run of too-dark pictures (lens covered, phone face down),
+        frozen_since: start of the current run of exactly identical pictures, once it counts as frozen."""
+        items = self.frames(session_id)  # newest first
+        if not items:
+            return {"last_frame_at": None, "dark_since": None, "frozen_since": None}
+        newest = items[0]
+        dark_since = None
+        for item in items:
+            if not item.too_dark:
+                break
+            dark_since = item.first_seen or item.captured_at
+        return {"last_frame_at": newest.captured_at, "dark_since": dark_since,
+                "frozen_since": newest.identical_since if newest.frozen else None}
 
     def get(self, frame_id) -> MemoryFrame | None:
         frame_id = UUID(str(frame_id))

@@ -117,6 +117,16 @@ def keep(body: KeepRequest, request: Request, user_id=Depends(get_principal), re
     return KeepResponse(accepted=accepted, missing=missing)
 
 
+@router.get("/api/v1/live/state", responses=ERRORS, tags=["frames"],
+            summary="How an owned live session's camera is doing: newest picture, too dark, frozen")
+def live_state(session_id: UUID, request: Request, user_id=Depends(get_principal), repository=Depends(get_repository)):
+    require_session_access(repository, session_id, user_id)
+    memory = request.app.state.memory
+    state = memory.state(session_id) if memory is not None else {"last_frame_at": None, "dark_since": None, "frozen_since": None}
+    stamp = lambda value: as_utc(value).isoformat().replace("+00:00", "Z") if value else None
+    return {"session_id": str(session_id), "live_memory": memory is not None, **{key: stamp(value) for key, value in state.items()}}
+
+
 @router.get("/health", response_model=HealthResponse, tags=["health"],
             summary="HTTP process liveness; does not claim database or AI readiness")
 def health():
