@@ -1,0 +1,7 @@
+{
+  "name": "aether-torch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Aether's SOS flashlight: switches the phone's torch on and off without opening the camera, so it stays on during a call.",
+  "main": "index.ts"
+}

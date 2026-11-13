@@ -15,7 +15,9 @@ import type { Language, Page } from '../shared/types';
 import { themeModes, type ThemeMode } from '../theme/tokens';
 import { capabilities } from '../platform/capabilities';
 import { nativeFetch } from '../platform/network';
-import { permissionPending } from '../platform/permissions';
+import { duringPermission, permissionPending } from '../platform/permissions';
+import { callEmergencyNumber, findPhoneContact, prepareContacts, prepareEmergencyCall, torch } from '../platform/sosAlarm';
+import { EmergencyContact } from '../components/EmergencyContact';
 import { GoCamera, nativeCamera, nativePublisher } from '../platform/camera';
 import { sessionHaptics } from '../platform/sessionHaptics';
 import { AssistantScreen } from './AssistantScreen';
@@ -53,7 +55,12 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       preview: caps.go && __DEV__, recognitionAvailable: caps.recognition, streamingAvailable: caps.webrtc,
       allowed, uuid: () => Crypto.randomUUID(), camera: caps.webrtc ? nativeCamera : caps.go ? camera.acquire : async () => { throw Error('native_required'); },
       prepareStart: async () => { await wakeListener.current?.(); },
-      sessionOpened: () => sessionHaptics(currentPrefs.current.haptics === true),
+      sessionOpened: async () => {
+        await sessionHaptics(currentPrefs.current.haptics === true);
+        // When an emergency number is saved, ask once now for permission to call it, so an SOS never shows a popup.
+        // Ask once now (never during an SOS): read contacts (to find who to call) and place calls directly.
+        void duringPermission(prepareContacts).then(() => duringPermission(prepareEmergencyCall)).catch(() => {});
+      },
       prepareRecognition, recognition: recognize, speak: speech.speak, stopSpeech: speech.stop,
       publish: (handle, id, state) => nativePublisher(handle, `${endpoints.media}/live/${id}/whip`, state), register: (action, id) => registry.request(action, id),
       keepAwake: active => {
@@ -65,6 +72,16 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       savePhoto: async (snapshot, valid) => { try { return await savePhoto(repository.key, snapshot.uri, snapshot.capturedAt, valid); } finally { await FileSystem.deleteAsync(snapshot.uri, { idempotent: true }).catch(() => {}); } },
       discardPhoto: photo => { void discardPhoto(repository.key, photo).catch(() => {}); }, answer: entry => repository.upsert(entry),
       discardSnapshot: snapshot => { void FileSystem.deleteAsync(snapshot.uri, { idempotent: true }).catch(() => {}); },
+      // Safety commands said during a session: SOS, its phone call, and camera off/on.
+      sos: id => api.sos(id, new AbortController().signal),
+      sosNumber: () => api.sosNumber(new AbortController().signal),
+      // Opens the phone's call screen with the number filled in (calling directly needs a new app build).
+      // SOS: flashlight on (it stays on during the call), then a direct call to the emergency contact.
+      torch,
+      // Who to call: the person named ("call Mom") or the "ICE"/"Emergency" contact, from the phone's contacts.
+      findContact: findPhoneContact,
+      call: callEmergencyNumber,
+      cameraPaused: (id, paused) => api.setCamera(id, paused, new AbortController().signal),
     });
     const historySync = new HistorySync(repository, createHistoryApi(endpoints.backend, nativeFetch, unauthorized), allowed);
     return { repository, camera, controller, caps, api, historySync };
@@ -90,7 +107,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
   }, [page, runtime]);
   useEffect(() => {
     const timer = setInterval(() => { runtime.repository.expire(); runtime.historySync.expire(); }, 30000);
-    const sub = AppState.addEventListener('change', value => { if ((value === 'background' || value === 'inactive') && !permissionPending()) runtime.controller.stop(true); else if (value === 'active') runtime.repository.expire(); });
+    const sub = AppState.addEventListener('change', value => { if ((value === 'background' || value === 'inactive') && !permissionPending()) runtime.controller.stop(true); else if (value === 'active') { runtime.repository.expire(); void torch(false); /* back from an SOS call: flashlight off */ } });
     return () => { clearInterval(timer); sub.remove(); };
   }, [runtime]);
   const navigate = (next: Page) => { setNotice(''); if (next === 'history' || next === 'help') runtime.controller.pause(); setPage(next); };
@@ -139,6 +156,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
         </View>}
         {page === 'history' && <HistoryScreen repository={runtime.repository} state={{ ...history, items: syncedHistory.items }} sync={runtime.historySync} network={syncedHistory} stopSession={() => runtime.controller.stop()} replay={entry => { void runtime.controller.replay(entry); }} active={media.active} speaking={media.phase === 'speaking'} stopSpeech={() => runtime.controller.stopPlayback()} focus={focus} />}
         {page === 'settings' && <View style={{ gap: 24 }}><T variant="title">{m.settings}</T>
+          <EmergencyContact api={runtime.api} language={language} />
           <T variant="heading">{m.appearance}</T><Card><View style={{ gap: 8 }}>{themeModes.map(mode => <Button key={mode} label={mode === 'system' ? m.themeSystem : mode === 'light' ? m.themeLight : m.themeDark} icon={themeMode === mode ? 'check' : mode === 'system' ? 'phone' : mode === 'light' ? 'sun' : 'moon'} selected={themeMode === mode} onPress={() => changeTheme(mode)} />)}</View></Card>
           <T variant="heading">{m.voice}</T><Card>
           {([['wake', m.wake, m.wakeNote], ['haptics', m.vibrate, m.vibrateNote], ['motion', m.motion, m.motionNote]] as const).map(([key, label, body]) => <View key={key} style={{ gap: 8 }}><Row><T style={{ flex: 1 }}>{label}</T><Switch accessibilityLabel={label} trackColor={{ false: colors.muted, true: colors.ok }} thumbColor={colors.card} value={key === 'motion' ? preferences.motion !== false : preferences[key] === true} onValueChange={value => updatePrefs({ [key]: value })} /></Row><T variant="small">{body}</T></View>)}</Card>

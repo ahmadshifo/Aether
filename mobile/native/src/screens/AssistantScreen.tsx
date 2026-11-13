@@ -9,6 +9,7 @@ import { GoCameraPreview, RtcPreview, type GoCamera } from '../platform/camera';
 import type { SessionController, SessionState } from '../session/controller';
 import type { Language } from '../shared/types';
 import { assistantLayout } from './assistantLayout';
+import { commandCopy } from '../voice/commands';
 
 export function AssistantScreen({ media, controller, camera, caps, prompt, start, back, changeLanguage, backRef }: {
   media: SessionState; controller: SessionController; camera: GoCamera;
@@ -39,7 +40,9 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
         <Row style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}><Button focusRef={backRef} label={m.back} icon={language === 'ar' ? 'arrow-right' : 'arrow-left'} onPress={back} />
           <View style={{ flex: 1, backgroundColor: '#141414E8', borderRadius: 10, padding: 12 }}>
             <T accessibilityLiveRegion={['speaking', 'greeting', 'hearing'].includes(media.phase) ? 'none' : 'polite'} style={{ color: 'white' }}>{phase}</T>
-            {media.active && !media.camera && <T variant="small" style={{ color: '#D0D0D0' }}>{media.cameraError ? m.voiceOnly : m.preparing}</T>}
+            {media.active && !media.camera && <T variant="small" style={{ color: '#D0D0D0' }}>{media.cameraPaused ? commandCopy[language].pausedLabel : media.cameraError ? m.voiceOnly : m.preparing}</T>}
+            {media.sos === 'countdown' && <T accessibilityLiveRegion="assertive" variant="small" style={{ color: '#FFB4AB' }}>{commandCopy[language].sosLabel}</T>}
+            {media.sos === 'sent' && <T accessibilityLiveRegion="polite" variant="small" style={{ color: '#FFB4AB' }}>{commandCopy[language].sosSentLabel}</T>}
             {media.transport === 'reconnecting' && <T accessibilityLiveRegion="polite" variant="small" style={{ color: '#D0D0D0' }}>{h.reconnecting}</T>}
           </View>
         </Row>

@@ -3,6 +3,7 @@ import { validTranscript } from '../voice/transcript.ts';
 import type { Transport } from '../streaming/whip.ts';
 import { sessionGreeting } from '../voice/sessionGreeting.ts';
 import type { AskRequest, AskResponse } from '../services/teamApi.ts';
+import { callContactName, commandCopy, detectCommand, sosContactName, SOS_DELAY_SECONDS, type Command } from '../voice/commands.ts';
 export interface CameraHandle { url?: string; release(): void; snapshot?(): Promise<{ uri: string; capturedAt: string } | undefined> }
 export interface RecognitionEvents { start(): void; result(text: string, final: boolean, confidence?: number): void; end(): void; error(code: string): void }
 export interface SessionPorts {
@@ -23,9 +24,26 @@ export interface SessionPorts {
   discardPhoto?(photo?: Photo): void;
   discardSnapshot?(snapshot: { uri: string; capturedAt: string }): void;
   answer(entry: Entry): void;
+  // Safety commands (all optional, so a phone without them still works):
+  /** Sends the SOS alert to the server; resolves with the account's emergency number (or null). */
+  sos?(sessionId: string): Promise<{ sos_number: string | null }>;
+  /** The emergency number saved for this account, used when the alert itself could not be sent. */
+  sosNumber?(): Promise<string | null>;
+  /** Starts a phone call to the number. */
+  call?(number: string): Promise<void>;
+  /** Tells the server the user turned the camera off or on, so the dashboard can say so. */
+  cameraPaused?(sessionId: string, paused: boolean): Promise<void>;
+  /** Turns the flashlight on or off without a camera, so it keeps shining during the SOS call. */
+  torch?(on: boolean): Promise<boolean>;
+  /**
+   * Looks in the phone's own contacts: the person named in "I need help, call Mom", or (name null) the contact
+   * the user marked as their emergency contact (saved as "ICE ..." or "Emergency ..."). Null when none.
+   */
+  findContact?(name: string | null): Promise<{ name: string; number: string } | null>;
 }
-export type SessionState = { active: boolean; id?: string; startedAt?: string; phase: Phase; camera: boolean; cameraUrl?: string; transport: Transport; registry: 'off' | 'pending' | 'registered' | 'failed'; transcript: string; answer?: Entry; error: string; cameraError: string; voiceError: string };
-const initial: SessionState = { active: false, phase: 'idle', camera: false, transport: 'off', registry: 'off', transcript: '', error: '', cameraError: '', voiceError: '' };
+export type SosState = 'off' | 'countdown' | 'sending' | 'sent' | 'failed';
+export type SessionState = { active: boolean; id?: string; startedAt?: string; phase: Phase; camera: boolean; cameraUrl?: string; transport: Transport; registry: 'off' | 'pending' | 'registered' | 'failed'; transcript: string; answer?: Entry; error: string; cameraError: string; voiceError: string; cameraPaused: boolean; sos: SosState };
+const initial: SessionState = { active: false, phase: 'idle', camera: false, transport: 'off', registry: 'off', transcript: '', error: '', cameraError: '', voiceError: '', cameraPaused: false, sos: 'off' };
 export class SessionController {
   private state = initial;
   private listeners = new Set<() => void>();
@@ -44,6 +62,8 @@ export class SessionController {
   private recognitionRequest?: AbortController;
   private questionRequest?: AbortController;
   private retryTimer?: ReturnType<typeof setTimeout>;
+  private sosTimer?: ReturnType<typeof setTimeout>;
+  private sosName: string | null = null;  // who to call, when the SOS named someone ("call Mom")
   private retries = 0;
   private lastQuestion = '';
   private lastAt = 0;
@@ -144,7 +164,13 @@ export class SessionController {
         result: (text, final, confidence) => {
           if (!valid() || !['starting', 'listening', 'hearing'].includes(this.state.phase)) return;
           this.set({ transcript: text, phase: 'hearing' });
-          if (final && validTranscript(text, confidence)) { this.retries = 0; void this.question(text, 'speech'); }
+          if (!final) return;
+          // Spoken commands (SOS, cancel, camera off/on, read it again) are handled here, never sent as questions.
+          const command = detectCommand(text);
+          if (command) { this.retries = 0; void this.command(command, text); return; }
+          // While an SOS countdown runs, only "cancel" is listened to.
+          if (this.state.sos === 'countdown') return;
+          if (validTranscript(text, confidence)) { this.retries = 0; void this.question(text, 'speech'); }
         },
         end: () => { if (valid() && ['starting', 'listening', 'hearing'].includes(this.state.phase)) this.retry(g); },
         error: code => {
@@ -186,6 +212,8 @@ export class SessionController {
     const normalized = text.toLocaleLowerCase().replace(/\s+/g, ' ').trim();
     if (normalized === this.lastQuestion && Date.now() - this.lastAt < 4500) return;
     this.lastQuestion = normalized; this.lastAt = Date.now();
+    // With the camera off there is nothing to look at: say so instead of asking the server.
+    if (this.state.cameraPaused) { await this.say(commandCopy[this.language].cameraOffQuestion); return; }
     const q = ++this.questionGeneration, questionId = this.ports.uuid(), lang = this.language;
     const valid = () => this.valid(g) && q === this.questionGeneration && lang === this.language;
     const request = new AbortController(); this.questionRequest = request;
@@ -213,17 +241,129 @@ export class SessionController {
     await this.play(entry, true);
   }
   async replay(entry: Entry) { if (this.ports.allowed()) await this.play(entry, this.state.active && this.state.phase !== 'paused' && entry === this.state.answer); }
-  private async play(entry: Entry, resume: boolean) {
+  private play(entry: Entry, resume: boolean) { return this.speakText(entry.answer, entry.language, resume); }
+  /** Says a short sentence in the session's language, then goes back to listening. */
+  private say(text: string) { return this.speakText(text, this.language, true); }
+  /** Speaks with the microphone off (so the phone never hears itself), then listens again when resume is true. */
+  private async speakText(text: string, language: Language, resume: boolean) {
     const g = this.generation, token = ++this.speechGeneration;
     this.ports.stopSpeech(); await this.silenceInput();
     if (token !== this.speechGeneration || !this.ports.allowed() || g !== this.generation) return;
-    const result = await this.ports.speak(entry.answer, entry.language, () => { if (token === this.speechGeneration && this.ports.allowed()) this.set({ phase: 'speaking' }); });
+    const result = await this.ports.speak(text, language, () => { if (token === this.speechGeneration && this.ports.allowed()) this.set({ phase: 'speaking' }); });
     if (token !== this.speechGeneration || !this.ports.allowed() || g !== this.generation) return;
     this.set({ phase: this.state.active ? 'paused' : 'idle', ...(result === 'error' ? { voiceError: 'tts_failed' } : {}) });
     if (result === 'done' && resume && this.valid(g) && this.ports.recognitionAvailable) {
       this.retryTimer = setTimeout(() => { this.retryTimer = undefined; if (this.valid(g)) void this.listen(g); }, 450);
     } else if (this.valid(g) && this.ports.preview) this.set({ phase: 'unavailable' });
   }
+  // ---------- spoken commands ----------
+
+  /** Runs a spoken command; the phone always answers out loud, then keeps listening. */
+  private async command(kind: Command, text = '') {
+    const g = this.generation;
+    if (!this.valid(g)) return;
+    const copy = commandCopy[this.language];
+    this.set({ transcript: '' });
+    if (kind === 'sos') { this.sosName = sosContactName(text); await this.startSos(g); return; }
+    if (kind === 'call') { await this.callByName(g, callContactName(text) ?? ''); return; }
+    if (kind === 'cancel') {
+      // "Cancel" only means something during an SOS countdown; otherwise just keep listening.
+      if (this.state.sos !== 'countdown') { this.retry(g); return; }
+      clearTimeout(this.sosTimer); this.sosTimer = undefined;
+      this.set({ sos: 'off' });
+      await this.say(copy.sosCancelled);
+      return;
+    }
+    if (kind === 'repeat') {
+      // Read it again: the last answer, word for word, without asking the server again.
+      if (this.state.answer) await this.play(this.state.answer, true); else await this.say(copy.nothingToRepeat);
+      return;
+    }
+    if (kind === 'cameraOff') {
+      if (this.state.cameraPaused) { await this.say(copy.cameraAlreadyOff); return; }
+      this.pauseCamera(g);
+      await this.say(copy.cameraOff);
+      return;
+    }
+    if (!this.state.cameraPaused) { await this.say(copy.cameraAlreadyOn); return; }
+    this.set({ cameraPaused: false });
+    if (this.state.id) void this.ports.cameraPaused?.(this.state.id, false).catch(() => {});
+    if (this.state.id) await this.openCamera(g, this.state.id);
+    await this.say(copy.cameraOn);
+  }
+
+  /**
+   * "Call Mom": an ordinary call, not an emergency (no alert, no flashlight). A spoken number ("call 03 123 456")
+   * is called as it is; a name is looked up in the phone's contacts.
+   */
+  private async callByName(g: number, name: string) {
+    const copy = commandCopy[this.language];
+    const digits = name.replace(/[\s\-().]/g, '');
+    const contact = /^\+?\d{3,15}$/.test(digits)
+      ? { name, number: digits }
+      : await this.ports.findContact?.(name).catch(() => null) ?? null;
+    if (!this.valid(g)) return;
+    if (!contact || !this.ports.call) { await this.say(copy.sosNameNotFound.replace('{name}', name)); return; }
+    await this.say(copy.callingName.replace('{name}', contact.name));
+    if (this.valid(g) && this.ports.allowed()) await this.ports.call(contact.number).catch(() => {});
+  }
+
+  /** Camera off by voice: stops the camera and the stream, keeps the session and the microphone. */
+  private pauseCamera(g: number) {
+    if (!this.valid(g)) return;
+    this.publisherGeneration++;
+    try { this.publisher?.stop(); } catch { /* Already closed. */ } this.publisher = undefined;
+    try { this.capture?.release(); } catch { /* Already released. */ } this.capture = undefined;
+    this.set({ camera: false, cameraUrl: undefined, transport: 'off', cameraPaused: true });
+    if (this.state.id) void this.ports.cameraPaused?.(this.state.id, true).catch(() => {});
+  }
+
+  /** "I need help": warns out loud, waits SOS_DELAY_SECONDS for "cancel", then sends the alert and calls. */
+  private async startSos(g: number) {
+    if (this.state.sos === 'countdown' || this.state.sos === 'sending') return;
+    this.set({ sos: 'countdown' });
+    await this.say(commandCopy[this.language].sosCountdown);
+    // The countdown starts after the warning has been spoken, so the user really gets the full time to cancel.
+    // (Read through a cast: TypeScript can't see that "cancel" may have changed the state while speaking.)
+    if (!this.valid(g) || (this.state.sos as SosState) !== 'countdown') return;
+    clearTimeout(this.sosTimer);
+    this.sosTimer = setTimeout(() => { this.sosTimer = undefined; void this.sendSos(g); }, SOS_DELAY_SECONDS * 1000);
+  }
+
+  private async sendSos(g: number) {
+    if (!this.valid(g) || this.state.sos !== 'countdown') return;
+    const copy = commandCopy[this.language];
+    this.set({ sos: 'sending' });
+    let sent = false, number: string | null = null;
+    try {
+      const result = await this.ports.sos?.(this.state.id!);
+      if (result) { sent = true; number = result.sos_number; }
+    } catch { /* Fall back to the saved number below. */ }
+    if (!sent) number = await this.ports.sosNumber?.().catch(() => null) ?? null;
+    // Who to call: the person named ("call Mom") first; else the contact the user chose in Settings (or the
+    // dashboard), so changing it there always takes effect; only when none is chosen, an "ICE" phone contact.
+    const named = this.sosName;
+    let contact = named ? await this.ports.findContact?.(named).catch(() => null) ?? null : null;
+    const namedMissing = Boolean(named && !contact);
+    if (!contact && !number) contact = await this.ports.findContact?.(null).catch(() => null) ?? null;
+    if (contact) number = contact.number;
+    if (!this.valid(g)) return;
+    this.set({ sos: sent ? 'sent' : 'failed' });
+    const canCall = Boolean(number && this.ports.call);
+    const missing = namedMissing ? `${copy.sosNameNotFound.replace('{name}', named!)} ` : '';
+    await this.say(missing + (sent
+      ? (canCall ? (contact ? copy.sosCallingName.replace('{name}', contact.name) : copy.sosSentCalling) : copy.sosSentNoNumber)
+      : (canCall ? copy.sosFailedCalling : copy.sosFailedNoNumber)));
+    if (!canCall || !this.valid(g) || !this.ports.allowed()) return;
+    // Flashlight on for the call, so people nearby can find the user. The torch needs the camera free,
+    // so the stream stops first (the SOS frames were already kept by the alert).
+    if (this.ports.torch) {
+      if (!this.state.cameraPaused) this.pauseCamera(g);
+      await this.ports.torch(true).catch(() => false);
+    }
+    await this.ports.call!(number!).catch(() => {});
+  }
+
   stopPlayback() { this.speechGeneration++; this.ports.stopSpeech(); if (['speaking', 'greeting'].includes(this.state.phase)) this.set({ phase: this.state.active ? 'paused' : 'idle' }); }
   pause() { this.questionGeneration++; this.questionRequest?.abort(); this.stopPlayback(); void this.silenceInput(); if (this.state.active) this.set({ phase: 'paused', transcript: '' }); }
   resume() {
@@ -242,6 +382,7 @@ export class SessionController {
     const id = this.state.id, wasActive = this.state.active;
     this.generation++; this.questionGeneration++; this.speechGeneration++; this.publisherGeneration++;
     this.request.abort(); this.questionRequest?.abort(); void this.silenceInput(); this.ports.stopSpeech();
+    clearTimeout(this.sosTimer); this.sosTimer = undefined;
     try { this.publisher?.stop(); } catch { /* Continue every independent cleanup. */ } this.publisher = undefined;
     try { this.capture?.release(); } catch { /* Native resource may already be released. */ } this.capture = undefined;
     this.ports.keepAwake(false);

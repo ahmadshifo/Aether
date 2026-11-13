@@ -14,13 +14,15 @@ module.exports = {
         ...(lanHost === 'any' ? {} : { NSExceptionDomains: { [lanHost]: { NSExceptionAllowsInsecureHTTPLoads: true, NSIncludesSubdomains: false } } }),
       } : {}) },
     } },
-    android: { package: 'local.aether.nativeexperiment', allowBackup: false, adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#202020' }, permissions: ['CAMERA', 'RECORD_AUDIO', 'INTERNET'], blockedPermissions: ['android.permission.READ_MEDIA_AUDIO', 'android.permission.READ_MEDIA_VIDEO', 'android.permission.READ_MEDIA_IMAGES', 'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE'], softwareKeyboardLayoutMode: 'resize' },
+    android: { package: 'local.aether.nativeexperiment', allowBackup: false, adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#202020' }, permissions: ['CAMERA', 'RECORD_AUDIO', 'INTERNET', 'CALL_PHONE'], blockedPermissions: ['android.permission.READ_MEDIA_AUDIO', 'android.permission.READ_MEDIA_VIDEO', 'android.permission.READ_MEDIA_IMAGES', 'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE'], softwareKeyboardLayoutMode: 'resize' },
     plugins: [
       'expo-dev-client', ['expo-camera', { cameraPermission: 'Allow Aether to preview your camera after Start.', microphonePermission: false, recordAudioAndroid: false }],
       ['expo-speech-recognition', { microphonePermission: 'Allow Aether to hear your questions and listen for Hey Aether when enabled.', speechRecognitionPermission: 'Allow Aether to transcribe your questions with system speech recognition.' }],
       ['@config-plugins/react-native-webrtc', { cameraPermission: 'Allow Aether to preview and publish video after Start.', microphonePermission: 'Allow Aether to hear your questions and listen for Hey Aether when enabled.' }],
       // R8 stops on a class react-native-webrtc only references, and shrinking could remove what WebRTC calls at runtime.
       ['expo-build-properties', { android: { enableMinifyInReleaseBuilds: false, enableShrinkResourcesInReleaseBuilds: false } }],
+      // expo-contacts: choose the SOS emergency contact from the phone's contacts (Settings).
+      ['expo-contacts', { contactsPermission: 'Allow Aether to let you choose an emergency contact from your contacts.' }],
       'expo-font', 'expo-sharing', 'expo-status-bar', ['./plugins/withLocalNetwork.cjs', { host: lanHost }],
     ],
   },

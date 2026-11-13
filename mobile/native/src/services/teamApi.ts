@@ -37,6 +37,25 @@ export function createTeamApi(origin: string, fetcher: typeof fetch = fetch, onU
       if (!uuid(request.session_id) || !uuid(request.question_id) || !request.question.trim() || request.question.length > 4000 || !['en', 'ar', 'fr'].includes(request.language)) throw Error('answer_invalid');
       return parseAnswer(await send('/api/v1/ask', 'POST', request, signal), request);
     },
+    /** "I need help": saves an SOS alert (with the latest frames) and returns the account's emergency number. */
+    async sos(sessionId: string, signal: AbortSignal): Promise<{ sos_number: string | null }> {
+      const body = await send('/api/v1/sos', 'POST', { session_id: sessionId }, signal);
+      return { sos_number: typeof body?.sos_number === 'string' && body.sos_number ? body.sos_number : null };
+    },
+    /** The account's emergency number, saved by a caregiver on the dashboard (null when none). */
+    async sosNumber(signal: AbortSignal): Promise<string | null> {
+      const body = await send('/api/v1/settings', 'GET', undefined, signal);
+      return typeof body?.sos_number === 'string' && body.sos_number ? body.sos_number : null;
+    },
+    /** Saves the emergency number for this account (the same one the dashboard's Profile page shows). */
+    async saveSosNumber(number: string, signal: AbortSignal): Promise<string | null> {
+      const body = await send('/api/v1/settings', 'PUT', { sos_number: number }, signal);
+      return typeof body?.sos_number === 'string' && body.sos_number ? body.sos_number : null;
+    },
+    /** Camera off/on by voice, so the dashboard shows "Camera paused by the user" instead of a stream error. */
+    async setCamera(sessionId: string, paused: boolean, signal: AbortSignal): Promise<void> {
+      await send('/api/v1/streams/camera', 'POST', { session_id: sessionId, paused }, signal);
+    },
     async updateName(name: string, userId: string, signal: AbortSignal) {
       name = name.trim();
       if (!name || [...name].length > 80) throw Error('invalid_name');
