@@ -1,4 +1,4 @@
-export type Endpoints = { backend: string; media: string; allowLan: boolean };
+export type Endpoints = { backend: string; media: string; voice?: string; allowLan: boolean };
 // EXPO_PUBLIC_AETHER_HOST (set when building) prefills the laptop's address on first launch.
 const buildHost = process.env.EXPO_PUBLIC_AETHER_HOST;
 export const defaultEndpoints: Endpoints = {
@@ -21,7 +21,11 @@ export function validateOrigin(value: string, allowLan: boolean) {
 export function validateEndpoints(value: Endpoints): Endpoints {
   if (!value) throw Error('invalid_origin');
   const allowLan = value.allowLan === true;
-  return { backend: validateOrigin(value.backend, allowLan), media: validateOrigin(value.media, allowLan), allowLan };
+  const endpoints = { backend: validateOrigin(value.backend, allowLan), media: validateOrigin(value.media, allowLan), allowLan };
+  if (!value.voice?.trim()) return endpoints;
+  const voice = validateOrigin(value.voice, allowLan);
+  if (new URL(voice).hostname !== new URL(endpoints.backend).hostname) throw Error('voice_host_mismatch');
+  return { ...endpoints, voice };
 }
 // Retired development connections become a shared-server draft. Do not send
 // credentials to a replacement backend until the user saves the new connection.

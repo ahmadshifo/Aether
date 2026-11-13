@@ -14,3 +14,8 @@ export function loadRecognition() {
   if (!capabilities().recognition) throw Error('native_required');
   return (require('expo-speech-recognition') as typeof import('expo-speech-recognition')).ExpoSpeechRecognitionModule;
 }
+export function apiVoiceAvailable() { return !!requireOptionalNativeModule('ExpoAudio'); }
+export function loadAudio() {
+  if (!apiVoiceAvailable()) throw Error('voice_native_required');
+  return require('expo-audio') as typeof import('expo-audio');
+}

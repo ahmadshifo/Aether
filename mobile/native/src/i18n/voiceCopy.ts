@@ -1,0 +1,51 @@
+export const voiceCopy = {
+  en: {
+    api: 'Use API voice', device: 'Device voice', apiNote: 'Questions are sent to Groq; reply text is sent to Google for speech. Google’s free tier may use the text to improve its products. Free-tier limits apply. “Hey Aether” stays on the device.',
+    check: 'Check voice service', checking: 'Checking voice service…', ready: 'Keys are configured. Start a session to verify the providers.', endpoint: 'Voice server address',
+    voice_host_mismatch: 'Use the same hostname as the Aether account server so your sign-in works.',
+    voice_native_required: 'Install the new development build to use API voice. This build is missing the audio recorder.',
+    voice_unconfigured: 'Add the Groq and Gemini keys to the voice server’s private .env file, then restart it.',
+    voice_unavailable: 'Voice service unavailable. Check Connection and that the laptop service is running.',
+    voice_quota: 'Voice limit reached. Wait before resuming, or select device voice in Settings.',
+    voice_credentials: 'The voice provider rejected its key or access. Check the server configuration.',
+    voice_provider: 'The voice provider could not complete the request. You can try again.',
+    voice_timeout: 'The voice request timed out. Try again.', voice_recording: 'Recording was interrupted or audio levels are unavailable. Resume to try again.',
+    voice_audio_unavailable: 'The voice server needs FFmpeg.', voice_audio_size: 'The recording is too large. Ask a shorter question.',
+    voice_audio_duration: 'Ask a question shorter than 30 seconds.', voice_text_size: 'This answer is too long for API speech. Read it or use device voice.',
+    voice_auth_unavailable: 'The voice service cannot reach the account server.', transcribing: 'Transcribing your question…',
+  },
+  ar: {
+    api: 'استخدام الصوت عبر API', device: 'صوت الجهاز', apiNote: 'تُرسل الأسئلة إلى Groq ونصوص الإجابات إلى Google للنطق. قد تستخدم خدمة Google المجانية النص لتحسين منتجاتها. تنطبق حدود الاستخدام المجاني. يبقى «Hey Aether» على الجهاز.',
+    check: 'فحص خدمة الصوت', checking: 'جارٍ فحص خدمة الصوت…', ready: 'المفاتيح مضبوطة. ابدأ جلسة للتحقق من المزوّدين.', endpoint: 'عنوان خادم الصوت',
+    voice_host_mismatch: 'استخدم اسم المضيف نفسه لخادم حساب Aether ليعمل تسجيل الدخول.',
+    voice_native_required: 'ثبّت نسخة التطوير الجديدة لاستخدام صوت API. مسجّل الصوت غير موجود في هذه النسخة.',
+    voice_unconfigured: 'أضف مفتاحَي Groq وGemini إلى ملف .env الخاص بخادم الصوت ثم أعد تشغيله.',
+    voice_unavailable: 'خدمة الصوت غير متاحة. تحقّق من الاتصال وتشغيل الخادم على الحاسوب.',
+    voice_quota: 'بلغت حدّ الصوت. انتظر قبل المتابعة أو اختر صوت الجهاز في الإعدادات.',
+    voice_credentials: 'رفض مزوّد الصوت المفتاح أو الوصول. تحقّق من إعدادات الخادم.',
+    voice_provider: 'تعذّر على مزوّد الصوت إكمال الطلب. يمكنك المحاولة مجدّدًا.',
+    voice_timeout: 'انتهت مهلة طلب الصوت. حاول مجدّدًا.', voice_recording: 'توقّف التسجيل أو تعذّر قياس الصوت. استأنف للمحاولة مجدّدًا.',
+    voice_audio_unavailable: 'يحتاج خادم الصوت إلى FFmpeg.', voice_audio_size: 'التسجيل كبير جدًا. اطرح سؤالًا أقصر.',
+    voice_audio_duration: 'اطرح سؤالًا مدّته أقل من ٣٠ ثانية.', voice_text_size: 'الإجابة طويلة جدًا للنطق عبر API. اقرأها أو استخدم صوت الجهاز.',
+    voice_auth_unavailable: 'تعذّر على خدمة الصوت الوصول إلى خادم الحساب.', transcribing: 'جارٍ تحويل السؤال إلى نص…',
+  },
+  fr: {
+    api: 'Utiliser la voix API', device: 'Voix de l’appareil', apiNote: 'Les questions sont envoyées à Groq et les réponses à Google pour la synthèse vocale. L’offre gratuite de Google peut utiliser le texte pour améliorer ses produits. Des quotas gratuits s’appliquent. « Hey Aether » reste sur l’appareil.',
+    check: 'Vérifier le service vocal', checking: 'Vérification du service vocal…', ready: 'Les clés sont configurées. Démarrez une session pour vérifier les fournisseurs.', endpoint: 'Adresse du serveur vocal',
+    voice_host_mismatch: 'Utilisez le même nom d’hôte que le serveur de compte Aether pour conserver votre connexion.',
+    voice_native_required: 'Installez la nouvelle version de développement pour la voix API. L’enregistreur manque dans cette version.',
+    voice_unconfigured: 'Ajoutez les clés Groq et Gemini au fichier .env privé du serveur vocal, puis redémarrez-le.',
+    voice_unavailable: 'Service vocal indisponible. Vérifiez la connexion et le service sur l’ordinateur.',
+    voice_quota: 'Quota vocal atteint. Patientez avant de reprendre ou choisissez la voix de l’appareil dans les réglages.',
+    voice_credentials: 'Le fournisseur vocal a refusé sa clé ou l’accès. Vérifiez la configuration du serveur.',
+    voice_provider: 'Le fournisseur vocal n’a pas pu terminer la demande. Réessayez.',
+    voice_timeout: 'La demande vocale a expiré. Réessayez.', voice_recording: 'Enregistrement interrompu ou niveau sonore indisponible. Reprenez pour réessayer.',
+    voice_audio_unavailable: 'Le serveur vocal nécessite FFmpeg.', voice_audio_size: 'Enregistrement trop volumineux. Posez une question plus courte.',
+    voice_audio_duration: 'Posez une question de moins de 30 secondes.', voice_text_size: 'Cette réponse est trop longue pour la voix API. Lisez-la ou utilisez la voix de l’appareil.',
+    voice_auth_unavailable: 'Le service vocal ne peut pas joindre le serveur de compte.', transcribing: 'Transcription de votre question…',
+  },
+};
+export function voiceErrorText(language: 'en' | 'ar' | 'fr', code: string) {
+  const copy = voiceCopy[language];
+  return copy[code as keyof typeof copy] || copy.voice_unavailable;
+}

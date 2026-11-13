@@ -121,8 +121,9 @@ try {
     console.log(`Phone backend: http://${host}:8002; media: http://${host}:8889. Save these addresses in Connection.`);
     if (mode === 'start') {
       // Same service entry points as teammates' root launcher, using the verified local environments.
-      await ensure(config.python, ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8001'], path.join(repo, 'mobile/voice-service'), {}, 8001);
-      console.log('Voice service scaffold: http://127.0.0.1:8001. Its HTTP speech routes are not implemented; native iPhone speech works independently.');
+      await ensure(config.python, ['-m', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', '8001'], path.join(repo, 'mobile/voice-service'), { VOICE_AUTH_ORIGIN: backend }, 8001);
+      const voiceHealth = await fetch('http://127.0.0.1:8001/health', { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null);
+      console.log(`Phone voice server: http://${host}:8001. ${voiceHealth?.service !== 'aether-voice' ? 'Restart the old voice process to load the new service.' : voiceHealth.configured ? 'Keys configured; provider calls still need a live test.' : 'Add free API keys to mobile/voice-service/.env; device voice remains available.'}`);
       await ensure(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '5174', '--strictPort'], path.join(repo, 'web/dashboard'), {}, 5174);
       await ensure(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '5173', '--strictPort'], path.join(repo, 'mobile/frontend'), { AUTH_PROXY_TARGET: backend }, 5173);
       console.log('Dashboard: http://127.0.0.1:5174; desktop PWA: http://127.0.0.1:5173.');

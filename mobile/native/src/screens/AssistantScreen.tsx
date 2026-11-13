@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Button, Card, Cassette, Field, Mark, Notice, Reveal, Row, Sheet, T, useUI } from '../components/ui';
 import { copies } from '../i18n/nativeCopy';
 import { historyStreamCopy } from '../i18n/historyStreamCopy';
+import { voiceCopy, voiceErrorText } from '../i18n/voiceCopy';
 import { GoCameraPreview, RtcPreview, type GoCamera } from '../platform/camera';
 import type { SessionController, SessionState } from '../session/controller';
 import type { Language } from '../shared/types';
@@ -22,10 +23,10 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
   const detailsRef = useRef<React.ComponentRef<typeof View>>(null);
   const restoreFocus = useCallback(() => { const id = findNodeHandle(detailsRef.current); if (id) AccessibilityInfo.setAccessibilityFocus(id); }, []);
   const layout = assistantLayout(height, insets.bottom, dimensions.fontScale);
-  const phase = media.phase === 'greeting' ? n.openingGreeting : media.phase === 'unavailable' ? n.unavailable : media.phase === 'error' ? n.error : media.phase === 'starting' ? m.starting : media.phase === 'idle' ? m.ready : m[media.phase];
+  const phase = media.phase === 'transcribing' ? voiceCopy[language].transcribing : media.phase === 'greeting' ? n.openingGreeting : media.phase === 'unavailable' ? n.unavailable : media.phase === 'error' ? n.error : media.phase === 'starting' ? m.starting : media.phase === 'idle' ? m.ready : m[media.phase];
   const errors = [...new Set([media.cameraError, media.voiceError === 'silence' ? '' : media.voiceError, media.error,
     media.transport === 'failed' ? 'transportFailed' : '', media.registry === 'failed' ? 'registry_failed' : ''].filter(Boolean))];
-  const errorText = (code: string) => n[code as keyof typeof n] as string || n.error;
+  const errorText = (code: string) => code.startsWith('voice_') ? voiceErrorText(language, code) : n[code as keyof typeof n] as string || n.error;
   const excerpt = media.answer?.answer || media.transcript || (prompt !== null ? `${m.questions[prompt]} ${m.say}` : '');
   const answerLabel = n.serverAnswer;
   return <View testID="assistant-screen" style={{ flex: 1, backgroundColor: colors.bg }} onLayout={event => setHeight(event.nativeEvent.layout.height)}>

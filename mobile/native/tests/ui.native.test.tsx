@@ -57,7 +57,7 @@ test.each(['en', 'ar'] as const)('eight screen families use shared native views 
   const go = async (label: string) => { const tab = tree.root.findAll(x => x.props.accessibilityRole === 'tab' && x.props.accessibilityLabel === label && typeof x.props.onPress === 'function')[0]; expect(tab).toBeTruthy(); await act(async () => tab!.props.onPress()); };
   await go(m.history); expect(JSON.stringify(tree.toJSON())).toContain(uiCopy[language].emptyTitle);
   await go(m.settings); expect(JSON.stringify(tree.toJSON())).toContain(user.email);
-  await press(tree, m.connection); expect(tree.root.findAllByType(TextInput)).toHaveLength(2);
+  await press(tree, m.connection); expect(tree.root.findAllByType(TextInput)).toHaveLength(3);
   await go(m.help); expect(JSON.stringify(tree.toJSON())).toContain(m.safety);
   await go(m.home); await press(tree, m.start);
   expect(tree.root.findAllByType(Pressable).filter(x => x.props.accessibilityRole === 'tab')).toHaveLength(0);
@@ -70,7 +70,7 @@ test.each(['en', 'ar'] as const)('eight screen families use shared native views 
 });
 test('public Connection and Help expose setup/safety with no personal account data', async () => {
   const connection = await render(wrapper(<ConnectionScreen endpoints={defaultEndpoints} onSave={() => {}} signedIn={false} />));
-  expect(connection.root.findAllByType(TextInput)).toHaveLength(2); expect(JSON.stringify(connection.toJSON())).not.toContain(user.email);
+  expect(connection.root.findAllByType(TextInput)).toHaveLength(3); expect(JSON.stringify(connection.toJSON())).not.toContain(user.email);
   const help = await render(wrapper(<HelpScreen />)); expect(JSON.stringify(help.toJSON())).toContain(nativeCopy.en.osSpeech);
   await act(async () => { connection.unmount(); help.unmount(); });
 });

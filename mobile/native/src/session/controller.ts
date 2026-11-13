@@ -4,7 +4,7 @@ import type { Transport } from '../streaming/whip.ts';
 import { sessionGreeting } from '../voice/sessionGreeting.ts';
 import type { AskRequest, AskResponse } from '../services/teamApi.ts';
 export interface CameraHandle { url?: string; release(): void; snapshot?(): Promise<{ uri: string; capturedAt: string } | undefined> }
-export interface RecognitionEvents { start(): void; result(text: string, final: boolean, confidence?: number): void; end(): void; error(code: string): void }
+export interface RecognitionEvents { start(): void; processing?(): void; result(text: string, final: boolean, confidence?: number): void; end(): void; error(code: string): void }
 export interface SessionPorts {
   ask?(request: AskRequest, signal: AbortSignal): Promise<AskResponse>;
   preview: boolean; recognitionAvailable: boolean; streamingAvailable: boolean;
@@ -16,6 +16,7 @@ export interface SessionPorts {
   recognition(language: Language, events: RecognitionEvents, signal: AbortSignal): Promise<() => Promise<void>>;
   speak(text: string, language: Language, started: () => void): Promise<'done' | 'cancelled' | 'error'>;
   stopSpeech(): void;
+  speechError?(): string;
   publish(camera: CameraHandle, id: string, state: (value: Transport) => void): { start(): Promise<void>; stop(): void };
   register(action: 'start' | 'stop', id: string): Promise<void>;
   keepAwake(active: boolean): void;
@@ -84,14 +85,15 @@ export class SessionController {
     const valid = () => this.valid(g) && token === this.speechGeneration;
     if (!valid()) return;
     try { await this.ports.prepareRecognition?.(this.request.signal); }
-    catch { if (valid()) { this.stop(); this.set({ phase: 'error', voiceError: 'recognition_denied' }); } return; }
+    catch (error) { if (valid()) { this.stop(); this.set({ phase: 'error', voiceError: error instanceof Error && error.message.startsWith('voice_') ? error.message : 'recognition_denied' }); } return; }
     if (!valid()) return;
     // The microphone is off for the entire greeting; never store it as a question or answer.
     this.set({ phase: 'greeting' });
     const result = await this.ports.speak(sessionGreeting[this.language], this.language, () => {}).catch(() => 'error' as const);
     if (!valid()) return;
+    if (result === 'error' && this.ports.speechError?.()) { this.pause(); this.set({ voiceError: this.ports.speechError() }); return; }
     await this.listen(g);
-    if (valid() && result === 'error') this.set({ voiceError: 'tts_failed' });
+    if (valid() && result === 'error') this.set({ voiceError: this.ports.speechError?.() || 'tts_failed' });
   }
   private async openCamera(g: number, id: string) {
     try {
@@ -141,16 +143,19 @@ export class SessionController {
     try {
       const pending = Promise.resolve().then(() => !valid() ? async () => {} : this.ports.recognition(this.language, {
         start: () => { if (valid()) this.set({ phase: 'listening' }); },
+        processing: () => { if (valid()) this.set({ phase: 'transcribing' }); },
         result: (text, final, confidence) => {
-          if (!valid() || !['starting', 'listening', 'hearing'].includes(this.state.phase)) return;
+          if (!valid() || !['starting', 'listening', 'hearing', 'transcribing'].includes(this.state.phase)) return;
           this.set({ transcript: text, phase: 'hearing' });
           if (final && validTranscript(text, confidence)) { this.retries = 0; void this.question(text, 'speech'); }
         },
-        end: () => { if (valid() && ['starting', 'listening', 'hearing'].includes(this.state.phase)) this.retry(g); },
+        end: () => { if (valid() && ['starting', 'listening', 'hearing', 'transcribing'].includes(this.state.phase)) this.retry(g); },
         error: code => {
           if (!valid()) return;
           if (['not-allowed', 'service-not-allowed', 'audio-capture'].includes(code)) { this.stop(); this.set({ phase: 'error', voiceError: 'recognition_denied' }); }
           else if (code === 'language-not-supported') { this.pause(); this.set({ voiceError: 'language_unavailable' }); }
+          // Quota/configuration errors need an explicit Resume, never an automatic paid retry loop.
+          else if (code.startsWith('voice_')) { this.pause(); this.set({ voiceError: code }); }
           // Silence is not a failure: someone may take their time before asking, so it never uses up the retries.
           else { if (code === 'no-speech') this.retries = 0; this.set({ voiceError: code === 'no-speech' ? 'silence' : 'recognition_failed' }); this.retry(g); }
         },
@@ -219,7 +224,7 @@ export class SessionController {
     if (token !== this.speechGeneration || !this.ports.allowed() || g !== this.generation) return;
     const result = await this.ports.speak(entry.answer, entry.language, () => { if (token === this.speechGeneration && this.ports.allowed()) this.set({ phase: 'speaking' }); });
     if (token !== this.speechGeneration || !this.ports.allowed() || g !== this.generation) return;
-    this.set({ phase: this.state.active ? 'paused' : 'idle', ...(result === 'error' ? { voiceError: 'tts_failed' } : {}) });
+    this.set({ phase: this.state.active ? 'paused' : 'idle', ...(result === 'error' ? { voiceError: this.ports.speechError?.() || 'tts_failed' } : {}) });
     if (result === 'done' && resume && this.valid(g) && this.ports.recognitionAvailable) {
       this.retryTimer = setTimeout(() => { this.retryTimer = undefined; if (this.valid(g)) void this.listen(g); }, 450);
     } else if (this.valid(g) && this.ports.preview) this.set({ phase: 'unavailable' });

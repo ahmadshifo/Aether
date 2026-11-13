@@ -5,6 +5,24 @@ import { validTranscript } from '../src/voice/transcript.ts';
 import { sessionGreeting } from '../src/voice/sessionGreeting.ts';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+test('cloud upload status accepts the final transcript and quota failure pauses without retry', async () => {
+  const h = harness();
+  await h.controller.start('ar'); h.events[0].processing();
+  assert.equal(h.controller.getSnapshot().phase, 'transcribing');
+  h.events[0].result('أين الباب؟', true); await tick(); await tick();
+  assert.equal(h.answers.length, 1); assert.equal(h.answers[0].language, 'ar'); h.controller.stop();
+  const failed = harness(); await failed.controller.start('en'); failed.events[0].error('voice_quota');
+  await tick(); assert.equal(failed.controller.getSnapshot().phase, 'paused');
+  assert.equal(failed.controller.getSnapshot().voiceError, 'voice_quota'); assert.equal(failed.events.length, 1); failed.controller.stop();
+});
+test('missing cloud setup or greeting quota error never starts a recording', async () => {
+  const missing = harness({ prepareRecognition: async () => { throw Error('voice_unconfigured'); } });
+  await missing.controller.start('en'); assert.equal(missing.controller.getSnapshot().voiceError, 'voice_unconfigured');
+  assert.equal(missing.events.length, 0); assert.equal(missing.counts.wake, false); missing.controller.stop();
+  const quota = harness({ speak: async () => 'error', speechError: () => 'voice_quota' });
+  await quota.controller.start('en'); assert.equal(quota.controller.getSnapshot().phase, 'paused');
+  assert.equal(quota.controller.getSnapshot().voiceError, 'voice_quota'); assert.equal(quota.events.length, 0); quota.controller.stop();
+});
 function harness(overrides = {}) {
   const events = [], answers = [], counts = { capture: 0, release: 0, close: 0, start: 0, stop: 0, voiceStop: 0, speak: 0, wake: false }, snapshots = [];
   let allowed = true;

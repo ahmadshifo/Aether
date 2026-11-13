@@ -13,6 +13,7 @@ import { light, dark } from '../src/theme/tokens';
 import { monoCopy } from '../src/i18n/monoCopy';
 import { nativeCopy } from '../src/i18n/nativeCopy';
 import { sessionGreeting } from '../src/voice/sessionGreeting';
+import { voiceCopy } from '../src/i18n/voiceCopy';
 import type { RecognitionEvents } from '../src/session/controller';
 import type { Language } from '../src/shared/types';
 
@@ -20,7 +21,14 @@ jest.mock('../src/services/teamApi', () => ({ createTeamApi: () => ({ ask: async
 
 const mockOrder: string[] = [], mockRelease = jest.fn();
 let mockWake: RecognitionEvents | undefined, mockQuestion: RecognitionEvents | undefined;
-jest.mock('../src/platform/capabilities', () => ({ capabilities: () => ({ go: false, recognition: true, webrtc: true }) }));
+jest.mock('../src/platform/capabilities', () => ({ capabilities: () => ({ go: false, recognition: true, webrtc: true }), apiVoiceAvailable: () => true }));
+jest.mock('../src/voice/cloudVoice', () => ({ CloudVoice: class {
+  error = '';
+  prepare = async () => { mockOrder.push('cloud prepare'); };
+  recognize = async (_: Language, events: RecognitionEvents) => { mockOrder.push('cloud record'); events.start(); return async () => {}; };
+  speak = async (_: string, __: Language, started: () => void) => { mockOrder.push('cloud speak'); started(); return 'done'; };
+  stop = () => {};
+} }));
 jest.mock('../src/platform/camera', () => ({
   GoCamera: class {}, GoCameraPreview: () => null, RtcPreview: () => null,
   nativeCamera: async () => { mockOrder.push('camera'); return { url: 'native-test-camera', release: mockRelease }; },
@@ -87,6 +95,17 @@ test.each(['en', 'ar'] as const)('Hey Aether opens one session, pulses before ca
   const camera = tree.root.findAllByType(View).find(item => item.props.testID === 'camera-viewport')!;
   expect(camera.props.style.height / 874).toBeCloseTo(.84);
   await press(tree, m.stop); expect(mockRelease).toHaveBeenCalledTimes(1);
+  await close();
+});
+test('API voice selection routes the greeting and recording to the cloud adapter and persists per account', async () => {
+  const { tree, close } = await setup(), m = monoCopy.en;
+  await tab(tree, m.settings);
+  const toggle = tree.root.findAllByType(Switch).find(item => item.props.accessibilityLabel === voiceCopy.en.api)!;
+  await act(async () => toggle.props.onValueChange(true));
+  await tab(tree, m.home); await press(tree, m.start);
+  expect(mockOrder).toContain('cloud prepare'); expect(mockOrder).toContain('cloud speak'); expect(mockOrder).toContain('cloud record');
+  expect(mockOrder).not.toContain('question'); expect(mockOrder).not.toContain('greet');
+  expect(AsyncStorage.setItem).toHaveBeenCalledWith(expect.stringContaining(':display'), expect.stringContaining('"apiVoice":true'));
   await close();
 });
 

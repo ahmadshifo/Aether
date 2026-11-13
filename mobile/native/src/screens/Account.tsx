@@ -23,6 +23,10 @@ import { SessionController } from '../session/controller';
 import { prepareRecognition, recognize } from '../voice/recognition';
 import { listenForWakeWord } from '../voice/wakeWord';
 import { SpeechOwner } from '../voice/speech';
+import { CloudVoice } from '../voice/cloudVoice';
+import { createVoiceApi, voiceOrigin } from '../voice/apiClient';
+import { apiVoiceAvailable } from '../platform/capabilities';
+import { voiceCopy, voiceErrorText } from '../i18n/voiceCopy';
 import { StreamRegistry } from '../streaming/registry';
 import { HistoryRepository } from '../storage/history';
 import { createHistoryApi } from '../storage/serverHistory';
@@ -33,7 +37,7 @@ import { HelpScreen } from './HelpScreen';
 import { HistoryScreen, entryTime } from './HistoryScreen';
 import { createTeamApi } from '../services/teamApi';
 import { ProfileSettings } from '../components/ProfileSettings';
-type Preferences = { welcome?: boolean; motion?: boolean; haptics?: boolean; wake?: boolean };
+type Preferences = { welcome?: boolean; motion?: boolean; haptics?: boolean; wake?: boolean; apiVoice?: boolean };
 export function Account({ auth, session, endpoints, saveEndpoints, changeLanguage, themeMode, changeTheme }: { auth: AuthController; session: AuthSession; endpoints: Endpoints; saveEndpoints(value: Endpoints): void; changeLanguage(language: Language): void; themeMode: ThemeMode; changeTheme(mode: ThemeMode): void }) {
   const ui = useUI(), { language, colors } = ui, { m, u, n } = copies(language), dimensions = useWindowDimensions();
   const [page, setPage] = useState<Page>('welcome'), [preferences, setPreferences] = useState<Preferences>({}), [loaded, setLoaded] = useState(false), [selected, setSelected] = useState(0), [prompt, setPrompt] = useState<number | null>(null), [notice, setNotice] = useState('');
@@ -47,14 +51,19 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
     const unauthorized = () => { if (allowed()) auth.external('changed'); };
     const api = createTeamApi(endpoints.backend, nativeFetch, unauthorized);
     const repository = new HistoryRepository(session.owner, nativeStorage, allowed), camera = new GoCamera(), speech = new SpeechOwner(), registry = new StreamRegistry(endpoints.backend, nativeFetch, unauthorized, allowed), caps = capabilities();
+    const voiceApi = createVoiceApi(voiceOrigin(endpoints), nativeFetch, unauthorized), cloud = new CloudVoice(voiceApi);
     let wakeGeneration = 0, wakeTag: string | undefined;
     const controller = new SessionController({
       ask: api.ask,
-      preview: caps.go && __DEV__, recognitionAvailable: caps.recognition, streamingAvailable: caps.webrtc,
+      preview: caps.go && __DEV__, get recognitionAvailable() { return currentPrefs.current.apiVoice === true || caps.recognition; }, streamingAvailable: caps.webrtc,
       allowed, uuid: () => Crypto.randomUUID(), camera: caps.webrtc ? nativeCamera : caps.go ? camera.acquire : async () => { throw Error('native_required'); },
       prepareStart: async () => { await wakeListener.current?.(); },
       sessionOpened: signal => sessionHaptics(currentPrefs.current.haptics === true, signal),
-      prepareRecognition, recognition: recognize, speak: speech.speak, stopSpeech: speech.stop,
+      prepareRecognition: signal => currentPrefs.current.apiVoice ? cloud.prepare(signal) : prepareRecognition(signal),
+      recognition: (lang, events, signal) => currentPrefs.current.apiVoice ? cloud.recognize(lang, events, signal) : recognize(lang, events, signal),
+      speak: (text, lang, started) => currentPrefs.current.apiVoice ? cloud.speak(text, lang, started) : speech.speak(text, lang, started),
+      speechError: () => currentPrefs.current.apiVoice ? cloud.error : '',
+      stopSpeech: () => { speech.stop(); cloud.stop(); },
       publish: (handle, id, state) => nativePublisher(handle, `${endpoints.media}/live/${id}/whip`, state), register: (action, id) => registry.request(action, id),
       keepAwake: active => {
         const g = ++wakeGeneration;
@@ -67,7 +76,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       discardSnapshot: snapshot => { void FileSystem.deleteAsync(snapshot.uri, { idempotent: true }).catch(() => {}); },
     });
     const historySync = new HistorySync(repository, createHistoryApi(endpoints.backend, nativeFetch, unauthorized), allowed);
-    return { repository, camera, controller, caps, api, historySync };
+    return { repository, camera, controller, caps, api, historySync, voiceApi };
   });
   const media = useSyncExternalStore(runtime.controller.subscribe, runtime.controller.getSnapshot), history = useSyncExternalStore(runtime.repository.subscribe, runtime.repository.getSnapshot);
   const syncedHistory = useSyncExternalStore(runtime.historySync.subscribe, runtime.historySync.getSnapshot);
@@ -75,7 +84,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
   useEffect(() => {
     void AsyncStorage.getItem(prefsKey).then(raw => {
       if (!alive.current || !auth.authorized(session.owner)) return;
-      const value = raw ? JSON.parse(raw) : {}; const safe = { welcome: value.welcome === true, motion: value.motion !== false, haptics: value.haptics === true, wake: value.wake === true };
+      const value = raw ? JSON.parse(raw) : {}; const safe = { welcome: value.welcome === true, motion: value.motion !== false, haptics: value.haptics === true, wake: value.wake === true, apiVoice: value.apiVoice === true };
       currentPrefs.current = safe; setPreferences(safe); setPage(safe.welcome ? 'home' : 'welcome'); setLoaded(true);
     }).catch(() => { if (alive.current) setLoaded(true); });
     const lock = auth.onLock(() => { runtime.controller.stop(); runtime.historySync.cancel(); setConfirm(null); setNotice(''); });
@@ -141,6 +150,15 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
         {page === 'settings' && <View style={{ gap: 24 }}><T variant="title">{m.settings}</T>
           <T variant="heading">{m.appearance}</T><Card><View style={{ gap: 8 }}>{themeModes.map(mode => <Button key={mode} label={mode === 'system' ? m.themeSystem : mode === 'light' ? m.themeLight : m.themeDark} icon={themeMode === mode ? 'check' : mode === 'system' ? 'phone' : mode === 'light' ? 'sun' : 'moon'} selected={themeMode === mode} onPress={() => changeTheme(mode)} />)}</View></Card>
           <T variant="heading">{m.voice}</T><Card>
+          <Row><T style={{ flex: 1 }}>{voiceCopy[language].api}</T><Switch accessibilityLabel={voiceCopy[language].api} value={preferences.apiVoice === true} onValueChange={value => {
+            if (value && !apiVoiceAvailable()) { setNotice(voiceCopy[language].voice_native_required); return; }
+            runtime.controller.stop(); updatePrefs({ apiVoice: value }); setNotice('');
+          }} /></Row><T variant="small">{voiceCopy[language].apiNote}</T>
+          <Button label={voiceCopy[language].check} onPress={() => {
+            setNotice(voiceCopy[language].checking);
+            void runtime.voiceApi.check(new AbortController().signal).then(() => { if (alive.current) setNotice(voiceCopy[language].ready); })
+              .catch(error => { if (alive.current) setNotice(voiceErrorText(language, error.message)); });
+          }} />
           {([['wake', m.wake, m.wakeNote], ['haptics', m.vibrate, m.vibrateNote], ['motion', m.motion, m.motionNote]] as const).map(([key, label, body]) => <View key={key} style={{ gap: 8 }}><Row><T style={{ flex: 1 }}>{label}</T><Switch accessibilityLabel={label} trackColor={{ false: colors.muted, true: colors.ok }} thumbColor={colors.card} value={key === 'motion' ? preferences.motion !== false : preferences[key] === true} onValueChange={value => updatePrefs({ [key]: value })} /></Row><T variant="small">{body}</T></View>)}</Card>
           <T variant="heading">{m.local}</T><Card><HoldButton clear disabled={history.loading || !history.items.length} onConfirm={() => { runtime.repository.clear(); setNotice(u.cleared); }} onOptions={() => setConfirm('clear')} /></Card>
           <Button label={m.connection} onPress={() => navigate('connection')} /><Button label={m.how} onPress={() => navigate('help')} /><Card><T variant="heading">{m.account}</T><ProfileSettings api={runtime.api} auth={auth} session={session} /><T selectable style={{ writingDirection: 'ltr' }}>{session.user.email}</T><Button danger label={m.signOut} onPress={() => setConfirm('logout')} /></Card>

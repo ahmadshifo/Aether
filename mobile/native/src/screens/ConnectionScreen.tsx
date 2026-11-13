@@ -4,6 +4,8 @@ import * as Clipboard from 'expo-clipboard';
 import { Button, Card, Field, Mark, Notice, Row, T, useUI } from '../components/ui';
 import { copies } from '../i18n/nativeCopy';
 import { historyStreamCopy } from '../i18n/historyStreamCopy';
+import { voiceCopy, voiceErrorText } from '../i18n/voiceCopy';
+import { voiceOrigin } from '../voice/apiClient';
 import { boundedFetch, probeBackend, validateEndpoints, type Endpoints } from '../platform/config';
 import type { SessionState } from '../session/controller';
 import { nativeFetch } from '../platform/network';
@@ -14,6 +16,7 @@ export function ConnectionScreen({ endpoints, onSave, session, signedIn }: { end
   const [draft, setDraft] = useState(endpoints), [message, setMessage] = useState(''), [authStatus, setAuthStatus] = useState(n.unknown), [mediaStatus, setMediaStatus] = useState(n.unknown), [busy, setBusy] = useState(false);
   const epoch = useRef(0); useEffect(() => () => { epoch.current++; }, []);
   const [features, setFeatures] = useState<TeamFeatures>(unknownFeatures);
+  const explain = (error: unknown) => error instanceof Error && error.message.startsWith('voice_') ? voiceErrorText(language, error.message) : n[error instanceof Error ? error.message as keyof typeof n : 'invalid_origin'] as string || n.invalid_origin;
   const edit = (patch: Partial<Endpoints>) => { epoch.current++; setBusy(false); setDraft({ ...draft, ...patch }); setFeatures(unknownFeatures); setAuthStatus(n.unknown); setMediaStatus(n.unknown); setMessage(''); };
   async function check() {
     const g = ++epoch.current; setBusy(true); setMessage('');
@@ -28,7 +31,7 @@ export function ConnectionScreen({ endpoints, onSave, session, signedIn }: { end
         const response = await boundedFetch(`${valid.media}/`, { method: 'OPTIONS', credentials: 'omit' }, 5000, nativeFetch);
         if (g === epoch.current) setMediaStatus(response.status < 500 ? n.signalingReachable : n.signalingUnavailable);
       } catch { if (g === epoch.current) setMediaStatus(n.signalingUnavailable); }
-    } catch (error) { if (g === epoch.current) { setAuthStatus(n.unknown); setMessage(n[error instanceof Error ? error.message as keyof typeof n : 'backend_unavailable'] as string || n.backend_unavailable); } }
+    } catch (error) { if (g === epoch.current) { setAuthStatus(n.unknown); setMessage(explain(error)); } }
     finally { if (g === epoch.current) setBusy(false); }
   }
   return <View style={{ gap: 24 }}><Row><T variant="title" accessibilityRole="header" style={{ flex: 1 }}>{m.connection}</T><Button label={busy ? n.checking : m.check} disabled={busy} onPress={() => { void check(); }} /></Row>
@@ -37,8 +40,9 @@ export function ConnectionScreen({ endpoints, onSave, session, signedIn }: { end
     <Card><T>{n.backend}: {authStatus}</T><T>{n.signaling}: {mediaStatus}</T><T>{m.stream}: {transportLabel}</T><T>{n.registry}: {session?.registry === 'registered' ? n.registered : session?.registry === 'failed' ? n.registry_failed : session?.registry === 'pending' ? n.pending : n.off}</T><T>{m.ai}: {features.answers === 'available' ? n.routeAvailable : features.answers === 'missing' ? n.routeMissing : n.unknown}</T><T variant="small">{n.routeNote}</T></Card>
     <Field label={n.backend} value={draft.backend} onChangeText={backend => edit({ backend })} autoCapitalize="none" autoCorrect={false} keyboardType="url" style={{ textAlign: 'left', writingDirection: 'ltr' }} />
     <Field label={n.media} value={draft.media} onChangeText={media => edit({ media })} autoCapitalize="none" autoCorrect={false} keyboardType="url" style={{ textAlign: 'left', writingDirection: 'ltr' }} />
+    <Field label={voiceCopy[language].endpoint} value={draft.voice ?? ''} placeholder={voiceOrigin(endpoints)} onChangeText={voice => edit({ voice })} autoCapitalize="none" autoCorrect={false} keyboardType="url" style={{ textAlign: 'left', writingDirection: 'ltr' }} />
     <Row><T style={{ flex: 1 }}>{n.lan}</T><Switch accessibilityLabel={n.lan} value={draft.allowLan} onValueChange={allowLan => edit({ allowLan })} /></Row><T variant="small">{n.lanNote}</T>
-    <T variant="small">{n.connectionNote}</T><Button primary label={n.save} onPress={() => { try { const value = validateEndpoints(draft); onSave(value); } catch (error) { setMessage(n[error instanceof Error ? error.message as keyof typeof n : 'invalid_origin'] as string || n.invalid_origin); } }} />
+    <T variant="small">{n.connectionNote}</T><Button primary label={n.save} onPress={() => { try { const value = validateEndpoints(draft); onSave(value); } catch (error) { setMessage(explain(error)); } }} />
     {!!message && <Notice>{message}</Notice>}
   </View>;
 }
