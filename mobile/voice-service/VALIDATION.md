@@ -1,6 +1,6 @@
 # Voice integration validation — 2026-11-13
 
-Git `main` was fetched and pulled with `--ff-only`; local and remote were already at `cf8f115`. After the live provider checks passed, the mobile changes were prepared on `codex/api-voice` for a new iPhone development build. Main is not merged as part of this testing step.
+Git `main` was fetched and pulled with `--ff-only`; local and remote were already at `cf8f115`. After the live provider checks passed, the mobile changes were prepared on `feature/api-voice` for a new iPhone development build. Main is not merged as part of this testing step.
 
 ## Passing checks
 
@@ -9,6 +9,7 @@ Git `main` was fetched and pulled with `--ff-only`; local and remote were alread
 - 55 native component/audio-adapter tests across eight suites. New coverage includes selection of API voice in Settings, actual recorder-byte handoff through the adapter, silence without upload, Stop during recording/upload/playback, late response rejection, quota cleanup and MP3 playback lifecycle.
 - TypeScript and Oxlint passed.
 - Expo iOS and Android JavaScript bundle exports passed. These are **not** compiled IPAs/APKs or device tests.
+- The [iPhone development build](https://github.com/ahmadshifo/Aether/actions/runs/43418259322) passed for code commit `65e0b1a`. The downloaded IPA matched its published SHA-256 checksum, passed archive integrity checks, targets iPhoneOS/arm64, and contains the ExpoAudio native module. The IPA is stored locally under `mobile/native/.runtime/ios-sideload-api-voice-43418259322/` and remains unsigned until Sideloadly installs it.
 - Real Uvicorn HTTP smoke check: `/health` returned 200, identified `aether-voice`, found FFmpeg and accurately reported both keys missing. Unauthenticated synthesis returned 401. The temporary test server was stopped afterward.
 - Python requirements were verified with `uv pip` in the existing Python 3.13.12 team environment. `expo-audio ~58.0.12` was installed and its native config plugin added explicitly. The initial Expo install process hit a stale CLI-module import after npm changed its dependency tree; subsequent fresh CLI exports succeeded.
 - `git diff --check` passed. Tracked-file SHA-256 comparison against the pre-pull baseline found no changes outside `/mobile`. The pre-existing edits in `mobile/native/INSTALL.md`, `mobile/native/src/i18n/authCopy.ts`, `mobile/streaming/mediamtx.yml` and `web/dashboard/package-lock.json` were preserved byte-for-byte and excluded from the feature commit.
@@ -16,7 +17,7 @@ Git `main` was fetched and pulled with `--ff-only`; local and remote were alread
 ## Remaining verification and limitations
 
 - Both provider keys were subsequently configured in the Git-ignored private `.env`. Live `gemini-3.8-flash-tts` -> FFmpeg -> `whisper-large-v3` round trips passed for English ("The door is in front of you."), Arabic ("الباب أمامك.") and French ("La porte est devant vous."). Transcripts matched the phrases, apart from omitted Arabic punctuation. MP3 samples and a sanitized result manifest are in `mobile/native/.runtime/voice-live-test/`; secrets and samples are not committed. An earlier English STT-only call also passed using a synthetic Windows recording. These checks verify actual provider access and audio conversion, not phone microphone quality, listening comprehension or voice preference.
-- A newly compiled development IPA, Sideloadly install, and physical iPhone tests remain. Check voice quality/latency for all three languages, microphone sensitivity in real rooms, speaker routing, interruptions, permission denial and quota errors. The energy threshold is a tested heuristic, not measured phone performance.
+- Sideloadly installation and physical iPhone tests remain. Check voice quality/latency for all three languages, microphone sensitivity in real rooms, speaker routing, interruptions, permission denial and quota errors. The energy threshold is a tested heuristic, not measured phone performance.
 - The existing native speech and wake-word behavior is covered by regression tests; this turn did not conduct a new phone test.
 - Offline API tests mock account/provider calls. A later real HTTP test used a temporary account created through the running MySQL-backed signup endpoint: authenticated STT and TTS returned 200, and a speech request after logout returned 401. The test account was then removed with an exact user-ID/email ownership check. The existing team launcher started MySQL, RustFS, media, voice, dashboard/PWA and Metro for phone testing; its normal retention worker cleaned expired frames. Teammate source files were not edited.
 - French voice is implemented. Member 2 still needs to confirm French support in `/ask`; changing STT/TTS does not implement French vision answers or the vision model itself.
