@@ -12,6 +12,7 @@ const proxy = {
   '/api/v1/questions': 'http://localhost:8002',
   '/api/v1/status': 'http://localhost:8002',
   '/api/v1/sos': 'http://localhost:8002',
+  '/api/v1/alerts': 'http://localhost:8002',
   '/api/v1/settings': 'http://localhost:8002',
   '/api/v1/summary': 'http://localhost:8002',
   '/api/v1/frames': 'http://127.0.0.1:8003',

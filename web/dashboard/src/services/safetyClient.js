@@ -1,5 +1,6 @@
 // Member 2: the AI backend's safety and summary endpoints (Vite forwards them to :8002; the login cookie is same-origin).
 // - SOS number: GET/PUT /api/v1/settings
+// - Camera alerts: GET /api/v1/alerts (dark, frozen, no pictures, phone disconnected, memory down)
 // - SOS alerts: GET /api/v1/sos, POST /api/v1/sos/{alert_id}/ack ("I'm on it")
 // - Daily summary: GET /api/v1/summary?tz_offset=<minutes>
 
@@ -29,6 +30,11 @@ export const safetyClient = {
   // This account's SOS alerts from the last 24 hours, unacknowledged first.
   async alerts() {
     return (await request('/api/v1/sos')).alerts;
+  },
+
+  // Problems with the live camera right now, most urgent first (empty when all is well).
+  async liveAlerts() {
+    return (await request('/api/v1/alerts')).alerts;
   },
 
   // "I'm on it": stops the alert on every dashboard signed in to this account.

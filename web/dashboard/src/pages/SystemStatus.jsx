@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { HoldToConfirm, LogoTraceLoader, Selector, Ticket } from '../components/ui/index.js';
 import { Icon, PageHeader, StatusPill, formatShortTime } from '../components/ui.jsx';
 import { useStatus } from '../components/useBackend.js';
+import LiveAlerts from '../components/LiveAlerts.jsx';
 
 const portOf = (url, fallback) => {
   try { return `:${new URL(url).port || fallback}`; } catch { return `:${fallback}`; }
@@ -65,6 +66,11 @@ export default function SystemStatus() {
           <p className="sub">No live session. Press Start in the Aether app to begin one.</p>
         </section>
       )}
+
+      <section className="card section section-tight" aria-labelledby="alerts-title">
+        <h2 id="alerts-title" className="card-title">Camera alerts</h2>
+        <LiveAlerts list />
+      </section>
 
       <div className="grid grid-status">
         <section className="card section section-tight" aria-labelledby="svc-title">
