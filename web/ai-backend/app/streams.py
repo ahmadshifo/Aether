@@ -85,4 +85,9 @@ def active(user_id: str = Depends(signed_in_user_id)) -> dict:
             (user_id,),
         )
         row = cur.fetchone()
-    return {"session": {"session_id": row["session_id"], "started_at": _iso(row["started_at"])} if row else None}
+    if not row:
+        return {"session": None}
+    # camera_paused: the user said "camera off", so the dashboard shows that instead of a stream error.
+    from app.safety import camera_paused
+    return {"session": {"session_id": row["session_id"], "started_at": _iso(row["started_at"]),
+                        "camera_paused": camera_paused(row["session_id"])}}
