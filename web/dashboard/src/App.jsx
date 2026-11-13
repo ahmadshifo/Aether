@@ -4,6 +4,7 @@ import { Link, matchPath, Navigate, NavLink, Route, Routes, useLocation } from '
 import { AUTH_ENABLED, getCurrentUser, logout } from './auth.js';
 import { Avatar, Icon, UserContext } from './components/ui.jsx';
 import { Mark, Wordmark } from './components/ui/index.js';
+import SosAlerts from './components/SosAlerts.jsx';
 import { STATUS } from './data/mockData.js';
 import AiHistory from './pages/AiHistory.jsx';
 import AuthPage from './pages/AuthPage.jsx';
@@ -157,6 +158,8 @@ function Shell({ user, onUserChange, onLogout, theme, onThemeChange }) {
         </aside>
 
         <main ref={mainRef} className="main" tabIndex={-1}>
+          {/* SOS alerts show above every page until a caregiver presses "I'm on it". */}
+          {AUTH_ENABLED && <SosAlerts />}
           <Routes>
             {NAV.map(({ id, path, Page }) => (
               <Route key={id} path={path ?? id} element={

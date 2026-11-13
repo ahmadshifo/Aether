@@ -8,6 +8,8 @@ import {
   Icon, PageHeader, SceneArt, STATUS_LABELS, StatusPill, UserContext, formatTime, frameTitle, signText,
 } from '../components/ui.jsx';
 import { useWatchedSession } from '../components/useWatchedSession.js';
+import { useCameraPaused } from '../components/useLiveSessionId.js';
+import DailySummary from '../components/DailySummary.jsx';
 import { useQuestions, useStatus } from '../components/useBackend.js';
 // Saved-frame cards stay sample scenes until the Visual Memory page is wired to the multimedia service.
 import { FRAMES, sceneFor } from '../data/mockData.js';
@@ -51,6 +53,7 @@ export default function Overview() {
   const user = useContext(UserContext);
   // The phone's stream plays here only after Connect (shared with the Live camera page); Disconnect stops it.
   const { watching, looking, notice, liveId, connect, disconnect } = useWatchedSession(user?.email);
+  const paused = useCameraPaused(watching);
   const { status, checking, check: recheck } = useStatus();
   const history = useQuestions();
   const latest = history.questions[0];
@@ -102,7 +105,7 @@ export default function Overview() {
               <Link to="/live" className="btn">Open full view</Link>
             </div>
           </div>
-          <LiveStream sessionId={watching} aspect="16x9"
+          <LiveStream sessionId={watching} aspect="16x9" paused={paused}
             idleText={AUTH_ENABLED
               ? (streaming ? 'Your phone is streaming. Press Connect to watch it.' : 'Your phone isn’t streaming. Press Start in the Aether app.')
               : undefined} />
@@ -117,6 +120,8 @@ export default function Overview() {
         </section>
 
         <div className="stack">
+          <DailySummary />
+
           <section className="card section section-tight" aria-labelledby="answer-title">
             <div className="card-head">
               <h2 id="answer-title" className="card-title">

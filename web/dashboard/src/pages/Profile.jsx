@@ -1,12 +1,64 @@
 // Member 2: the signed-in person's account, name, appearance, clearing this session's history and logging out.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { updateProfile } from '../auth.js';
+import { safetyClient } from '../services/safetyClient.js';
 import { DynamicButton, HoldToConfirm, Segmented } from '../components/ui/index.js';
 import { Avatar, Icon, PageHeader, formatDate } from '../components/ui.jsx';
 import { useQuestions } from '../components/useBackend.js';
 import { assistantClient } from '../services/assistantClient.js';
 
 const THEMES = [{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }];
+
+// The number the phone calls after the user says "I need help" or "SOS". A caregiver sets it here, because
+// typing a number on the phone is hard for a blind user.
+function SosNumberCard({ authEnabled }) {
+  const [number, setNumber] = useState('');
+  const [saved, setSaved] = useState(null);
+  const [state, setState] = useState('loading'); // loading | idle | busy | done
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!authEnabled) return;
+    safetyClient.sosNumber()
+      .then((value) => { setSaved(value); setNumber(value ?? ''); setState('idle'); })
+      .catch((err) => { setError(err.message); setState('idle'); });
+  }, [authEnabled]);
+
+  async function submit(event) {
+    event.preventDefault();
+    setState('busy');
+    setError('');
+    try {
+      const value = await safetyClient.saveSosNumber(number);
+      setSaved(value);
+      setNumber(value ?? '');
+      setState('done');
+    } catch (err) {
+      setError(err.message);
+      setState('idle');
+    }
+  }
+
+  return (
+    <form className="card section section-tight" onSubmit={submit} aria-labelledby="sos-title">
+      <h2 id="sos-title" className="card-title">Emergency number</h2>
+      <p className="sub">
+        When the user says “I need help” or “SOS”, the phone waits 5 seconds (they can say “cancel”), sends an alert
+        here, then calls this number.
+      </p>
+      <label className="field">Phone number
+        <input className="input" type="tel" inputMode="tel" autoComplete="tel" value={number} placeholder="+961 3 123 456"
+          disabled={!authEnabled || state === 'loading'} maxLength={24}
+          onChange={(event) => { setNumber(event.target.value); if (state === 'done') setState('idle'); }} />
+        <span className="hint">{saved ? `The phone calls ${saved}.` : 'No number saved: the alert is still sent, but nobody is called.'}</span>
+      </label>
+      {error && <p className="form-error" role="alert"><Icon name="alert" size={16} />{error}</p>}
+      <DynamicButton type="submit" state={state === 'busy' ? 'busy' : state === 'done' ? 'done' : 'idle'}
+        disabled={!authEnabled || state === 'loading' || (state === 'idle' && number.trim() === (saved ?? ''))}
+        labels={{ idle: 'Save number', busy: 'Saving…', done: 'Saved' }} />
+    </form>
+  );
+}
 
 export default function Profile({ user, authEnabled, onUserChange, onLogout, theme, onThemeChange }) {
   const [name, setName] = useState(user.name);
@@ -87,6 +139,8 @@ export default function Profile({ user, authEnabled, onUserChange, onLogout, the
         </form>
 
         <div className="stack">
+          <SosNumberCard authEnabled={authEnabled} />
+
           <section className="card section" aria-labelledby="look-title">
             <div className="card-head">
               <h2 id="look-title" className="card-title">Appearance</h2>
