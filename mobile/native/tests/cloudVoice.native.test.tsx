@@ -1,17 +1,26 @@
 import { CloudVoice } from '../src/voice/cloudVoice';
 import type { RecognitionEvents } from '../src/session/controller';
 import type { VoiceApi } from '../src/voice/apiClient';
+import { Platform } from 'react-native';
 
 let mockRecording = false, mockMeter = -80, mockStarted = 0, mockPlayback: ((status: object) => void) | undefined;
 const mockDeleted = jest.fn(), mockRelease = jest.fn(), mockWrite = jest.fn(), mockPlayerRemove = jest.fn();
 const mockMode = jest.fn(async () => {}), mockStop = jest.fn(async () => { mockRecording = false; });
+const mockPrepare = jest.fn(async (_options: object) => {}), mockConstruct = jest.fn();
 const mockAudio = {
   requestRecordingPermissionsAsync: jest.fn(async () => ({ granted: true })), setAudioModeAsync: mockMode,
-  RecordingPresets: { HIGH_QUALITY: {} },
+  RecordingPresets: { HIGH_QUALITY: { extension: '.m4a', sampleRate: 44100, numberOfChannels: 2, bitRate: 128000,
+    ios: { outputFormat: 'aac ', audioQuality: 127 }, android: { outputFormat: 'mpeg4', audioEncoder: 'aac' } } },
   AudioModule: { AudioRecorder: class {
+    constructor(options: Record<string, unknown>) {
+      mockConstruct(options);
+      // Native iOS requires these fields at the top level, unlike the JS preset.
+      if (Platform.OS === 'ios' && (!options.outputFormat || options.audioQuality === undefined)) throw Error('Invalid native recording options');
+      if (Platform.OS === 'android' && (!options.outputFormat || !options.audioEncoder)) throw Error('Invalid native recording options');
+    }
     uri = 'file:///voice-question.m4a';
     get isRecording() { return mockRecording; }
-    prepareToRecordAsync = async () => {};
+    prepareToRecordAsync = mockPrepare;
     record() { mockRecording = true; mockStarted = Date.now(); }
     stop = mockStop; release = mockRelease;
     getStatus() { return { isRecording: mockRecording, metering: mockMeter, durationMillis: Date.now() - mockStarted }; }
@@ -36,19 +45,36 @@ async function sayQuestion() {
   mockMeter = -20; await jest.advanceTimersByTimeAsync(500);
   mockMeter = -80; await jest.advanceTimersByTimeAsync(1500);
 }
-beforeEach(() => { jest.useFakeTimers(); jest.clearAllMocks(); mockRecording = false; mockPlayback = undefined; mockMeter = -80; });
-afterEach(() => { jest.useRealTimers(); });
+beforeEach(() => { jest.useFakeTimers(); jest.clearAllMocks(); mockRecording = false; mockPlayback = undefined; mockMeter = -80; jest.spyOn(console, 'info').mockImplementation(() => {}); });
+afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
 
 test('cloud recording sends the selected language once and deletes its local file', async () => {
   const { voice, api, request, event } = setup();
   await voice.prepare(request.signal);
   await voice.recognize('ar', event, request.signal);
+  expect(mockConstruct).toHaveBeenCalledWith(expect.objectContaining({ outputFormat: 'aac ', audioQuality: 127, numberOfChannels: 1, isMeteringEnabled: true }));
+  expect(mockPrepare).toHaveBeenCalledWith(expect.objectContaining({ ios: expect.objectContaining({ outputFormat: 'aac ' }) }));
   await sayQuestion();
   expect(api.transcribe).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'ar', expect.any(AbortSignal));
   expect(event.processing).toHaveBeenCalledTimes(1);
   expect(event.result).toHaveBeenCalledWith('أين الباب؟', true);
   expect(api.transcribe).toHaveBeenCalledTimes(1); expect(mockRecording).toBe(false);
   expect(mockDeleted).toHaveBeenCalledWith('file:///voice-question.m4a'); expect(mockRelease).toHaveBeenCalledTimes(1);
+});
+
+test('Android receives its native AAC encoder settings', async () => {
+  jest.replaceProperty(Platform, 'OS', 'android');
+  const { voice, request, event } = setup();
+  const stop = await voice.recognize('en', event, request.signal);
+  expect(mockConstruct).toHaveBeenCalledWith(expect.objectContaining({ outputFormat: 'mpeg4', audioEncoder: 'aac', numberOfChannels: 1 }));
+  await stop();
+});
+
+test('recorder construction failure is reported as recording failure, not microphone permission denial', async () => {
+  mockConstruct.mockImplementationOnce(() => { throw Error('Native recorder failed'); });
+  const { voice, request, event } = setup();
+  await expect(voice.recognize('en', event, request.signal)).rejects.toThrow('voice_recording');
+  expect(event.start).not.toHaveBeenCalled();
 });
 test('silence never uploads audio', async () => {
   const { voice, api, request, event } = setup();

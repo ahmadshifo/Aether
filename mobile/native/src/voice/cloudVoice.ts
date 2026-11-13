@@ -1,5 +1,6 @@
 import type { Language } from '../shared/types';
 import type { RecognitionEvents } from '../session/controller';
+import { Platform } from 'react-native';
 import { loadAudio } from '../platform/capabilities';
 import { duringPermission } from '../platform/permissions';
 import type { VoiceApi } from './apiClient';
@@ -7,6 +8,7 @@ import { UtteranceGate } from './utterance';
 
 const files = () => require('expo-file-system') as typeof import('expo-file-system');
 const discard = (uri?: string | null) => { if (uri) { try { const file = new (files().File)(uri); if (file.exists) file.delete(); } catch { /* OS cache cleanup is a final fallback. */ } } };
+const trace = (event: string, details?: object) => { if (__DEV__) console.info('[api-voice]', event, details ?? ''); };
 
 export class CloudVoice {
   private api: VoiceApi;
@@ -27,7 +29,12 @@ export class CloudVoice {
   recognize = async (language: Language, events: RecognitionEvents, signal: AbortSignal): Promise<() => Promise<void>> => {
     const audio = loadAudio();
     if (signal.aborted) return async () => {};
-    const recorder = new audio.AudioModule.AudioRecorder({ ...audio.RecordingPresets.HIGH_QUALITY, numberOfChannels: 1, bitRate: 64000, isMeteringEnabled: true });
+    const options = { ...audio.RecordingPresets.HIGH_QUALITY, numberOfChannels: 1, bitRate: 64000, isMeteringEnabled: true };
+    // Unlike the hook, the native constructor does not flatten the platform preset.
+    // Pass AAC settings at the top level so iOS can create the .m4a recorder.
+    let recorder: InstanceType<typeof audio.AudioModule.AudioRecorder>;
+    try { recorder = new audio.AudioModule.AudioRecorder({ ...options, ...(Platform.OS === 'ios' ? options.ios : options.android) }); }
+    catch { trace('recorder-construction-failed'); throw Error('voice_recording'); }
     let interval: ReturnType<typeof setInterval> | undefined, stopped = false, submitting = false, uri: string | null = null;
     let release: Promise<void> | undefined, finishing: Promise<void> | undefined;
     const request = new AbortController();
@@ -51,14 +58,17 @@ export class CloudVoice {
     try {
       await audio.setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true, shouldPlayInBackground: false, interruptionMode: 'doNotMix' });
       if (!valid()) { await cleanup(); return cleanup; }
-      await recorder.prepareToRecordAsync();
+      await recorder.prepareToRecordAsync(options);
       if (!valid()) { await cleanup(); return cleanup; }
       signal.addEventListener('abort', abort, { once: true });
       recorder.record(); events.start();
+      trace('recording-started');
       const started = Date.now(), gate = new UtteranceGate();
+      let peakDb = -160, samples = 0;
       const submit = async (decision: 'send' | 'silence' | 'unavailable') => {
         if (!valid() || submitting) return;
         submitting = true; clearInterval(interval);
+        trace('recording-finished', { decision, elapsedMs: Date.now() - started, samples, peakDb });
         try {
           await finishRecording();
           if (!valid()) return;
@@ -75,13 +85,14 @@ export class CloudVoice {
         if (!valid() || submitting) return;
         try {
           const status = recorder.getStatus();
+          samples++; if (Number.isFinite(status.metering)) peakDb = Math.max(peakDb, status.metering!);
           if (!status.isRecording || status.mediaServicesDidReset) { void submit('unavailable'); return; }
           const decision = gate.sample(Date.now() - started, status.metering);
           if (decision !== 'wait') void submit(decision);
         } catch { void submit('unavailable'); }
       }, 100);
       return cleanup;
-    } catch (error) { await cleanup(); throw error; }
+    } catch (error) { trace('recording-setup-failed'); await cleanup(); throw error; }
   };
 
   stop = () => {
@@ -109,8 +120,8 @@ export class CloudVoice {
         const cancel = () => finish('cancelled');
         const timer = setTimeout(() => finish('error'), 180000);
         const subscription = player.addListener('playbackStatusUpdate', status => {
-          if (status.playing && !began) { began = true; onStart(); }
-          if (status.didJustFinish) finish('done');
+          if (status.playing && !began) { began = true; trace('speech-playback-started'); onStart(); }
+          if (status.didJustFinish) { trace('speech-playback-finished'); finish('done'); }
           else if (status.playbackState === 'error' || status.mediaServicesDidReset) finish('error');
         });
         this.playback = cancel;

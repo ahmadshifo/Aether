@@ -8,10 +8,10 @@ import { Account } from '../src/screens/Account';
 import { AuthController } from '../src/auth/authController';
 import { defaultEndpoints } from '../src/platform/config';
 import { sessionHaptics } from '../src/platform/sessionHaptics';
-import { Button, HoldButton, Sheet, UIContext } from '../src/components/ui';
+import { Button, Card, HoldButton, Notice, Sheet, UIContext } from '../src/components/ui';
 import { light, dark } from '../src/theme/tokens';
 import { monoCopy } from '../src/i18n/monoCopy';
-import { nativeCopy } from '../src/i18n/nativeCopy';
+import { copies, nativeCopy } from '../src/i18n/nativeCopy';
 import { sessionGreeting } from '../src/voice/sessionGreeting';
 import { voiceCopy } from '../src/i18n/voiceCopy';
 import type { RecognitionEvents } from '../src/session/controller';
@@ -20,8 +20,11 @@ import type { Language } from '../src/shared/types';
 jest.mock('../src/services/teamApi', () => ({ createTeamApi: () => ({ ask: async (request: { question_id: string; language: Language }) => ({ ...request, answer: 'Synthetic server answer', uncertain: false, evidence_frame_ids: [] }) }) }));
 
 const mockOrder: string[] = [], mockRelease = jest.fn();
+const mockCheckVoice = jest.fn();
+let mockAudioAvailable = true;
 let mockWake: RecognitionEvents | undefined, mockQuestion: RecognitionEvents | undefined;
-jest.mock('../src/platform/capabilities', () => ({ capabilities: () => ({ go: false, recognition: true, webrtc: true }), apiVoiceAvailable: () => true }));
+jest.mock('../src/platform/capabilities', () => ({ capabilities: () => ({ go: false, recognition: true, webrtc: true }), apiVoiceAvailable: () => mockAudioAvailable }));
+jest.mock('../src/voice/apiClient', () => ({ ...jest.requireActual('../src/voice/apiClient'), createVoiceApi: () => ({ check: mockCheckVoice }) }));
 jest.mock('../src/voice/cloudVoice', () => ({ CloudVoice: class {
   error = '';
   prepare = async () => { mockOrder.push('cloud prepare'); };
@@ -59,13 +62,14 @@ async function setup(language: Language = 'en', darkMode = false) {
   const auth = new AuthController({ me: async () => user, login: async () => user, signup: async () => user, logout: async () => {} }, 'session-ui-' + language); await auth.check();
   let tree!: renderer.ReactTestRenderer;
   await act(async () => { tree = renderer.create(<SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 402, height: 874 }, insets: { top: 59, bottom: 34, left: 0, right: 0 } }}><UIContext.Provider value={{ language, colors: darkMode ? dark : light, fonts: false, motion: false, haptics: false }}><Account auth={auth} session={auth.getSnapshot().session!} endpoints={defaultEndpoints} saveEndpoints={() => {}} changeLanguage={() => {}} themeMode={darkMode ? 'dark' : 'light'} changeTheme={() => {}} /></UIContext.Provider></SafeAreaProvider>); });
-  await press(tree, monoCopy[language].getStarted);
   const close = async () => { await act(async () => tree.unmount()); auth.dispose(); cleanup.delete(close); };
   cleanup.add(close);
+  await press(tree, copies(language).m.getStarted);
   return { tree, auth, close };
 }
 beforeEach(async () => {
   jest.clearAllMocks(); await AsyncStorage.clear(); mockOrder.length = 0; mockWake = undefined; mockQuestion = undefined;
+  mockAudioAvailable = true; mockCheckVoice.mockReset().mockResolvedValue(undefined);
   Object.defineProperty(AppState, 'currentState', { value: 'active', configurable: true });
   Dimensions.set({ window: { width: 402, height: 874, scale: 3, fontScale: 1 } });
   jest.spyOn(Vibration, 'vibrate').mockImplementation(() => { mockOrder.push('vibrate'); });
@@ -106,6 +110,59 @@ test('API voice selection routes the greeting and recording to the cloud adapter
   expect(mockOrder).toContain('cloud prepare'); expect(mockOrder).toContain('cloud speak'); expect(mockOrder).toContain('cloud record');
   expect(mockOrder).not.toContain('question'); expect(mockOrder).not.toContain('greet');
   expect(AsyncStorage.setItem).toHaveBeenCalledWith(expect.stringContaining(':display'), expect.stringContaining('"apiVoice":true'));
+  await close();
+});
+
+test.each(['en', 'ar', 'fr'] as const)('voice check shows progress and its result beside the voice controls: %s', async language => {
+  let finish!: () => void;
+  mockCheckVoice.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
+  const { tree, close } = await setup(language), copy = voiceCopy[language];
+  await tab(tree, copies(language).m.settings);
+  const check = tree.root.findAllByType(Button).find(button => button.props.label === copy.check)!;
+  await act(async () => { check.props.onPress(); check.props.onPress(); });
+  expect(mockCheckVoice).toHaveBeenCalledTimes(1);
+  expect(tree.root.findAllByType(Button).find(button => button.props.label === copy.checking)?.props.disabled).toBe(true);
+  await act(async () => finish());
+  const voiceCard = tree.root.findAllByType(Card).find(card => card.findAllByType(Button).some(button => button.props.label === copy.check))!;
+  expect(voiceCard.findAllByType(Notice).map(notice => notice.props.children)).toContain(copy.ready);
+  expect(tree.root.findAllByType(Button).find(button => button.props.label === copy.check)?.props.disabled).toBe(false);
+  await close();
+});
+
+test('voice connection errors appear beside the check button and allow retry', async () => {
+  mockCheckVoice.mockRejectedValueOnce(new Error('voice_unavailable'));
+  const { tree, close } = await setup(), copy = voiceCopy.en;
+  await tab(tree, monoCopy.en.settings); await press(tree, copy.check);
+  const voiceCard = tree.root.findAllByType(Card).find(card => card.findAllByType(Button).some(button => button.props.label === copy.check))!;
+  expect(voiceCard.findAllByType(Notice).some(notice => notice.props.children === copy.voice_unavailable && notice.props.danger)).toBe(true);
+  await press(tree, copy.check);
+  expect(voiceCard.findAllByType(Notice).map(notice => notice.props.children)).toContain(copy.ready);
+  await close();
+});
+
+test('leaving Settings cancels the voice check and ignores its late result', async () => {
+  let finish!: () => void;
+  mockCheckVoice.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
+  const { tree, close } = await setup();
+  await tab(tree, monoCopy.en.settings); await press(tree, voiceCopy.en.check);
+  const signal: AbortSignal = mockCheckVoice.mock.calls[0][0];
+  await tab(tree, monoCopy.en.home); expect(signal.aborted).toBe(true);
+  await act(async () => finish());
+  await tab(tree, monoCopy.en.settings);
+  expect(JSON.stringify(tree.toJSON())).not.toContain(voiceCopy.en.ready);
+  expect(tree.root.findAllByType(Button).find(button => button.props.label === voiceCopy.en.check)?.props.disabled).toBe(false);
+  await close();
+});
+
+test('missing audio module feedback appears beside the API voice switch', async () => {
+  mockAudioAvailable = false;
+  const { tree, close } = await setup();
+  await tab(tree, monoCopy.en.settings);
+  const toggle = tree.root.findAllByType(Switch).find(item => item.props.accessibilityLabel === voiceCopy.en.api)!;
+  await act(async () => toggle.props.onValueChange(true));
+  const voiceCard = tree.root.findAllByType(Card).find(card => card.findAllByType(Switch).some(item => item.props.accessibilityLabel === voiceCopy.en.api))!;
+  expect(voiceCard.findAllByType(Notice).map(notice => notice.props.children)).toContain(voiceCopy.en.voice_native_required);
+  expect(toggle.props.value).toBe(false);
   await close();
 });
 

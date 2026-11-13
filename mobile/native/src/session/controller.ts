@@ -165,8 +165,8 @@ export class SessionController {
       if (this.recognitionStartup === pending) this.recognitionStartup = undefined;
       if (!valid()) { await stop(); return; }
       this.stopRecognition = stop;
-    } catch {
-      if (valid()) { this.stop(); this.set({ phase: 'error', voiceError: 'recognition_denied' }); }
+    } catch (error) {
+      if (valid()) { this.stop(); this.set({ phase: 'error', voiceError: error instanceof Error && error.message.startsWith('voice_') ? error.message : 'recognition_denied' }); }
     }
   }
   private retry(g: number) {

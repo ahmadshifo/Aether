@@ -42,6 +42,8 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
   const ui = useUI(), { language, colors } = ui, { m, u, n } = copies(language), dimensions = useWindowDimensions();
   const [page, setPage] = useState<Page>('welcome'), [preferences, setPreferences] = useState<Preferences>({}), [loaded, setLoaded] = useState(false), [selected, setSelected] = useState(0), [prompt, setPrompt] = useState<number | null>(null), [notice, setNotice] = useState('');
   const [confirm, setConfirm] = useState<'leave' | 'clear' | 'logout' | null>(null);
+  const [voiceStatus, setVoiceStatus] = useState({ checking: false, code: '' });
+  const voiceCheckRequest = useRef<AbortController | null>(null);
   const heading = useRef<React.ComponentRef<typeof Text>>(null), alive = useRef(true), currentPrefs = useRef(preferences), preferenceQueue = useRef(Promise.resolve());
   const wakeListener = useRef<(() => Promise<void>) | undefined>(undefined);
   const assistantBack = useRef<React.ComponentRef<typeof View>>(null);
@@ -103,6 +105,21 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
     return () => { clearInterval(timer); sub.remove(); };
   }, [runtime]);
   const navigate = (next: Page) => { setNotice(''); if (next === 'history' || next === 'help') runtime.controller.pause(); setPage(next); };
+  useEffect(() => {
+    setVoiceStatus({ checking: false, code: '' });
+    return () => { voiceCheckRequest.current?.abort(); voiceCheckRequest.current = null; };
+  }, [page, language]);
+  const checkVoice = async () => {
+    if (voiceCheckRequest.current) return;
+    const request = new AbortController(); voiceCheckRequest.current = request;
+    setVoiceStatus({ checking: true, code: '' });
+    try {
+      await runtime.voiceApi.check(request.signal);
+      if (alive.current && !request.signal.aborted) setVoiceStatus({ checking: false, code: 'ready' });
+    } catch (error) {
+      if (alive.current && !request.signal.aborted) setVoiceStatus({ checking: false, code: error instanceof Error ? error.message : 'voice_unavailable' });
+    } finally { if (voiceCheckRequest.current === request) voiceCheckRequest.current = null; }
+  };
   const back = () => { if (page === 'assistant' && media.active) setConfirm('leave'); else navigate('home'); };
   useEffect(() => { const sub = BackHandler.addEventListener('hardwareBackPress', () => { if (confirm) { setConfirm(null); return true; } if (page !== 'home') { if (page === 'assistant' && media.active) setConfirm('leave'); else setPage('home'); return true; } return false; }); return () => sub.remove(); }, [page, media.active, confirm]);
   const updatePrefs = (patch: Preferences) => {
@@ -151,14 +168,12 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
           <T variant="heading">{m.appearance}</T><Card><View style={{ gap: 8 }}>{themeModes.map(mode => <Button key={mode} label={mode === 'system' ? m.themeSystem : mode === 'light' ? m.themeLight : m.themeDark} icon={themeMode === mode ? 'check' : mode === 'system' ? 'phone' : mode === 'light' ? 'sun' : 'moon'} selected={themeMode === mode} onPress={() => changeTheme(mode)} />)}</View></Card>
           <T variant="heading">{m.voice}</T><Card>
           <Row><T style={{ flex: 1 }}>{voiceCopy[language].api}</T><Switch accessibilityLabel={voiceCopy[language].api} value={preferences.apiVoice === true} onValueChange={value => {
-            if (value && !apiVoiceAvailable()) { setNotice(voiceCopy[language].voice_native_required); return; }
-            runtime.controller.stop(); updatePrefs({ apiVoice: value }); setNotice('');
+            voiceCheckRequest.current?.abort(); voiceCheckRequest.current = null;
+            if (value && !apiVoiceAvailable()) { setVoiceStatus({ checking: false, code: 'voice_native_required' }); return; }
+            runtime.controller.stop(); updatePrefs({ apiVoice: value }); setVoiceStatus({ checking: false, code: '' });
           }} /></Row><T variant="small">{voiceCopy[language].apiNote}</T>
-          <Button label={voiceCopy[language].check} onPress={() => {
-            setNotice(voiceCopy[language].checking);
-            void runtime.voiceApi.check(new AbortController().signal).then(() => { if (alive.current) setNotice(voiceCopy[language].ready); })
-              .catch(error => { if (alive.current) setNotice(voiceErrorText(language, error.message)); });
-          }} />
+          <Button label={voiceStatus.checking ? voiceCopy[language].checking : voiceCopy[language].check} disabled={voiceStatus.checking} onPress={() => { void checkVoice(); }} />
+          {!!voiceStatus.code && <Notice danger={voiceStatus.code !== 'ready'}>{voiceErrorText(language, voiceStatus.code)}</Notice>}
           {([['wake', m.wake, m.wakeNote], ['haptics', m.vibrate, m.vibrateNote], ['motion', m.motion, m.motionNote]] as const).map(([key, label, body]) => <View key={key} style={{ gap: 8 }}><Row><T style={{ flex: 1 }}>{label}</T><Switch accessibilityLabel={label} trackColor={{ false: colors.muted, true: colors.ok }} thumbColor={colors.card} value={key === 'motion' ? preferences.motion !== false : preferences[key] === true} onValueChange={value => updatePrefs({ [key]: value })} /></Row><T variant="small">{body}</T></View>)}</Card>
           <T variant="heading">{m.local}</T><Card><HoldButton clear disabled={history.loading || !history.items.length} onConfirm={() => { runtime.repository.clear(); setNotice(u.cleared); }} onOptions={() => setConfirm('clear')} /></Card>
           <Button label={m.connection} onPress={() => navigate('connection')} /><Button label={m.how} onPress={() => navigate('help')} /><Card><T variant="heading">{m.account}</T><ProfileSettings api={runtime.api} auth={auth} session={session} /><T selectable style={{ writingDirection: 'ltr' }}>{session.user.email}</T><Button danger label={m.signOut} onPress={() => setConfirm('logout')} /></Card>

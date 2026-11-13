@@ -23,6 +23,14 @@ test('missing cloud setup or greeting quota error never starts a recording', asy
   await quota.controller.start('en'); assert.equal(quota.controller.getSnapshot().phase, 'paused');
   assert.equal(quota.controller.getSnapshot().voiceError, 'voice_quota'); assert.equal(quota.events.length, 0); quota.controller.stop();
 });
+test('a native recorder failure keeps its recording error instead of claiming permission denial', async () => {
+  const failed = harness({ recognition: async () => { throw Error('voice_recording'); } });
+  await failed.controller.start('en');
+  assert.equal(failed.controller.getSnapshot().voiceError, 'voice_recording');
+  assert.equal(failed.controller.getSnapshot().phase, 'error');
+  assert.equal(failed.controller.getSnapshot().active, false);
+  failed.controller.stop();
+});
 function harness(overrides = {}) {
   const events = [], answers = [], counts = { capture: 0, release: 0, close: 0, start: 0, stop: 0, voiceStop: 0, speak: 0, wake: false }, snapshots = [];
   let allowed = true;
