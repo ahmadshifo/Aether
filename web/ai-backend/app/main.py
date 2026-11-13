@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from app.auth import ApiError, init_db, router as auth_router
 from app.history import init_history_table, router as history_router
 from app.routes import router as ask_router
+from app.alerts import router as alerts_router
 from app.safety import init_safety_tables, router as safety_router
 from app.status import router as status_router
 from app.streams import router as streams_router
@@ -31,6 +32,7 @@ app.include_router(status_router)
 app.include_router(ask_router)
 app.include_router(safety_router)
 app.include_router(summary_router)
+app.include_router(alerts_router)
 
 
 @app.exception_handler(ApiError)

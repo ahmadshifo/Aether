@@ -36,6 +36,21 @@ def _post(path: str, body: dict, cookie: str | None = None) -> dict:
         raise MemoryUnavailable(f"multimedia {path} failed: {type(error).__name__}") from None
 
 
+def _get(path: str, cookie: str | None = None) -> dict:
+    headers = {"Accept": "application/json"}
+    if cookie:
+        headers["Cookie"] = cookie
+    try:
+        with urllib.request.urlopen(urllib.request.Request(f"{_base()}{path}", headers=headers), timeout=TIMEOUT) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return {}
+        raise MemoryUnavailable(f"multimedia {path} answered {error.code}") from None
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        raise MemoryUnavailable(f"multimedia {path} failed: {type(error).__name__}") from None
+
+
 class MemoryClient:
     def __init__(self, cookie: str | None = None):
         self.cookie = cookie  # the signed-in user's login cookie, forwarded as-is
@@ -48,3 +63,7 @@ class MemoryClient:
     def keep(self, session_id: str, frame_ids: list[str]) -> dict:
         """Ask multimedia to save the frames an answer used. Returns {accepted, missing}."""
         return _post("/api/v1/frames/keep", {"session_id": session_id, "frame_ids": frame_ids}, self.cookie)
+
+    def live_state(self, session_id: str) -> dict:
+        """How the live camera is doing: last_frame_at, dark_since, frozen_since (ISO times or None)."""
+        return _get(f"/api/v1/live/state?session_id={session_id}", self.cookie)
