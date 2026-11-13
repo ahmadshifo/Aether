@@ -55,9 +55,8 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       preview: caps.go && __DEV__, recognitionAvailable: caps.recognition, streamingAvailable: caps.webrtc,
       allowed, uuid: () => Crypto.randomUUID(), camera: caps.webrtc ? nativeCamera : caps.go ? camera.acquire : async () => { throw Error('native_required'); },
       prepareStart: async () => { await wakeListener.current?.(); },
-      sessionOpened: async () => {
-        await sessionHaptics(currentPrefs.current.haptics === true);
-        // When an emergency number is saved, ask once now for permission to call it, so an SOS never shows a popup.
+      sessionOpened: async signal => {
+        await sessionHaptics(currentPrefs.current.haptics === true, signal);
         // Ask once now (never during an SOS): read contacts (to find who to call) and place calls directly.
         void duringPermission(prepareContacts).then(() => duringPermission(prepareEmergencyCall)).catch(() => {});
       },

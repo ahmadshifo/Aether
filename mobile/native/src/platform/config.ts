@@ -41,7 +41,13 @@ export async function boundedFetch(url: string, options: RequestInit = {}, ms = 
     const response = await fetcher(url, { ...options, redirect: 'error', signal: controller.signal });
     if (response.redirected || response.url && new URL(response.url).origin !== new URL(url).origin) throw Error('redirect_rejected');
     const body = response.status === 204 || response.status === 304 ? null : await response.arrayBuffer();
-    return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+    // React Native's Response polyfill reads ArrayBuffer text byte by byte, corrupting
+    // UTF-8 Arabic/French into characters such as Ø/Ù. Decode text before rebuilding
+    // the response; keep binary bodies intact and the whole read inside the timeout.
+    const type = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+    const text = type.startsWith('text/') || type === 'application/json' || type.endsWith('+json');
+    const payload = body !== null && text ? new TextDecoder('utf-8', { fatal: true }).decode(body) : body;
+    return new Response(payload, { status: response.status, statusText: response.statusText, headers: response.headers });
   } finally { clearTimeout(timer); options.signal?.removeEventListener('abort', abort); }
 }
 // Recognizes the account API without assuming that the backend implements /health.
