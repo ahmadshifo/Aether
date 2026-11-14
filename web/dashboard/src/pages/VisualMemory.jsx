@@ -1,6 +1,7 @@
 // Member 2: saved frames fanned as playing cards, newest first, searchable by caption, read text and objects.
 // Data: the signed-in account's camera sessions of the last 24 hours (AI backend), and each session's saved
-// frames and images from Member 3's API. No AI describes frames yet, so their descriptions say "This is a demo".
+// frames and images from Member 3's API. Captions, read text and objects come from Member 3's frame analysis,
+// which turns on with its AI keys; until then each card says what is still missing.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 import { PlayingCards, Segmented } from '../components/ui/index.js';
@@ -15,8 +16,10 @@ const RANGES = [
   { value: 'history', label: 'Whole day', seconds: Infinity },
 ];
 const HAND_SIZE = 7;
-const DEMO = 'This is a demo';
-const describe = (frame) => frame.caption || DEMO;
+const NO_CAPTION = 'Not described yet';
+const NO_TEXT = 'No text read yet. Reading turns on with the OCR key.';
+const NO_OBJECTS = 'No objects listed yet.';
+const describe = (frame) => frame.caption || NO_CAPTION;
 
 // Every word must appear in the description, the read text or the objects.
 function matches(frame, query) {
@@ -151,11 +154,11 @@ export default function VisualMemory() {
             <span className="label">Text recognized</span>
             {selected.ocr_text
               ? <span className="chip-ink">{selected.ocr_text}</span>
-              : <p className="muted">{DEMO}</p>}
+              : <p className="muted">{NO_TEXT}</p>}
             <span className="label">Detected objects</span>
             {selected.objects.length
               ? <ul className="chips">{selected.objects.map((object) => <li key={object} className="chip">{object}</li>)}</ul>
-              : <p className="muted">{DEMO}</p>}
+              : <p className="muted">{NO_OBJECTS}</p>}
             <span className="label frame-detail-foot">{formatDate(selected.captured_at)} · deleted after 24 h</span>
           </div>
         </section>
