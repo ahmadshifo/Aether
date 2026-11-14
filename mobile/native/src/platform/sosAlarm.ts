@@ -3,12 +3,17 @@
 //
 // The native modules are loaded only when needed: an app built before they were added keeps working,
 // without the flashlight and with the phone's dialer instead of a direct call.
+import { requireOptionalNativeModule } from 'expo';
 import { Linking, PermissionsAndroid, Platform } from 'react-native';
 import { setTorch } from '../../modules/aether-torch';
 
-function optional<T>(load: () => T): T | undefined {
+// Loads a package only when its native parts are in this build. The check must come first: in development, Metro
+// reports a failed package load as a crash even inside try/catch.
+function optional<T>(nativeNames: string[], load: () => T): T | undefined {
+  if (!nativeNames.every(name => requireOptionalNativeModule(name))) return undefined;
   try { return load(); } catch { return undefined; }
 }
+const CONTACTS = ['ExpoContacts', 'ExpoContactsNext'];
 
 /** Flashlight on or off. It uses the system torch (not a camera), so it keeps shining during the call. */
 export const torch = (on: boolean) => setTorch(on);
@@ -34,7 +39,7 @@ export async function prepareEmergencyCall(): Promise<boolean> {
 
 /** Calls the number directly when allowed (Android), otherwise opens the dialer with the number filled in. */
 export async function callEmergencyNumber(number: string): Promise<void> {
-  const launcher = optional(() => require('expo-intent-launcher') as typeof import('expo-intent-launcher'));
+  const launcher = optional(['ExpoIntentLauncher'], () => require('expo-intent-launcher') as typeof import('expo-intent-launcher'));
   if (Platform.OS === 'android' && launcher) {
     try {
       if (await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CALL_PHONE)) {
@@ -55,7 +60,7 @@ const EMERGENCY_NAME = /^ice\b|\bice$|emergency|urgence|طوارئ/i;
 
 /** Asks once (at session start) to read contacts, so an SOS can find the contact to call without a popup. */
 export async function prepareContacts(): Promise<boolean> {
-  const contacts = optional(() => require('expo-contacts') as typeof import('expo-contacts'));
+  const contacts = optional(CONTACTS, () => require('expo-contacts') as typeof import('expo-contacts'));
   if (!contacts) return false;
   try { return (await contacts.requestPermissionsAsync()).granted; } catch { return false; }
 }
@@ -70,7 +75,7 @@ function bestNumber(contact: { phoneNumbers?: { number?: string; label?: string 
  * the user's emergency contact ("ICE ..." / "Emergency ..."). Null when there is no match or no permission.
  */
 export async function findPhoneContact(name: string | null): Promise<PickedContact | null> {
-  const contacts = optional(() => require('expo-contacts') as typeof import('expo-contacts'));
+  const contacts = optional(CONTACTS, () => require('expo-contacts') as typeof import('expo-contacts'));
   if (!contacts) return null;
   try {
     if (!(await contacts.getPermissionsAsync()).granted) return null;
@@ -98,7 +103,7 @@ function score(contactName: string | undefined, wanted: string) {
  * when there is one), null when nothing was chosen, or 'no_number' when the contact has no phone number.
  */
 export async function pickEmergencyContact(): Promise<PickedContact | null | 'no_number'> {
-  const contacts = optional(() => require('expo-contacts') as typeof import('expo-contacts'));
+  const contacts = optional(CONTACTS, () => require('expo-contacts') as typeof import('expo-contacts'));
   if (!contacts) return null;
   const contact = await contacts.presentContactPickerAsync();
   if (!contact) return null;

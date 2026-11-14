@@ -5,7 +5,7 @@
 // never starts an SOS by accident. Each SOS still waits 5 seconds and can be cancelled by voice.
 import type { Language } from '../shared/types.ts';
 
-export type Command = 'sos' | 'cancel' | 'cameraOff' | 'cameraOn' | 'repeat' | 'call';
+export type Command = 'sos' | 'cancel' | 'cameraOff' | 'cameraOn' | 'repeat' | 'call' | 'battery' | 'internet' | 'time' | 'date';
 
 // A plain phone call (not an emergency): "call Mom" / "اتصل بأحمد" / "appelle Marie". The last group is the name.
 const CALL_EN = /^(please )?call (.{1,40})$/;
@@ -36,7 +36,24 @@ const PATTERNS: [Command, RegExp][] = [
   ['repeat', /^(please )?(read it again|read that again|repeat|repeat it|repeat that|say it again|say that again|again|what did you say|one more time)( please)?$/],
   ['repeat', /^(أعد|اعد|أعيد|اعيد|عيد|عيدها|كرر|كرّر|كررها|شو قلت|مرة ثانية)$/],
   ['repeat', /^(répète|répétez|repete|redis|redis-le|encore une fois|qu'est-ce que tu as dit)$/],
+  // Basics the phone answers by itself, even offline (src/voice/basics.ts).
+  ['time', /^(what'?s |what is )?(the )?time( is it)?( now)?( please)?$|^what time is it( now)?( please)?$|^tell me the time( please)?$/],
+  ['time', /^((قديش|اديش|أديش|كم|شو) (ال)?ساعة|(ال)?ساعة (قديش|اديش|أديش|كم))( هلق| الآن)?$/],
+  ['time', /^(quelle heure (est-il|est il|il est)|il est quelle heure)( s'il te plaît| s'il vous plaît)?$/],
+  ['date', /^(what'?s |what is )?(the |today'?s )?date( today)?( please)?$|^what day is (it|today)( today)?$|^what'?s today$|^what is today$/],
+  ['date', /^((شو|ما|ما هو) (ال)?تاريخ( اليوم)?|(شو|اي|أي) يوم (اليوم|نحن)|اليوم شو)$/],
+  ['date', /^(quel jour (sommes-nous|sommes nous|on est|est-on|est on|est-ce|est ce)|on est quel jour|quelle est la date( aujourd'hui)?|c'est quoi la date)$/],
+  ['battery', /^(.{0,30} )?((my|phone'?s?) battery|battery (level|left|percent|percentage|life|status)|how much battery)( .{0,25})?$|^battery$/],
+  ['battery', /^((قديش|اديش|أديش|كم|شو|ما) )?(بطاريتي|البطارية|الشحن|شحن (التلفون|الهاتف|الموبايل))( .{0,20})?$/],
+  ['battery', /^(.{0,30} )?(ma batterie|la batterie|niveau de (la )?batterie|batterie)( .{0,25})?$/],
+  ['internet', /^(.{0,25} )?(internet|wifi|online|offline|connection|connected)( .{0,25})?$/],
+  ['internet', /^(.{0,20} )?(انترنت|إنترنت|الانترنت|الإنترنت|النت|واي ?فاي|متصل|الاتصال|الشبكة)( .{0,20})?$/],
+  ['internet', /^(.{0,25} )?(internet|wifi|connecté|connectée|connexion|en ligne|hors ligne)( .{0,25})?$/],
 ];
+// The loose basics patterns (battery, internet) only count for short sentences that aren't about something in
+// view, so "is there a battery on the table?" stays a camera question.
+const SHORT_ONLY: Command[] = ['battery', 'internet'];
+const ABOUT_THE_VIEW = /\b(see|table|floor|where|find|look|picture|this|that)\b|وين|أين|هيدا|هذا|où|voir|ceci/;
 
 // Speech recognition often writes a command word slightly wrong ("camera of", "cameras off", "cancle").
 // Short words are fixed from this list; longer ones that are 1-2 letters away from a command word become it.
@@ -44,6 +61,7 @@ const PATTERNS: [Command, RegExp][] = [
 const NEAR_MISSES: Record<string, string> = {
   of: 'off', 'of.': 'off', aff: 'off', cameras: 'camera', "camera's": 'camera', camra: 'camera', kamera: 'camera',
   col: 'call', kol: 'call', cole: 'call', coll: 'call', cal: 'call', repet: 'repeat', agin: 'again',
+  batery: 'battery', battry: 'battery', 'wi-fi': 'wifi', wify: 'wifi',
 };
 const COMMAND_WORDS = ['camera', 'cancel', 'repeat', 'again', 'help', 'emergency', 'call'];
 
@@ -99,10 +117,29 @@ export function sosContactName(text: string): string | null {
 export function detectCommand(text: string): Command | null {
   const sentence = normalize(text);
   if (!sentence || sentence.split(' ').length > 10) return null;
-  for (const [command, pattern] of PATTERNS) if (pattern.test(sentence)) return command;
+  const words = sentence.split(' ').length;
+  for (const [command, pattern] of PATTERNS) {
+    if (SHORT_ONLY.includes(command) && (words > 7 || ABOUT_THE_VIEW.test(sentence))) continue;
+    if (pattern.test(sentence)) return command;
+  }
   // Checked after SOS, so "call for help" stays an emergency and only "call <someone>" is a plain call.
   if (callContactName(sentence)) return 'call';
   return null;
+}
+
+// "Stop" while the phone is talking. Only a short stop phrase on its own counts, so the phone hearing its own
+// voice read an answer never stops it.
+const STOP = /^(?:ok(?:ay)? |aether |hey aether )?(?:stop(?: it| talking| please| now)?|be quiet|quiet|enough|shut up|silence|that's enough|thank you stop|وقف|اوقف|أوقف|توقف|اسكت|خلص|بس|كفى|بيكفي|arr[êe]te(?: toi)?|stop|tais toi|silence|ça suffit|ca suffit)(?: please| s'il te pla[iî]t| من فضلك)?$/;
+
+/**
+ * True when what was heard while the phone was talking is the user saying stop. `speaking` is the text being
+ * read: a stop word that is part of it ("Stop sign ahead") is the phone hearing itself, not the user.
+ */
+export function heardStop(heard: string, speaking: string): boolean {
+  const sentence = normalize(heard);
+  if (!sentence || sentence.split(' ').length > 4 || !STOP.test(sentence)) return false;
+  const reading = ` ${normalize(speaking)} `;
+  return !sentence.split(' ').some(word => word.length > 1 && reading.includes(` ${word} `));
 }
 
 /** Seconds the user has to say "cancel" before an SOS is sent. */
