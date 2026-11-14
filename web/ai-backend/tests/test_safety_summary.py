@@ -32,6 +32,13 @@ class PhoneNumberTests(unittest.TestCase):
                 clean_phone_number(bad)
 
 
+class NoteTests(unittest.TestCase):
+    def test_notes_are_one_clean_line(self):
+        from app.caregiver import clean_note
+        self.assertEqual(clean_note("  Dinner is ready,\n come to the kitchen  "), "Dinner is ready, come to the kitchen")
+        with self.assertRaises(ApiError):
+            clean_note("   \n ")
+
 class SummaryTests(unittest.TestCase):
     def test_today_starts_at_local_midnight(self):
         start, end = day_window(NOW, LEBANON)

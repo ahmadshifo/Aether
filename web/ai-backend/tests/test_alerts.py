@@ -62,5 +62,23 @@ class AlertTests(unittest.TestCase):
         self.assertNotEqual(first, second)
 
 
+class BatteryAlertTests(unittest.TestCase):
+    def test_low_battery_only_when_not_charging(self):
+        from app.alerts import battery_alert
+        self.assertEqual(battery_alert({"battery": 50, "charging": False}, "s", NOW), [])
+        self.assertEqual(battery_alert({"battery": 15, "charging": True}, "s", NOW), [])
+        self.assertEqual(battery_alert(None, "s", NOW), [])
+        low = battery_alert({"battery": 15, "charging": False}, "s", NOW)[0]
+        self.assertEqual((low["kind"], low["level"]), ("low_battery", "warning"))
+        self.assertIn("15 %", low["title"])
+        self.assertEqual(battery_alert({"battery": 8, "charging": False}, "s", NOW)[0]["level"], "danger")
+
+    def test_one_alert_per_level_so_seen_stays_seen(self):
+        from app.alerts import battery_alert
+        first = battery_alert({"battery": 19, "charging": False}, "s", NOW)[0]["alert_id"]
+        later = battery_alert({"battery": 17, "charging": False}, "s", NOW + timedelta(minutes=3))[0]["alert_id"]
+        self.assertEqual(first, later)
+
+
 if __name__ == "__main__":
     unittest.main()

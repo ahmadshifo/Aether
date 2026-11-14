@@ -6,6 +6,7 @@ The dashboard shows these as a banner on every page (SOS alerts have their own r
 - no_picture:         the phone says it's streaming, but no pictures are arriving
 - phone_disconnected: the phone's video isn't reaching the video server (Wi-Fi or app problem)
 - memory_offline:     the memory service is down, so the assistant can't see the camera to answer
+- low_battery:        the phone reported 20 % or less and isn't charging (app/caregiver.py)
 
 Alerts are worked out live on each request, so each one disappears by itself once the problem is gone.
 Nothing is shown while the user has said "camera off" (that is on purpose, not a problem) or isn't streaming.
@@ -19,6 +20,7 @@ from fastapi import APIRouter, Depends, Request
 from app.auth import _iso, _now, signed_in_user_id
 from app.memory_client import MemoryClient, MemoryUnavailable
 from app.safety import camera_paused
+from app.caregiver import LOW_BATTERY, device_status
 from app.status import _live_session, check_multimedia, check_streaming
 
 router = APIRouter(prefix="/api/v1", tags=["alerts"])
@@ -39,6 +41,8 @@ TEXT = {
                            "The session is on, but its video isn't reaching the video server. Check the phone's Wi-Fi."),
     "memory_offline": ("The assistant can't see the camera",
                        "The memory service is not running, so questions can't be answered from the camera."),
+    "low_battery": ("The phone's battery is low",
+                    "The phone isn't charging. The assistant stops when the battery runs out."),
 }
 
 
@@ -55,6 +59,16 @@ def _make(kind: str, session_id: str, since: datetime, level: str = "warning") -
     # The id changes when a new problem starts, so a caregiver who pressed "Seen" still sees the next one.
     return {"alert_id": f"{kind}:{session_id}:{_iso(since)}", "kind": kind, "level": level,
             "title": title, "detail": detail, "since": _iso(since), "session_id": session_id}
+
+
+def battery_alert(device: dict | None, session_id: str, now: datetime) -> list[dict]:
+    """A low-battery alert from the phone's latest report (red at 10 % or less)."""
+    if not device or device["charging"] or device["battery"] > LOW_BATTERY:
+        return []
+    alert = _make("low_battery", session_id, now.replace(second=0, microsecond=0), "danger" if device["battery"] <= 10 else "warning")
+    alert["title"] = f"The phone's battery is at {device['battery']} %"
+    alert["alert_id"] = f"low_battery:{session_id}:{10 if device['battery'] <= 10 else 20}"  # one alert per level
+    return [alert]
 
 
 def build_alerts(now: datetime, session: dict | None, paused: bool, reaching: bool | None,
@@ -92,8 +106,10 @@ def build_alerts(now: datetime, session: dict | None, paused: bool, reaching: bo
 def alerts(request: Request, user_id: str = Depends(signed_in_user_id)) -> dict:
     """This account's live problems, most urgent first. Empty when everything is fine."""
     row = _live_session(user_id)
-    if not row or camera_paused(row["session_id"]):
+    if not row:
         return {"alerts": []}
+    if camera_paused(row["session_id"]):  # camera off on purpose: only the battery still matters
+        return {"alerts": battery_alert(device_status(user_id), row["session_id"], _now())}
     session = {"session_id": row["session_id"], "started_at": row["started_at"]}
     with ThreadPoolExecutor(max_workers=3) as pool:
         multimedia_job = pool.submit(check_multimedia)
@@ -107,5 +123,6 @@ def alerts(request: Request, user_id: str = Depends(signed_in_user_id)) -> dict:
         except MemoryUnavailable:
             memory_online = False
     found = build_alerts(_now(), session, False, reaching, memory_online, state)
+    found += battery_alert(device_status(user_id), row["session_id"], _now())
     found.sort(key=lambda alert: alert["level"] != "danger")
     return {"alerts": found}
