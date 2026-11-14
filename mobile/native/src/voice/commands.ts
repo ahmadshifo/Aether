@@ -5,7 +5,7 @@
 // never starts an SOS by accident. Each SOS still waits 5 seconds and can be cancelled by voice.
 import type { Language } from '../shared/types.ts';
 
-export type Command = 'sos' | 'cancel' | 'cameraOff' | 'cameraOn' | 'repeat' | 'call' | 'battery' | 'internet' | 'time' | 'date';
+export type Command = 'sos' | 'cancel' | 'cameraOff' | 'cameraOn' | 'repeat' | 'call' | 'battery' | 'internet' | 'time' | 'date' | 'examples' | 'slower' | 'faster';
 
 // A plain phone call (not an emergency): "call Mom" / "اتصل بأحمد" / "appelle Marie". The last group is the name.
 const CALL_EN = /^(please )?call (.{1,40})$/;
@@ -36,6 +36,17 @@ const PATTERNS: [Command, RegExp][] = [
   ['repeat', /^(please )?(read it again|read that again|repeat|repeat it|repeat that|say it again|say that again|again|what did you say|one more time)( please)?$/],
   ['repeat', /^(أعد|اعد|أعيد|اعيد|عيد|عيدها|كرر|كرّر|كررها|شو قلت|مرة ثانية)$/],
   ['repeat', /^(répète|répétez|repete|redis|redis-le|encore une fois|qu'est-ce que tu as dit)$/],
+  // "What can I ask?": a few example questions, said out loud.
+  ['examples', /^(what can i (ask|say|do)( you)?|what can you do|what do you do|what should i ask|what questions can i ask|give me (some )?examples|how do i use (this|you|aether))( please)?$/],
+  ['examples', /^(شو بقدر (اسأل|اسال|قول)|شو فيك تعمل|شو بتعمل|ماذا يمكنني أن أسأل|ماذا أستطيع أن أسأل|شو الأسئلة|اعطيني أمثلة|أعطني أمثلة)$/],
+  ['examples', /^(qu'est-ce que je peux (demander|dire)|que puis-je demander|qu'est-ce que tu sais faire|que sais-tu faire|donne-moi des exemples|donne moi des exemples)( s'il te plaît)?$/],
+  // Reading speed.
+  ['slower', /^(please )?((speak|talk|read) )?(more )?(slower|slowly)( please)?$|^slow down( please)?$|^too fast$/],
+  ['slower', /^((احكي|تكلم|اقرأ|إقرأ) )?(أبطأ|ابطأ|على مهل|ع مهل|بشويش|شوي شوي|أبطأ شوي)( من فضلك)?$/],
+  ['slower', /^((parle|lis) )?(plus lentement|moins vite)( s'il te plaît| s'il vous plaît)?$/],
+  ['faster', /^(please )?((speak|talk|read) )?(faster|quicker|more quickly)( please)?$|^speed up( please)?$|^too slow$/],
+  ['faster', /^((احكي|تكلم|اقرأ|إقرأ) )?(أسرع|اسرع|أسرع شوي|اسرع شوي)( من فضلك)?$/],
+  ['faster', /^((parle|lis) )?(plus vite|plus rapidement)( s'il te plaît| s'il vous plaît)?$/],
   // Basics the phone answers by itself, even offline (src/voice/basics.ts).
   ['time', /^(what'?s |what is )?(the )?time( is it)?( now)?( please)?$|^what time is it( now)?( please)?$|^tell me the time( please)?$/],
   ['time', /^((قديش|اديش|أديش|كم|شو) (ال)?ساعة|(ال)?ساعة (قديش|اديش|أديش|كم))( هلق| الآن)?$/],
@@ -163,6 +174,10 @@ export const commandCopy: Record<Language, Record<string, string>> = {
     cameraAlreadyOn: 'The camera is already on.',
     cameraOffQuestion: 'The camera is off. Say camera on first.',
     nothingToRepeat: "There's no answer to repeat yet.",
+    note: 'Message from your caregiver: {text}',
+    examples: 'You can ask: What is in front of me? What does this say? What colour is this? Is the way clear? Where are my keys? You can also say: read it again, speak slower, camera off, what time is it, what is my battery, am I connected, or I need help.',
+    slower: "Okay, I'll speak slower.", faster: "Okay, I'll speak faster.",
+    slowest: "This is already the slowest I can speak.", fastest: "This is already the fastest I can speak.",
     pausedLabel: 'Camera paused. Say "camera on" to start it again.',
     sosLabel: 'Help alert: say "cancel" to stop it.',
     sosSentLabel: 'Help alert sent.',
@@ -187,6 +202,10 @@ export const commandCopy: Record<Language, Record<string, string>> = {
     cameraAlreadyOn: 'الكاميرا تعمل أصلًا.',
     cameraOffQuestion: 'الكاميرا مطفأة. قل شغّل الكاميرا أولًا.',
     nothingToRepeat: 'لا توجد إجابة لإعادتها بعد.',
+    note: 'رسالة من مرافقك: {text}',
+    examples: 'يمكنك أن تسأل: شو في قدامي؟ شو مكتوب هون؟ شو لون هيدا؟ هل الطريق فاضي؟ وين مفاتيحي؟ ويمكنك أن تقول: عيد، احكي أبطأ، أطفئ الكاميرا، قديش الساعة، قديش البطارية، في انترنت، أو ساعدني.',
+    slower: 'حسنًا، سأتكلم أبطأ.', faster: 'حسنًا، سأتكلم أسرع.',
+    slowest: 'هذه أبطأ سرعة لدي.', fastest: 'هذه أسرع سرعة لدي.',
     pausedLabel: 'الكاميرا متوقفة. قل «شغّل الكاميرا» لتشغيلها.',
     sosLabel: 'تنبيه مساعدة: قل «إلغاء» لإيقافه.',
     sosSentLabel: 'أُرسل تنبيه المساعدة.',
@@ -211,6 +230,10 @@ export const commandCopy: Record<Language, Record<string, string>> = {
     cameraAlreadyOn: 'La caméra est déjà allumée.',
     cameraOffQuestion: "La caméra est éteinte. Dites d'abord allume la caméra.",
     nothingToRepeat: "Il n'y a pas encore de réponse à répéter.",
+    note: 'Message de votre aidant : {text}',
+    examples: "Vous pouvez demander : qu'est-ce qu'il y a devant moi ? Qu'est-ce qui est écrit ? De quelle couleur est ceci ? Le chemin est-il libre ? Où sont mes clés ? Vous pouvez aussi dire : répète, parle plus lentement, éteins la caméra, quelle heure est-il, ma batterie, suis-je connecté, ou au secours.",
+    slower: "D'accord, je vais parler plus lentement.", faster: "D'accord, je vais parler plus vite.",
+    slowest: 'Je parle déjà le plus lentement possible.', fastest: 'Je parle déjà le plus vite possible.',
     pausedLabel: 'Caméra en pause. Dites « allume la caméra » pour la rallumer.',
     sosLabel: "Alerte d'aide : dites « annuler » pour l'arrêter.",
     sosSentLabel: "Alerte d'aide envoyée.",

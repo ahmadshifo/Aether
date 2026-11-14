@@ -91,3 +91,46 @@ test('time, battery and connection are answered without asking the server', asyn
   assert.match(h.spoken.join(' | '), /It is .*\| Your battery is at 42 percent\. \| There's no internet/);
   h.controller.stop();
 });
+
+test('what can I ask, speak slower and speak faster are commands in three languages', () => {
+  for (const sentence of ['What can I ask?', 'what can you do', 'شو بقدر اسأل', "qu'est-ce que je peux demander"]) assert.equal(detectCommand(sentence), 'examples', sentence);
+  for (const sentence of ['speak slower', 'Slow down', 'احكي أبطأ', 'plus lentement']) assert.equal(detectCommand(sentence), 'slower', sentence);
+  for (const sentence of ['speak faster', 'talk faster please', 'أسرع', 'parle plus vite']) assert.equal(detectCommand(sentence), 'faster', sentence);
+});
+
+test('speed changes are said, the limit is said, and buzzes mark listening and a ready answer', async () => {
+  let rate = 2;
+  const buzzes = [];
+  const h = harness({ changeSpeechRate: direction => { const next = rate + direction; if (next < 0 || next > 3) return null; rate = next; return next; }, buzz: times => buzzes.push(times) });
+  await h.controller.start('en'); await h.listening();
+  h.events.at(-1).result('speak faster', true); await h.listening();
+  h.events.at(-1).result('speak faster', true); await h.listening();
+  assert.equal(rate, 3);
+  assert.match(h.spoken.at(-1), /fastest/);
+  h.events.at(-1).result('what can I ask', true); await h.listening();
+  assert.match(h.spoken.at(-1), /^You can ask:/);
+  assert.ok(buzzes.includes(1));  // listening again after speaking
+  buzzes.length = 0;
+  h.events.at(-1).result('What is in front of me', true);
+  await settle(); await wait(50); await settle();
+  assert.deepEqual(buzzes, [2]);  // the answer is ready
+  h.controller.stop();
+});
+
+test('the battery is sent to the dashboard when it changes, and caregiver notes are read aloud once', async () => {
+  const reports = [], read = [];
+  let battery, notes = [{ note_id: 'n1', text: 'Dinner is ready.' }];
+  const h = harness({
+    watchBattery: listener => { battery = listener; return () => {}; },
+    reportBattery: async (id, level, charging) => { reports.push([Math.round(level), charging]); },
+    pendingNotes: async () => notes,
+    noteRead: async id => { read.push(id); notes = notes.filter(note => note.note_id !== id); },
+  });
+  await h.controller.start('en'); await h.listening();
+  battery(0.64, false); battery(0.641, false); battery(0.64, true);
+  assert.deepEqual(reports, [[64, false], [64, true]]);  // same whole percent: not sent again
+  await h.listening(); await h.listening();
+  assert.equal(h.spoken.filter(text => text === 'Message from your caregiver: Dinner is ready.').length, 1);
+  assert.deepEqual(read, ['n1']);
+  h.controller.stop();
+});

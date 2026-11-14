@@ -9,6 +9,12 @@ function wait(ms: number, signal?: AbortSignal) {
   });
 }
 
+/** A short buzz: once when the phone starts listening, twice when an answer is ready. */
+export function buzz(times: 1 | 2, enabled: boolean) {
+  if (!enabled) return;
+  try { Vibration.vibrate(times === 1 ? 70 : [0, 70, 130, 70]); } catch { /* Unsupported device. */ }
+}
+
 export async function sessionHaptics(enabled: boolean, signal?: AbortSignal) {
   if (!enabled || signal?.aborted) return;
   const cancel = () => { try { Vibration.cancel(); } catch { /* Unsupported device. */ } };

@@ -20,14 +20,16 @@ import { duringPermission, permissionPending } from '../platform/permissions';
 import { callEmergencyNumber, findPhoneContact, prepareContacts, prepareEmergencyCall, torch } from '../platform/sosAlarm';
 import { readBattery, watchBattery } from '../platform/battery';
 import { checkConnectivity } from '../platform/connectivity';
-import { EmergencyContact } from '../components/EmergencyContact';
 import { GoCamera, nativeCamera, nativePublisher } from '../platform/camera';
-import { sessionHaptics } from '../platform/sessionHaptics';
+import { buzz, sessionHaptics } from '../platform/sessionHaptics';
 import { AssistantScreen } from './AssistantScreen';
 import { SessionController } from '../session/controller';
 import { prepareRecognition, recognize } from '../voice/recognition';
 import { listenForWakeWord } from '../voice/wakeWord';
-import { SpeechOwner } from '../voice/speech';
+import { SPEECH_RATE, SpeechOwner } from '../voice/speech';
+
+// The reading speed chosen by voice ("speak slower"), kept for the next sessions.
+const SPEECH_RATE_KEY = 'aether.speechRate';
 import { StreamRegistry } from '../streaming/registry';
 import { HistoryRepository } from '../storage/history';
 import { createHistoryApi } from '../storage/serverHistory';
@@ -54,6 +56,11 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
     const repository = new HistoryRepository(session.owner, nativeStorage, allowed), camera = new GoCamera(), speech = new SpeechOwner(), registry = new StreamRegistry(endpoints.backend, nativeFetch, unauthorized, allowed), caps = capabilities();
     let wakeGeneration = 0, wakeTag: string | undefined;
     let offlineUntil = 0;
+    // The reading speed the user chose by voice last time.
+    void AsyncStorage.getItem(SPEECH_RATE_KEY).then(value => {
+      const rate = Number(value);
+      if (value && rate >= SPEECH_RATE.min && rate <= SPEECH_RATE.max) speech.rate = rate;
+    }).catch(() => {});
     const controller = new SessionController({
       ask: api.ask,
       preview: caps.go && __DEV__, recognitionAvailable: caps.recognition, streamingAvailable: caps.webrtc,
@@ -89,9 +96,19 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       torch,
       // Who to call: the person named ("call Mom") or the "ICE"/"Emergency" contact, from the phone's contacts.
       findContact: findPhoneContact,
+      changeSpeechRate: direction => {
+        const rate = speech.changeRate(direction);
+        if (rate !== null) void AsyncStorage.setItem(SPEECH_RATE_KEY, String(rate)).catch(() => {});
+        return rate;
+      },
+      buzz: times => buzz(times, currentPrefs.current.haptics === true),
       watchBattery, batteryLevel: readBattery, connectivity: () => checkConnectivity(endpoints.backend),
       call: callEmergencyNumber,
       cameraPaused: (id, paused) => api.setCamera(id, paused, new AbortController().signal),
+      // Optional calls: a server or API client without them leaves the session working as before.
+      reportBattery: async (id, battery, charging) => { await api.device?.(id, battery, charging, new AbortController().signal); },
+      pendingNotes: async () => await api.pendingNotes?.(new AbortController().signal) ?? [],
+      noteRead: async id => { await api.noteRead?.(id, new AbortController().signal); },
     });
     const historySync = new HistorySync(repository, createHistoryApi(endpoints.backend, nativeFetch, unauthorized), allowed);
     return { repository, camera, controller, caps, api, historySync };
@@ -169,7 +186,6 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
         </View>}
         {page === 'history' && <HistoryScreen repository={runtime.repository} state={{ ...history, items: syncedHistory.items }} sync={runtime.historySync} network={syncedHistory} stopSession={() => runtime.controller.stop()} replay={entry => { void runtime.controller.replay(entry); }} active={media.active} speaking={media.phase === 'speaking'} stopSpeech={() => runtime.controller.stopPlayback()} focus={focus} />}
         {page === 'settings' && <View style={{ gap: 24 }}><T variant="title">{m.settings}</T>
-          <EmergencyContact api={runtime.api} language={language} />
           <T variant="heading">{m.appearance}</T><Card><View style={{ gap: 8 }}>{themeModes.map(mode => <Button key={mode} label={mode === 'system' ? m.themeSystem : mode === 'light' ? m.themeLight : m.themeDark} icon={themeMode === mode ? 'check' : mode === 'system' ? 'phone' : mode === 'light' ? 'sun' : 'moon'} selected={themeMode === mode} onPress={() => changeTheme(mode)} />)}</View></Card>
           <T variant="heading">{m.voice}</T><Card>
           {([['wake', m.wake, m.wakeNote], ['haptics', m.vibrate, m.vibrateNote], ['motion', m.motion, m.motionNote]] as const).map(([key, label, body]) => <View key={key} style={{ gap: 8 }}><Row><T style={{ flex: 1 }}>{label}</T><Switch accessibilityLabel={label} trackColor={{ false: colors.muted, true: colors.ok }} thumbColor={colors.card} value={key === 'motion' ? preferences.motion !== false : preferences[key] === true} onValueChange={value => updatePrefs({ [key]: value })} /></Row><T variant="small">{body}</T></View>)}</Card>

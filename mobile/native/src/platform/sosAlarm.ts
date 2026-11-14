@@ -53,62 +53,77 @@ export async function callEmergencyNumber(number: string): Promise<void> {
 
 export type PickedContact = { name: string; number: string };
 
-// How people usually mark their emergency contact in the phone's contacts: "ICE Mom" (In Case of Emergency),
-// "Emergency - Ahmad", or the Arabic/French words. iPhone and Android don't let apps read the system's own
-// emergency-contact setting, so this naming habit is what Aether can find.
-const EMERGENCY_NAME = /^ice\b|\bice$|emergency|urgence|طوارئ/i;
+// The phone's own emergency contact. Samsung keeps the contacts chosen in Settings > Safety and emergency in a
+// contacts group ("ICE - emergency contacts"); iPhone and other phones can't share theirs with apps, so people
+// usually save them as "ICE Mom" (In Case of Emergency), "Emergency - Ahmad", or the Arabic/French words.
+// Aether looks for that group first, then for such a name.
+const EMERGENCY_NAME = /^ice\b|\bice$|\bice\b.*emergenc|emergenc|urgence|طوارئ/i;
+
+type Phone = { number?: string; label?: string };
+type Contacts = typeof import('expo-contacts');
 
 /** Asks once (at session start) to read contacts, so an SOS can find the contact to call without a popup. */
 export async function prepareContacts(): Promise<boolean> {
-  const contacts = optional(CONTACTS, () => require('expo-contacts') as typeof import('expo-contacts'));
+  const contacts = optional(CONTACTS, () => require('expo-contacts') as Contacts);
   if (!contacts) return false;
   try { return (await contacts.requestPermissionsAsync()).granted; } catch { return false; }
 }
 
-function bestNumber(contact: { phoneNumbers?: { number?: string; label?: string }[] }) {
-  const phones = (contact.phoneNumbers ?? []).filter(phone => phone.number?.trim());
-  return (phones.find(phone => /mobile|cell/i.test(phone.label ?? '')) ?? phones[0])?.number ?? null;
+function bestNumber(phones: Phone[] | undefined) {
+  const usable = (phones ?? []).filter(phone => phone.number?.trim());
+  return (usable.find(phone => /mobile|cell|portable|جوال|خليوي/i.test(phone.label ?? '')) ?? usable[0])?.number ?? null;
+}
+
+async function withNumber(contact: { getFullName(): Promise<string>; getPhones(): Promise<Phone[]> }): Promise<PickedContact | null> {
+  const [name, phones] = await Promise.all([contact.getFullName().catch(() => ''), contact.getPhones().catch(() => [])]);
+  const number = bestNumber(phones);
+  return number ? { name: name || number, number } : null;
+}
+
+/** The phone's emergency contact: someone in an "ICE"/"Emergency" contacts group, else a contact named so. */
+async function emergencyContact(contacts: Contacts): Promise<PickedContact | null> {
+  try {
+    for (const group of await contacts.Group.getAll()) {
+      const groupName = (await group.getName().catch(() => null)) ?? '';
+      if (!EMERGENCY_NAME.test(groupName)) continue;
+      for (const member of await group.getContacts().catch(() => [])) {
+        const found = await withNumber(member);
+        if (found) return found;
+      }
+    }
+  } catch { /* Groups aren't available on this phone: look by name below. */ }
+  const everyone = await contacts.Contact.getAllDetails([contacts.ContactField.FULL_NAME, contacts.ContactField.PHONES]);
+  for (const details of everyone) {
+    if (!EMERGENCY_NAME.test(details.fullName ?? '')) continue;
+    const number = bestNumber(details.phones as Phone[] | undefined);
+    if (number) return { name: details.fullName || number, number };
+  }
+  return null;
 }
 
 /**
  * Finds who to call in the phone's own contacts: the person with this name ("Mom", "أحمد"), or with name null
- * the user's emergency contact ("ICE ..." / "Emergency ..."). Null when there is no match or no permission.
+ * the user's emergency contact (see emergencyContact). Null when there is no match or no permission.
  */
 export async function findPhoneContact(name: string | null): Promise<PickedContact | null> {
-  const contacts = optional(CONTACTS, () => require('expo-contacts') as typeof import('expo-contacts'));
+  const contacts = optional(CONTACTS, () => require('expo-contacts') as Contacts);
   if (!contacts) return null;
   try {
     if (!(await contacts.getPermissionsAsync()).granted) return null;
-    const { data } = await contacts.getContactsAsync({ fields: [contacts.Fields.PhoneNumbers], ...(name ? { name } : {}) });
-    const wanted = name?.toLocaleLowerCase().trim();
-    // A named person: exact name first, then a name that starts with it ("Mom" -> "Mom Home"), then any match.
-    const ranked = name
-      ? [...data].sort((a, b) => score(b.name, wanted!) - score(a.name, wanted!))
-      : data.filter(contact => EMERGENCY_NAME.test(contact.name ?? ''));
-    for (const contact of ranked) {
-      const number = bestNumber(contact);
-      if (number) return { name: contact.name || number, number };
+    if (!name) return await emergencyContact(contacts);
+    const wanted = name.toLocaleLowerCase().trim();
+    const matches = await contacts.Contact.getAllDetails([contacts.ContactField.FULL_NAME, contacts.ContactField.PHONES], { name });
+    // Exact name first, then a name that starts with it ("Mom" -> "Mom Home"), then any match.
+    const ranked = [...matches].sort((a, b) => score(b.fullName ?? '', wanted) - score(a.fullName ?? '', wanted));
+    for (const details of ranked) {
+      const number = bestNumber(details.phones as Phone[] | undefined);
+      if (number) return { name: details.fullName || number, number };
     }
-  } catch { /* No contacts access: fall back to the saved number. */ }
+  } catch { /* No contacts access: fall back to the dashboard's number. */ }
   return null;
 }
 
-function score(contactName: string | undefined, wanted: string) {
-  const value = (contactName ?? '').toLocaleLowerCase().trim();
+function score(contactName: string, wanted: string) {
+  const value = contactName.toLocaleLowerCase().trim();
   return value === wanted ? 3 : value.startsWith(wanted) ? 2 : value.includes(wanted) ? 1 : 0;
-}
-
-/**
- * Opens the phone's own contact list. Resolves with the chosen person's name and phone number (a mobile number
- * when there is one), null when nothing was chosen, or 'no_number' when the contact has no phone number.
- */
-export async function pickEmergencyContact(): Promise<PickedContact | null | 'no_number'> {
-  const contacts = optional(CONTACTS, () => require('expo-contacts') as typeof import('expo-contacts'));
-  if (!contacts) return null;
-  const contact = await contacts.presentContactPickerAsync();
-  if (!contact) return null;
-  const phones = (contact.phoneNumbers ?? []).filter(phone => phone.number?.trim());
-  const best = phones.find(phone => /mobile|cell/i.test(phone.label ?? '')) ?? phones[0];
-  if (!best?.number) return 'no_number';
-  return { name: contact.name || best.number, number: best.number };
 }

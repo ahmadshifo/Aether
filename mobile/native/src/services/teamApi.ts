@@ -56,6 +56,20 @@ export function createTeamApi(origin: string, fetcher: typeof fetch = fetch, onU
     async setCamera(sessionId: string, paused: boolean, signal: AbortSignal): Promise<void> {
       await send('/api/v1/streams/camera', 'POST', { session_id: sessionId, paused }, signal);
     },
+    /** The phone's battery, so the caregiver sees it on the dashboard (and gets a low-battery alert). */
+    async device(sessionId: string, battery: number, charging: boolean, signal: AbortSignal): Promise<void> {
+      await send('/api/v1/device', 'POST', { session_id: sessionId, battery: Math.round(battery), charging }, signal);
+    },
+    /** Caregiver messages typed on the dashboard that haven't been read aloud yet, oldest first. */
+    async pendingNotes(signal: AbortSignal): Promise<{ note_id: string; text: string }[]> {
+      const body = await send('/api/v1/notes/pending', 'GET', undefined, signal);
+      return Array.isArray(body?.notes) ? body.notes.filter((note: { note_id?: unknown; text?: unknown }) =>
+        typeof note?.note_id === 'string' && typeof note.text === 'string' && note.text.trim()) : [];
+    },
+    /** The phone read this caregiver message aloud. */
+    async noteRead(noteId: string, signal: AbortSignal): Promise<void> {
+      await send(`/api/v1/notes/${encodeURIComponent(noteId)}/read`, 'POST', {}, signal);
+    },
     async updateName(name: string, userId: string, signal: AbortSignal) {
       name = name.trim();
       if (!name || [...name].length > 80) throw Error('invalid_name');

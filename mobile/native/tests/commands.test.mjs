@@ -204,13 +204,22 @@ test('near-miss words from speech recognition still work as commands', () => {
   assert.equal(detectCommand('What is in front of me'), null);  // ordinary questions are untouched
 });
 
-test('the contact chosen in Settings wins over an ICE contact, so changing it takes effect', async () => {
+test("the phone's own emergency contact wins over the dashboard's number", async () => {
   const h = contactsHarness({ ICE: { name: 'ICE Ahmad', number: '+9617222222' } });
   await h.controller.start('en');
   await h.say('SOS');
   await wait(5200); await settle(); await wait(600); await settle();
-  assert.ok(h.log.includes('call +9613000000'));  // the saved/chosen number from the harness
-  assert.ok(!h.log.includes('call +9617222222'));
+  assert.ok(h.log.includes('call +9617222222'));
+  assert.ok(!h.log.includes('call +9613000000'));  // the dashboard's number is only the fallback
+  h.controller.stop();
+});
+
+test("without an emergency contact on the phone, the dashboard's number is called", async () => {
+  const h = contactsHarness({});
+  await h.controller.start('en');
+  await h.say('SOS');
+  await wait(5200); await settle(); await wait(600); await settle();
+  assert.ok(h.log.includes('call +9613000000'));
   h.controller.stop();
 });
 
