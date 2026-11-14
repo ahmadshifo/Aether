@@ -64,6 +64,22 @@ class MemoryClient:
         """Ask multimedia to save the frames an answer used. Returns {accepted, missing}."""
         return _post("/api/v1/frames/keep", {"session_id": session_id, "frame_ids": frame_ids}, self.cookie)
 
+    def image(self, frame_id: str) -> bytes | None:
+        """The frame's JPEG (faces already blurred), or None when it's gone or not this account's."""
+        headers = {"Accept": "image/jpeg"}
+        if self.cookie:
+            headers["Cookie"] = self.cookie
+        request = urllib.request.Request(f"{_base()}/api/v1/frames/{frame_id}/image", headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            raise MemoryUnavailable(f"multimedia image answered {error.code}") from None
+        except (urllib.error.URLError, OSError) as error:
+            raise MemoryUnavailable(f"multimedia image failed: {type(error).__name__}") from None
+
     def live_state(self, session_id: str) -> dict:
         """How the live camera is doing: last_frame_at, dark_since, frozen_since (ISO times or None)."""
         return _get(f"/api/v1/live/state?session_id={session_id}", self.cookie)

@@ -31,13 +31,13 @@ class AskRequest(BaseModel):
     session_id: uuid.UUID
     question_id: uuid.UUID
     question: str = Field(min_length=1, max_length=2000)
-    language: Literal["en", "ar"]
+    language: Literal["en", "ar", "fr"]
 
 
 class AskResponse(BaseModel):
     question_id: uuid.UUID
     answer: str
-    language: Literal["en", "ar"]
+    language: Literal["en", "ar", "fr"]
     uncertain: bool
     evidence_frame_ids: list[uuid.UUID]
 

@@ -1,9 +1,10 @@
 """Member 2: select latest/recent/history search, evaluate retrieved evidence and enforce safe short answers.
 
-For now there is no vision model: the assistant finds the frames that show what the question is
-about, answers honestly that it cannot describe them yet, and marks the answer uncertain. The
-frames are still kept as evidence, so the question, answer and images appear in the history.
-When the OpenAI vision step is added, only `describe()` changes.
+The assistant finds the frames that show what the question is about (one from just before the question,
+one from a few seconds after), sends them to the vision AI (app/vision_provider.py, Google Gemini) and
+returns one short answer. Without frames, or when the AI is not set up or fails, it says so honestly and
+marks the answer uncertain; it never answers from nothing. The frames are kept as evidence either way, so
+the question, answer and images appear in the history.
 """
 
 import logging
@@ -13,7 +14,10 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from app import vision_provider
 from app.memory_client import MemoryClient, MemoryUnavailable
+from app.summary import topic_of
+from app.vision_provider import VisionUnavailable
 
 log = logging.getLogger("ai.assistant")
 
@@ -37,13 +41,29 @@ ANSWERS = {
         "frames": "I saved what your camera saw, but I can't describe it yet because the AI isn't connected.",
         "none": "I can't see anything from your camera yet. If you just pressed Start, wait a moment and ask again.",
         "offline": "I can't reach the camera memory right now. Please try again in a moment.",
+        "quota": "I've reached today's limit for answers. Please try again later.",
+        "failed": "I couldn't get an answer right now. Please ask again in a moment.",
+        "cane": "Please keep using your cane or guide.",
     },
     "ar": {
         "frames": "حفظتُ ما رأته الكاميرا، لكن لا يمكنني وصفه بعد لأن الذكاء الاصطناعي غير متصل.",
         "none": "لا أرى شيئًا من الكاميرا بعد. إذا ضغطت «ابدأ» للتو، انتظر قليلًا ثم اسأل مرة أخرى.",
         "offline": "لا يمكنني الوصول إلى ذاكرة الكاميرا الآن. حاول مرة أخرى بعد قليل.",
+        "quota": "وصلتُ إلى الحد اليومي للإجابات. حاول مرة أخرى لاحقًا.",
+        "failed": "لم أتمكن من الحصول على إجابة الآن. اسأل مرة أخرى بعد قليل.",
+        "cane": "استمر في استخدام عصاك أو مرشدك.",
+    },
+    "fr": {
+        "frames": "J'ai enregistré ce que la caméra a vu, mais je ne peux pas encore le décrire car l'IA n'est pas connectée.",
+        "none": "Je ne vois encore rien de la caméra. Si vous venez d'appuyer sur Démarrer, attendez un instant et redemandez.",
+        "offline": "Je n'arrive pas à joindre la mémoire de la caméra. Réessayez dans un instant.",
+        "quota": "J'ai atteint la limite de réponses pour aujourd'hui. Réessayez plus tard.",
+        "failed": "Je n'ai pas pu obtenir de réponse. Redemandez dans un instant.",
+        "cane": "Continuez à utiliser votre canne ou votre guide.",
     },
 }
+# Words showing the answer already reminds the user to keep their cane or guide.
+CANE_WORDS = re.compile(r"cane|guide|عصا|مرشد|canne", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -106,9 +126,50 @@ def find_evidence(memory: MemoryClient, session_id: str, question: str, asked_at
     return mode, frames
 
 
-def describe(question: str, language: str, frames: list[dict]) -> tuple[str, bool]:
-    """No vision model yet: never invent what the frames show."""
-    return ANSWERS[language]["frames" if frames else "none"], True
+def _pictures(memory: MemoryClient, frames: list[dict], now: datetime) -> list[tuple[bytes, float]]:
+    """The frames' JPEGs with how many seconds ago each was taken. A frame that is already gone is skipped."""
+    pictures = []
+    for frame in frames:
+        jpeg = memory.image(frame["frame_id"])
+        when = _captured(frame)
+        if jpeg:
+            pictures.append((jpeg, max(0.0, (now - when).total_seconds()) if when else 0.0))
+    return pictures
+
+
+def describe(question: str, language: str, frames: list[dict], memory: MemoryClient | None = None,
+             now: datetime | None = None) -> tuple[str, bool]:
+    """One short answer about the frames, or an honest message when that isn't possible."""
+    copy = ANSWERS[language]
+    if not frames:
+        return copy["none"], True
+    if memory is None or not vision_provider.configured():
+        return copy["frames"], True
+    try:
+        pictures = _pictures(memory, frames, now or datetime.now(UTC))
+    except MemoryUnavailable as error:
+        log.warning("Frame images unavailable: %s", error)
+        return copy["offline"], True
+    if not pictures:
+        return copy["none"], True
+    try:
+        text, uncertain = vision_provider.ask(question, language, pictures)
+    except VisionUnavailable as error:
+        log.warning("Vision AI unavailable: %s", error)
+        return copy["quota" if error.reason == "quota" else "failed"], True
+    # Questions about walking or obstacles always end with the cane reminder (the AI never says "it's safe").
+    if topic_of(question) == "safety" and not CANE_WORDS.search(text):
+        text = f"{text} {copy['cane']}"
+    return text, uncertain
+
+
+def camera_blocked(memory: MemoryClient, session_id: str) -> bool:
+    """True while the live picture is almost black (a finger or object over the lens, phone face down).
+    Such frames are never used as evidence, so without this the user would only hear "I can't see anything"."""
+    try:
+        return bool((memory.live_state(session_id) or {}).get("dark_since"))
+    except (MemoryUnavailable, AttributeError):
+        return False
 
 
 def answer(question: str, language: str, session_id: str, memory: MemoryClient | None = None,
@@ -121,5 +182,9 @@ def answer(question: str, language: str, session_id: str, memory: MemoryClient |
     except MemoryUnavailable as error:
         log.warning("Answering without evidence: %s", error)
         return Answer(ANSWERS[language]["offline"], True, [], "none")
-    text, uncertain = describe(question, language, frames)
+    # A question about what is in front of the user right now, while the lens is covered: say so instead of
+    # describing older pictures from before it was covered.
+    if mode in ("latest", "recent") and camera_blocked(memory, session_id):
+        return Answer(vision_provider.BLOCKED[language], True, [frame["frame_id"] for frame in frames], mode)
+    text, uncertain = describe(question, language, frames, memory)
     return Answer(text, uncertain, [frame["frame_id"] for frame in frames], mode)
