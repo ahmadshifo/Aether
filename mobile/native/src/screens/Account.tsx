@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { AccessibilityInfo, AppState, BackHandler, Pressable, ScrollView, Switch, Text, View, findNodeHandle, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, AppState, BackHandler, Platform, Pressable, ScrollView, Switch, Text, View, findNodeHandle, useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import * as KeepAwake from 'expo-keep-awake';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Frame } from '../components/Frame';
 import { GlassBottomBar } from '../components/GlassBottomBar';
+import { ClassicBottomBar } from '../components/ClassicBottomBar';
 import { Button, Card, HoldButton, Mark, Notice, Row, Sheet, T, UIContext, useUI } from '../components/ui';
 import Icon from '../components/Icon';
 import { copies } from '../i18n/nativeCopy';
@@ -17,6 +18,8 @@ import { capabilities } from '../platform/capabilities';
 import { nativeFetch } from '../platform/network';
 import { duringPermission, permissionPending } from '../platform/permissions';
 import { callEmergencyNumber, findPhoneContact, prepareContacts, prepareEmergencyCall, torch } from '../platform/sosAlarm';
+import { readBattery, watchBattery } from '../platform/battery';
+import { checkConnectivity } from '../platform/connectivity';
 import { EmergencyContact } from '../components/EmergencyContact';
 import { GoCamera, nativeCamera, nativePublisher } from '../platform/camera';
 import { sessionHaptics } from '../platform/sessionHaptics';
@@ -50,6 +53,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
     const api = createTeamApi(endpoints.backend, nativeFetch, unauthorized);
     const repository = new HistoryRepository(session.owner, nativeStorage, allowed), camera = new GoCamera(), speech = new SpeechOwner(), registry = new StreamRegistry(endpoints.backend, nativeFetch, unauthorized, allowed), caps = capabilities();
     let wakeGeneration = 0, wakeTag: string | undefined;
+    let offlineUntil = 0;
     const controller = new SessionController({
       ask: api.ask,
       preview: caps.go && __DEV__, recognitionAvailable: caps.recognition, streamingAvailable: caps.webrtc,
@@ -60,7 +64,13 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
         // Ask once now (never during an SOS): read contacts (to find who to call) and place calls directly.
         void duringPermission(prepareContacts).then(() => duringPermission(prepareEmergencyCall)).catch(() => {});
       },
-      prepareRecognition, recognition: recognize, speak: speech.speak, stopSpeech: speech.stop,
+      prepareRecognition, speak: speech.speak, stopSpeech: speech.stop,
+      // With no internet, Google's online recognizer fails with "network": switch to the phone's offline one for a
+      // minute, so offline questions (time, battery, "am I connected?") are still heard.
+      recognition: (language, events, signal) => recognize(language, { ...events, error: code => {
+        if (code === 'network' || code === 'server') offlineUntil = Date.now() + 60000;
+        events.error(code);
+      } }, signal, { onDevice: Date.now() < offlineUntil }),
       publish: (handle, id, state) => nativePublisher(handle, `${endpoints.media}/live/${id}/whip`, state), register: (action, id) => registry.request(action, id),
       keepAwake: active => {
         const g = ++wakeGeneration;
@@ -79,6 +89,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       torch,
       // Who to call: the person named ("call Mom") or the "ICE"/"Emergency" contact, from the phone's contacts.
       findContact: findPhoneContact,
+      watchBattery, batteryLevel: readBattery, connectivity: () => checkConnectivity(endpoints.backend),
       call: callEmergencyNumber,
       cameraPaused: (id, paused) => api.setCamera(id, paused, new AbortController().signal),
     });
@@ -133,9 +144,12 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
   const finishWelcome = () => { updatePrefs({ welcome: true }); navigate('home'); };
   const confirmAction = () => { const action = confirm; setConfirm(null); if (action === 'logout') void auth.logout(); else if (action === 'clear') { runtime.repository.clear(); setNotice(u.cleared); } else { runtime.controller.stop(); setPrompt(null); if (action === 'leave') navigate('home'); } };
   const fan = dimensions.width >= 390 && dimensions.fontScale < 1.3;
-  const footer = page !== 'welcome' && <GlassBottomBar page={page} onNavigate={navigate} onStart={() => start()} />;
+  // iPhone: the floating Liquid Glass bar. Android (Samsung): the original flat bar under the page.
+  const glassBar = Platform.OS === 'ios';
+  const Bar = glassBar ? GlassBottomBar : ClassicBottomBar;
+  const footer = page !== 'welcome' && <Bar page={page} onNavigate={navigate} onStart={() => start()} />;
   return <UIContext.Provider value={{ ...ui, motion: ui.motion && preferences.motion !== false, haptics: preferences.haptics === true }}>
-    {loaded && page === 'assistant' ? <AssistantScreen media={media} controller={runtime.controller} camera={runtime.camera} caps={runtime.caps} prompt={prompt} start={() => start(prompt)} back={back} backRef={assistantBack} changeLanguage={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} /> : <Frame back={page === 'connection' ? back : undefined} languageChange={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} footer={loaded ? footer : undefined}>
+    {loaded && page === 'assistant' ? <AssistantScreen media={media} controller={runtime.controller} camera={runtime.camera} caps={runtime.caps} prompt={prompt} start={() => start(prompt)} back={back} backRef={assistantBack} changeLanguage={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} /> : <Frame back={page === 'connection' ? back : undefined} languageChange={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} footer={loaded ? footer : undefined} floatingFooter={glassBar}>
       <Text ref={heading} accessibilityRole="header" style={{ color: colors.muted, fontSize: 12 }}>{page === 'welcome' ? 'AETHER / 01' : `AETHER / ${m[page]}`}</Text>
       {!loaded ? <T>{u.loading}</T> : <>
         {page === 'welcome' && <View style={{ gap: 24 }}><View style={{ alignItems: 'center', gap: 20 }}><Mark size={130} /><T variant="title">{m.welcome}</T><T>{m.welcomeBody}</T></View>
