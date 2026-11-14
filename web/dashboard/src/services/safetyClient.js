@@ -3,6 +3,7 @@
 // - Camera alerts: GET /api/v1/alerts (dark, frozen, no pictures, phone disconnected, memory down)
 // - SOS alerts: GET /api/v1/sos, POST /api/v1/sos/{alert_id}/ack ("I'm on it")
 // - Daily summary: GET /api/v1/summary?tz_offset=<minutes>
+// - Phone battery: GET /api/v1/device; caregiver messages: GET/POST /api/v1/notes
 
 async function request(path, options = {}) {
   const response = await fetch(path, {
@@ -40,6 +41,21 @@ export const safetyClient = {
   // "I'm on it": stops the alert on every dashboard signed in to this account.
   acknowledge(alertId) {
     return request(`/api/v1/sos/${alertId}/ack`, { method: 'POST' });
+  },
+
+  // The phone's battery as it last reported it during a session ({battery, charging, updated_at}), or null.
+  async device() {
+    return (await request('/api/v1/device')).device;
+  },
+
+  // Messages sent to the phone in the last 24 hours, newest first, with read_at once read aloud.
+  async notes() {
+    return (await request('/api/v1/notes')).notes;
+  },
+
+  // Sends a message the phone reads aloud.
+  async sendNote(text) {
+    return (await request('/api/v1/notes', { method: 'POST', body: JSON.stringify({ text }) })).note;
   },
 
   // Today's numbers, counted in this browser's time zone.

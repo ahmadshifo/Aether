@@ -647,6 +647,14 @@ img, svg, video { display: block; }
 .live-alert-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 260px; }
 .live-alert-text strong { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; }
 
+/* Phone battery pill and "Message the user" card. */
+.battery-icon { display: inline-flex; width: 18px; height: 9px; padding: 1px; border: 1.5px solid currentColor; border-radius: 3px; }
+.battery-icon > span { display: block; height: 100%; border-radius: 1px; background: currentColor; }
+.notes-form { display: flex; flex-direction: column; gap: 10px; }
+.notes-form textarea { resize: vertical; min-height: 60px; }
+.notes-list { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.notes-list li { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; }
+
 /* Daily summary card on Overview. */
 .summary-sentence { font-size: 15px; line-height: 1.55; color: var(--ink-2); }
 .summary-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; }

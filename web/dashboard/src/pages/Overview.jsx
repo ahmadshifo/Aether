@@ -10,6 +10,8 @@ import {
 import { useWatchedSession } from '../components/useWatchedSession.js';
 import { useCameraPaused } from '../components/useLiveSessionId.js';
 import DailySummary from '../components/DailySummary.jsx';
+import PhoneBattery from '../components/PhoneBattery.jsx';
+import CaregiverNotes from '../components/CaregiverNotes.jsx';
 import { useQuestions, useStatus } from '../components/useBackend.js';
 // Saved-frame cards stay sample scenes until the Visual Memory page is wired to the multimedia service.
 import { FRAMES, sceneFor } from '../data/mockData.js';
@@ -99,6 +101,7 @@ export default function Overview() {
           <div className="card-head">
             <h2 id="live-title" className="card-title">Live stream</h2>
             <div className="btn-row">
+              {AUTH_ENABLED && <PhoneBattery />}
               {watching
                 ? <button type="button" className="btn" onClick={disconnect}>Disconnect</button>
                 : <button type="button" className="btn" onClick={connect} disabled={looking}>{looking ? 'Connecting…' : 'Connect'}</button>}
@@ -121,6 +124,7 @@ export default function Overview() {
 
         <div className="stack">
           <DailySummary />
+          {AUTH_ENABLED && <CaregiverNotes />}
 
           <section className="card section section-tight" aria-labelledby="answer-title">
             <div className="card-head">

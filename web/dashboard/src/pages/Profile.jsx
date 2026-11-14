@@ -44,13 +44,14 @@ function SosNumberCard({ authEnabled }) {
       <h2 id="sos-title" className="card-title">Emergency number</h2>
       <p className="sub">
         When the user says “I need help” or “SOS”, the phone waits 5 seconds (they can say “cancel”), sends an alert
-        here, then calls this number.
+        here, then calls the emergency contact saved on the phone itself (Samsung’s emergency contacts, or a contact
+        named “ICE …”). This number is called only when the phone has none.
       </p>
       <label className="field">Phone number
         <input className="input" type="tel" inputMode="tel" autoComplete="tel" value={number} placeholder="+961 3 123 456"
           disabled={!authEnabled || state === 'loading'} maxLength={24}
           onChange={(event) => { setNumber(event.target.value); if (state === 'done') setState('idle'); }} />
-        <span className="hint">{saved ? `The phone calls ${saved}.` : 'No number saved: the alert is still sent, but nobody is called.'}</span>
+        <span className="hint">{saved ? `The phone calls ${saved}.` : 'No number saved: without an emergency contact on the phone, the alert is still sent but nobody is called.'}</span>
       </label>
       {error && <p className="form-error" role="alert"><Icon name="alert" size={16} />{error}</p>}
       <DynamicButton type="submit" state={state === 'busy' ? 'busy' : state === 'done' ? 'done' : 'idle'}

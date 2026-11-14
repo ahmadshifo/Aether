@@ -3,6 +3,8 @@
 import { useContext, useEffect, useState } from 'react';
 import { AUTH_ENABLED } from '../auth.js';
 import LiveStream from '../components/LiveStream.jsx';
+import PhoneBattery from '../components/PhoneBattery.jsx';
+import CaregiverNotes from '../components/CaregiverNotes.jsx';
 import { DynamicButton, MagneticDropZone, ScrambleText } from '../components/ui/index.js';
 import { Icon, PageHeader, UserContext, formatShortTime } from '../components/ui.jsx';
 import { useWatchedSession } from '../components/useWatchedSession.js';
@@ -55,7 +57,10 @@ export default function LiveCamera() {
 
         <div className="stack">
           <section className="card section" aria-labelledby="session-title">
-            <h2 id="session-title" className="card-title">Stream session</h2>
+            <div className="card-head">
+              <h2 id="session-title" className="card-title">Stream session</h2>
+              {AUTH_ENABLED && <PhoneBattery />}
+            </div>
             <div className="session-field inset">
               {watching ? (
                 <ScrambleText className="session-path" text={`live/${watching}`} runKey={revealKey}
@@ -81,6 +86,7 @@ export default function LiveCamera() {
             </dl>
           </section>
 
+          {AUTH_ENABLED && <CaregiverNotes />}
           <section className="card section section-tight" aria-labelledby="drop-title">
             <div>
               <h2 id="drop-title" className="card-title">Test with a recorded video</h2>
