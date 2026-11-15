@@ -70,6 +70,8 @@ test.each(['en', 'ar'] as const)('eight screen families use shared native views 
   const auth = new AuthController({ me: async () => user, login: async () => user, signup: async () => user, logout: async () => {} }, 'test-ui-' + language); await auth.check();
   const tree = await render(wrapper(<Account auth={auth} session={auth.getSnapshot().session!} endpoints={defaultEndpoints} saveEndpoints={() => {}} changeLanguage={() => {}} themeMode="system" changeTheme={() => {}} />, language));
   const m = monoCopy[language]; expect(JSON.stringify(tree.toJSON())).toContain(m.welcome);
+  // First-time Welcome explains SOS and how to set the phone's emergency contact, and can be read aloud.
+  for (const text of [m.sosTitle, m.sosWhy, m.contactHow, m.readAloud]) expect(JSON.stringify(tree.toJSON())).toContain(text);
   await press(tree, m.getStarted); expect(JSON.stringify(tree.toJSON())).toContain(m.quick);
   const go = async (label: string) => { const tab = tree.root.findAll(x => x.props.accessibilityRole === 'tab' && x.props.accessibilityLabel === label && typeof x.props.onPress === 'function')[0]; expect(tab).toBeTruthy(); await act(async () => tab!.props.onPress()); };
   await go(m.history); expect(JSON.stringify(tree.toJSON())).toContain(uiCopy[language].emptyTitle);

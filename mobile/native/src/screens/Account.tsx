@@ -120,7 +120,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       noteRead: async id => { await api.noteRead?.(id, new AbortController().signal); },
     });
     const historySync = new HistorySync(repository, createHistoryApi(endpoints.backend, nativeFetch, unauthorized), allowed);
-    return { repository, camera, controller, caps, api, historySync, location };
+    return { repository, camera, controller, caps, api, historySync, location, speech };
   });
   const media = useSyncExternalStore(runtime.controller.subscribe, runtime.controller.getSnapshot), history = useSyncExternalStore(runtime.repository.subscribe, runtime.repository.getSnapshot);
   const syncedHistory = useSyncExternalStore(runtime.historySync.subscribe, runtime.historySync.getSnapshot);
@@ -168,7 +168,21 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
     wakeListener.current = stop;
     return () => { void stop(); };
   }, [wakeOn, language]);
-  const finishWelcome = () => { updatePrefs({ welcome: true }); navigate('home'); };
+  const finishWelcome = () => { runtime.speech.stop(); setReading(false); updatePrefs({ welcome: true }); navigate('home'); };
+  // The first-time Welcome page is read aloud once by itself (the user may not see it), and again on request.
+  const [reading, setReading] = useState(false), welcomeRead = useRef(false);
+  const welcomeText = [m.welcome, m.welcomeBody, m.sosTitle, m.sosWhy, m.contactTitle, m.contactHow, m.safety, m.welcomeEnd].join(' ');
+  const readWelcome = () => {
+    if (reading) { runtime.speech.stop(); setReading(false); return; }
+    setReading(true);
+    void runtime.speech.speak(welcomeText, language, () => {}).finally(() => setReading(false));
+  };
+  useEffect(() => {
+    if (!loaded || page !== 'welcome' || welcomeRead.current) return;
+    welcomeRead.current = true;
+    const timer = setTimeout(readWelcome, 600);  // after the screen reader announces the page
+    return () => clearTimeout(timer);
+  }, [loaded, page]);
   const confirmAction = () => { const action = confirm; setConfirm(null); if (action === 'logout') void auth.logout(); else if (action === 'clear') { runtime.repository.clear(); setNotice(u.cleared); } else { runtime.controller.stop(); setPrompt(null); if (action === 'leave') navigate('home'); } };
   const fan = dimensions.width >= 390 && dimensions.fontScale < 1.3;
   // iPhone: the floating Liquid Glass bar. Android (Samsung): the original flat bar under the page.
@@ -180,7 +194,8 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       <Text ref={heading} accessibilityRole="header" style={{ color: colors.muted, fontSize: 12 }}>{page === 'welcome' ? 'AETHER / 01' : `AETHER / ${m[page]}`}</Text>
       {!loaded ? <T>{u.loading}</T> : <>
         {page === 'welcome' && <View style={{ gap: 24 }}><View style={{ alignItems: 'center', gap: 20 }}><Mark size={130} /><T variant="title">{m.welcome}</T><T>{m.welcomeBody}</T></View>
-          {[[m.camera, m.cameraWhy], [m.microphone, m.microphoneWhy]].map(([label, body]) => <Card key={label}><T variant="heading">{label}</T><T>{body}</T></Card>)}
+          <Button label={reading ? m.stopReading : m.readAloud} icon={reading ? 'stop' : 'volume'} onPress={readWelcome} />
+          {[[m.sosTitle, m.sosWhy], [m.contactTitle, m.contactHow], [m.camera, m.cameraWhy], [m.microphone, m.microphoneWhy]].map(([label, body]) => <Card key={label}><T variant="heading">{label}</T><T>{body}</T></Card>)}
           <T variant="small">{m.permission}</T><Button primary label={m.getStarted} onPress={finishWelcome} /><Notice>{m.safety}</Notice>
         </View>}
         {page === 'home' && <View style={{ gap: 28 }}><Row><View style={{ flex: 1 }}><T variant="title">{m.hello}</T><T>{session.user.name}</T><T>{m.greeting}</T></View><Button label={m.connection} onPress={() => navigate('connection')} /></Row>
