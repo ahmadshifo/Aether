@@ -6,6 +6,8 @@ import type { AskRequest, AskResponse } from '../services/teamApi.ts';
 import { callContactName, commandCopy, detectCommand, heardStop, sosContactName, SOS_DELAY_SECONDS, type Command } from '../voice/commands.ts';
 import { batteryWarning, connectionWarning, warningCopy, type Warning } from '../voice/warnings.ts';
 import { batteryAnswer, connectionAnswer, dateAnswer, timeAnswer } from '../voice/basics.ts';
+import { ContactLookupError } from '../platform/contactErrors.ts';
+import { contactCopy } from '../i18n/contactCopy.ts';
 export interface CameraHandle { url?: string; release(): void; snapshot?(): Promise<{ uri: string; capturedAt: string } | undefined> }
 export interface RecognitionEvents { start(): void; result(text: string, final: boolean, confidence?: number): void; end(): void; error(code: string): void }
 export interface SessionPorts {
@@ -461,9 +463,17 @@ export class SessionController {
   private async callByName(g: number, name: string) {
     const copy = commandCopy[this.language];
     const digits = name.replace(/[\s\-().]/g, '');
-    const contact = /^\+?\d{3,15}$/.test(digits)
-      ? { name, number: digits }
-      : await this.ports.findContact?.(name).catch(() => null) ?? null;
+    let contact: { name: string; number: string } | null;
+    try {
+      if (/^\+?\d{3,15}$/.test(digits)) contact = { name, number: digits };
+      else {
+        if (!this.ports.findContact) throw new ContactLookupError('unavailable');
+        contact = await this.ports.findContact(name);
+      }
+    } catch (error) {
+      if (this.valid(g)) await this.say(contactCopy[this.language][error instanceof ContactLookupError ? error.reason : 'readFailed']);
+      return;
+    }
     if (!this.valid(g)) return;
     if (!contact || !this.ports.call) { await this.say(copy.sosNameNotFound.replace('{name}', name)); return; }
     await this.say(copy.callingName.replace('{name}', contact.name));

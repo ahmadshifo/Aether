@@ -6,6 +6,7 @@
 import { requireOptionalNativeModule } from 'expo';
 import { Linking, PermissionsAndroid, Platform } from 'react-native';
 import { setTorch } from '../../modules/aether-torch';
+import { ContactLookupError } from './contactErrors';
 
 // Loads a package only when its native parts are in this build. The check must come first: in development, Metro
 // reports a failed package load as a crash even inside try/catch.
@@ -103,13 +104,15 @@ async function emergencyContact(contacts: Contacts): Promise<PickedContact | nul
 
 /**
  * Finds who to call in the phone's own contacts: the person with this name ("Mom", "أحمد"), or with name null
- * the user's emergency contact (see emergencyContact). Null when there is no match or no permission.
+ * the user's emergency contact (see emergencyContact). Null only when no visible contact matches.
+ * Access and native failures remain distinct so the caller can explain how to recover.
  */
 export async function findPhoneContact(name: string | null): Promise<PickedContact | null> {
   const contacts = optional(CONTACTS, () => require('expo-contacts') as Contacts);
-  if (!contacts) return null;
+  if (!contacts) throw new ContactLookupError('unavailable');
   try {
-    if (!(await contacts.getPermissionsAsync()).granted) return null;
+    const permission = await contacts.getPermissionsAsync();
+    if (!permission.granted) throw new ContactLookupError('permission');
     if (!name) return await emergencyContact(contacts);
     const wanted = name.toLocaleLowerCase().trim();
     const matches = await contacts.Contact.getAllDetails([contacts.ContactField.FULL_NAME, contacts.ContactField.PHONES], { name });
@@ -119,8 +122,13 @@ export async function findPhoneContact(name: string | null): Promise<PickedConta
       const number = bestNumber(details.phones as Phone[] | undefined);
       if (number) return { name: details.fullName || number, number };
     }
-  } catch { /* No contacts access: fall back to the dashboard's number. */ }
-  return null;
+    if (ranked.length) throw new ContactLookupError('noNumber');
+    if (permission.accessPrivileges === 'limited') throw new ContactLookupError('limited');
+    return null;
+  } catch (error) {
+    if (error instanceof ContactLookupError) throw error;
+    throw new ContactLookupError('readFailed');
+  }
 }
 
 function score(contactName: string, wanted: string) {

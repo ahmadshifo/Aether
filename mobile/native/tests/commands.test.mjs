@@ -4,6 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { detectCommand, commandCopy } from '../src/voice/commands.ts';
 import { SessionController } from '../src/session/controller.ts';
+import { ContactLookupError } from '../src/platform/contactErrors.ts';
+import { contactCopy } from '../src/i18n/contactCopy.ts';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
@@ -170,6 +172,57 @@ test('"call <name>" is a plain call; "help, call <name>" is an SOS that names wh
   assert.equal(sosContactName('I need help, call Mom'), 'mom');
   assert.equal(sosContactName('ساعدني اتصل بأحمد'), 'أحمد');
   assert.equal(sosContactName('I need help'), null);
+});
+
+test('command spelling repair preserves contact names in English, Arabic and French', async () => {
+  const { callContactName, sosContactName } = await import('../src/voice/commands.ts');
+  for (const [text, expected] of [['Call Cole', 'cole'], ['Call Camila', 'camila'], ['Kol Cole', 'cole'],
+    ['Col Camila Smith', 'camila smith'], ['Appelle Cole', 'cole'], ['اتصل بأحمد', 'أحمد']]) {
+    assert.equal(detectCommand(text), 'call');
+    assert.equal(callContactName(text), expected, text);
+  }
+  assert.equal(sosContactName('I need help, call Cole'), 'cole');
+  assert.equal(sosContactName('help me kol Camila'), 'camila');
+  assert.equal(sosContactName('au secours appelle Cole'), 'cole');
+});
+
+test('contact access failures are explained in the selected language and never place a call', async () => {
+  for (const language of ['en', 'ar', 'fr']) {
+    for (const reason of ['permission', 'limited', 'unavailable', 'readFailed', 'noNumber']) {
+      const h = harness({ findContact: async () => { throw new ContactLookupError(reason); } });
+      try {
+        await h.controller.start(language);
+        await h.say('call Cole');
+        assert.equal(h.spoken.at(-1), contactCopy[language][reason]);
+        assert.deepEqual(h.calls, []);
+        assert.deepEqual(h.asked, []);
+        assert.deepEqual(h.sos, []);
+      } finally { h.controller.stop(); }
+    }
+  }
+});
+
+test('a native contact exception is not announced as a missing person', async () => {
+  const h = harness({ findContact: async () => { throw Error('private native details'); } });
+  try {
+    await h.controller.start('en');
+    await h.say('call Cole');
+    assert.equal(h.spoken.at(-1), contactCopy.en.readFailed);
+    assert.deepEqual(h.calls, []);
+  } finally { h.controller.stop(); }
+});
+
+test('stopping while contact lookup is pending suppresses late speech and calls', async () => {
+  let rejectLookup;
+  const h = harness({ findContact: () => new Promise((_, reject) => { rejectLookup = reject; }) });
+  await h.controller.start('en');
+  await h.say('call Cole');
+  h.controller.stop();
+  const speechCount = h.spoken.length;
+  rejectLookup(new ContactLookupError('permission'));
+  await settle();
+  assert.equal(h.spoken.length, speechCount);
+  assert.deepEqual(h.calls, []);
 });
 
 function contactsHarness(found, overrides = {}) {
