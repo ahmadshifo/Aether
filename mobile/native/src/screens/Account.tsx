@@ -68,8 +68,11 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       prepareStart: async () => { await wakeListener.current?.(); },
       sessionOpened: async signal => {
         await sessionHaptics(currentPrefs.current.haptics === true, signal);
-        // Ask once now (never during an SOS): read contacts (to find who to call) and place calls directly.
-        void duringPermission(prepareContacts).then(() => duringPermission(prepareEmergencyCall)).catch(() => {});
+        if (signal.aborted || !allowed()) return;
+        // Ask before an SOS, and stop the permission sequence if the session closes.
+        void duringPermission(prepareContacts, signal).then(() => {
+          if (!signal.aborted && allowed()) return duringPermission(prepareEmergencyCall, signal);
+        }).catch(() => {});
       },
       prepareRecognition, speak: speech.speak, stopSpeech: speech.stop,
       // With no internet, Google's online recognizer fails with "network": switch to the phone's offline one for a

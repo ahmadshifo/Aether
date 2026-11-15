@@ -14,11 +14,12 @@ export function parseAnswer(value: unknown, request: AskRequest): AskResponse {
   return { question_id: answer.question_id, answer: answer.answer, language: answer.language,
     uncertain: answer.uncertain, evidence_frame_ids: [...new Set(answer.evidence_frame_ids)] };
 }
-export function createTeamApi(origin: string, fetcher: typeof fetch = fetch, onUnauthorized = () => {}, timeoutMs = 20000) {
+export function createTeamApi(origin: string, fetcher: typeof fetch = fetch, onUnauthorized = () => {}, timeoutMs?: number) {
   async function send(path: string, method: string, body: unknown, signal: AbortSignal) {
     let response: Response;
     try { response = await boundedFetch(origin + path, { method, signal, credentials: 'include', cache: 'no-store',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, timeoutMs, fetcher); }
+      // A new stream can need 3s after the question + 8s for first frames + 13s for vision.
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, timeoutMs ?? (path === '/api/v1/ask' ? 40000 : 20000), fetcher); }
     catch { throw Error(signal.aborted ? 'cancelled' : 'server_unavailable'); }
     if (signal.aborted) throw Error('cancelled');
     if (response.status === 401) { onUnauthorized(); throw Error('auth_lost'); }
