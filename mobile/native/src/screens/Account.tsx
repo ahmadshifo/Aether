@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { AccessibilityInfo, AppState, BackHandler, Pressable, ScrollView, Switch, Text, View, findNodeHandle, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, AppState, BackHandler, Platform, Pressable, ScrollView, Switch, Text, View, findNodeHandle, useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import * as KeepAwake from 'expo-keep-awake';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Frame } from '../components/Frame';
 import { GlassBottomBar } from '../components/GlassBottomBar';
+import { ClassicBottomBar } from '../components/ClassicBottomBar';
 import { Button, Card, HoldButton, Mark, Notice, Row, Sheet, T, UIContext, useUI } from '../components/ui';
 import Icon from '../components/Icon';
 import { copies } from '../i18n/nativeCopy';
@@ -15,18 +16,23 @@ import type { Language, Page } from '../shared/types';
 import { themeModes, type ThemeMode } from '../theme/tokens';
 import { capabilities } from '../platform/capabilities';
 import { nativeFetch } from '../platform/network';
-import { permissionPending } from '../platform/permissions';
+import { duringPermission, permissionPending } from '../platform/permissions';
+import { callEmergencyNumber, findPhoneContact, prepareContacts, prepareEmergencyCall, torch } from '../platform/sosAlarm';
+import { readBattery, watchBattery } from '../platform/battery';
+import { checkConnectivity } from '../platform/connectivity';
 import { GoCamera, nativeCamera, nativePublisher } from '../platform/camera';
-import { sessionHaptics } from '../platform/sessionHaptics';
+import { buzz, sessionHaptics } from '../platform/sessionHaptics';
 import { AssistantScreen } from './AssistantScreen';
 import { SessionController } from '../session/controller';
 import { prepareRecognition, recognize } from '../voice/recognition';
 import { listenForWakeWord } from '../voice/wakeWord';
-import { SpeechOwner } from '../voice/speech';
+import { SPEECH_RATE, SpeechOwner } from '../voice/speech';
 import { CloudVoice } from '../voice/cloudVoice';
 import { createVoiceApi, voiceOrigin } from '../voice/apiClient';
 import { apiVoiceAvailable } from '../platform/capabilities';
 import { voiceCopy, voiceErrorText } from '../i18n/voiceCopy';
+// The reading speed chosen by voice ("speak slower"), kept for the next sessions.
+const SPEECH_RATE_KEY = 'aether.speechRate';
 import { StreamRegistry } from '../streaming/registry';
 import { HistoryRepository } from '../storage/history';
 import { createHistoryApi } from '../storage/serverHistory';
@@ -55,14 +61,34 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
     const repository = new HistoryRepository(session.owner, nativeStorage, allowed), camera = new GoCamera(), speech = new SpeechOwner(), registry = new StreamRegistry(endpoints.backend, nativeFetch, unauthorized, allowed), caps = capabilities();
     const voiceApi = createVoiceApi(voiceOrigin(endpoints), nativeFetch, unauthorized), cloud = new CloudVoice(voiceApi);
     let wakeGeneration = 0, wakeTag: string | undefined;
+    let offlineUntil = 0;
+    // The reading speed the user chose by voice last time.
+    void AsyncStorage.getItem(SPEECH_RATE_KEY).then(value => {
+      const rate = Number(value);
+      if (value && rate >= SPEECH_RATE.min && rate <= SPEECH_RATE.max) speech.rate = cloud.rate = rate;
+    }).catch(() => {});
     const controller = new SessionController({
       ask: api.ask,
       preview: caps.go && __DEV__, get recognitionAvailable() { return currentPrefs.current.apiVoice === true || caps.recognition; }, streamingAvailable: caps.webrtc,
       allowed, uuid: () => Crypto.randomUUID(), camera: caps.webrtc ? nativeCamera : caps.go ? camera.acquire : async () => { throw Error('native_required'); },
       prepareStart: async () => { await wakeListener.current?.(); },
-      sessionOpened: signal => sessionHaptics(currentPrefs.current.haptics === true, signal),
+      sessionOpened: async signal => {
+        await sessionHaptics(currentPrefs.current.haptics === true, signal);
+        if (signal.aborted || !allowed()) return;
+        // Ask before an SOS, and stop the permission sequence if the session closes.
+        void duringPermission(prepareContacts, signal).then(() => {
+          if (!signal.aborted && allowed()) return duringPermission(prepareEmergencyCall, signal);
+        }).catch(() => {});
+      },
       prepareRecognition: signal => currentPrefs.current.apiVoice ? cloud.prepare(signal) : prepareRecognition(signal),
-      recognition: (lang, events, signal) => currentPrefs.current.apiVoice ? cloud.recognize(lang, events, signal) : recognize(lang, events, signal),
+      recognition: (lang, events, signal) => currentPrefs.current.apiVoice ? cloud.recognize(lang, events, signal) : recognize(lang, { ...events, error: code => {
+        if (code === 'network' || code === 'server') offlineUntil = Date.now() + 60000;
+        events.error(code);
+      } }, signal, { onDevice: Date.now() < offlineUntil }),
+      // A short local stop command must never start the Groq audio recorder over TTS.
+      interruptRecognition: (lang, events, signal) => caps.recognition
+        ? recognize(lang, events, signal, { onDevice: currentPrefs.current.apiVoice === true })
+        : Promise.resolve(async () => {}),
       speak: (text, lang, started) => currentPrefs.current.apiVoice ? cloud.speak(text, lang, started) : speech.speak(text, lang, started),
       speechError: () => currentPrefs.current.apiVoice ? cloud.error : '',
       stopSpeech: () => { speech.stop(); cloud.stop(); },
@@ -76,6 +102,28 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       savePhoto: async (snapshot, valid) => { try { return await savePhoto(repository.key, snapshot.uri, snapshot.capturedAt, valid); } finally { await FileSystem.deleteAsync(snapshot.uri, { idempotent: true }).catch(() => {}); } },
       discardPhoto: photo => { void discardPhoto(repository.key, photo).catch(() => {}); }, answer: entry => repository.upsert(entry),
       discardSnapshot: snapshot => { void FileSystem.deleteAsync(snapshot.uri, { idempotent: true }).catch(() => {}); },
+      // Safety commands said during a session: SOS, its phone call, and camera off/on.
+      sos: id => api.sos(id, new AbortController().signal),
+      sosNumber: () => api.sosNumber(new AbortController().signal),
+      // Opens the phone's call screen with the number filled in (calling directly needs a new app build).
+      // SOS: flashlight on (it stays on during the call), then a direct call to the emergency contact.
+      torch,
+      // Who to call: the person named ("call Mom") or the "ICE"/"Emergency" contact, from the phone's contacts.
+      findContact: findPhoneContact,
+      changeSpeechRate: direction => {
+        const rate = speech.changeRate(direction);
+        if (rate !== null) cloud.rate = rate;
+        if (rate !== null) void AsyncStorage.setItem(SPEECH_RATE_KEY, String(rate)).catch(() => {});
+        return rate;
+      },
+      buzz: times => buzz(times, currentPrefs.current.haptics === true),
+      watchBattery, batteryLevel: readBattery, connectivity: () => checkConnectivity(endpoints.backend),
+      call: callEmergencyNumber,
+      cameraPaused: (id, paused) => api.setCamera(id, paused, new AbortController().signal),
+      // Optional calls: a server or API client without them leaves the session working as before.
+      reportBattery: async (id, battery, charging) => { await api.device?.(id, battery, charging, new AbortController().signal); },
+      pendingNotes: async () => await api.pendingNotes?.(new AbortController().signal) ?? [],
+      noteRead: async id => { await api.noteRead?.(id, new AbortController().signal); },
     });
     const historySync = new HistorySync(repository, createHistoryApi(endpoints.backend, nativeFetch, unauthorized), allowed);
     return { repository, camera, controller, caps, api, historySync, voiceApi };
@@ -101,7 +149,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
   }, [page, runtime]);
   useEffect(() => {
     const timer = setInterval(() => { runtime.repository.expire(); runtime.historySync.expire(); }, 30000);
-    const sub = AppState.addEventListener('change', value => { if ((value === 'background' || value === 'inactive') && !permissionPending()) runtime.controller.stop(true); else if (value === 'active') runtime.repository.expire(); });
+    const sub = AppState.addEventListener('change', value => { if ((value === 'background' || value === 'inactive') && !permissionPending()) runtime.controller.stop(true); else if (value === 'active') { runtime.repository.expire(); void torch(false); /* back from an SOS call: flashlight off */ } });
     return () => { clearInterval(timer); sub.remove(); };
   }, [runtime]);
   const navigate = (next: Page) => { setNotice(''); if (next === 'history' || next === 'help') runtime.controller.pause(); setPage(next); };
@@ -143,9 +191,12 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
   const finishWelcome = () => { updatePrefs({ welcome: true }); navigate('home'); };
   const confirmAction = () => { const action = confirm; setConfirm(null); if (action === 'logout') void auth.logout(); else if (action === 'clear') { runtime.repository.clear(); setNotice(u.cleared); } else { runtime.controller.stop(); setPrompt(null); if (action === 'leave') navigate('home'); } };
   const fan = dimensions.width >= 390 && dimensions.fontScale < 1.3;
-  const footer = page !== 'welcome' && <GlassBottomBar page={page} onNavigate={navigate} onStart={() => start()} />;
+  // iPhone: the floating Liquid Glass bar. Android (Samsung): the original flat bar under the page.
+  const glassBar = Platform.OS === 'ios';
+  const Bar = glassBar ? GlassBottomBar : ClassicBottomBar;
+  const footer = page !== 'welcome' && <Bar page={page} onNavigate={navigate} onStart={() => start()} />;
   return <UIContext.Provider value={{ ...ui, motion: ui.motion && preferences.motion !== false, haptics: preferences.haptics === true }}>
-    {loaded && page === 'assistant' ? <AssistantScreen media={media} controller={runtime.controller} camera={runtime.camera} caps={runtime.caps} prompt={prompt} start={() => start(prompt)} back={back} backRef={assistantBack} changeLanguage={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} /> : <Frame back={page === 'connection' ? back : undefined} languageChange={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} footer={loaded ? footer : undefined}>
+    {loaded && page === 'assistant' ? <AssistantScreen media={media} controller={runtime.controller} camera={runtime.camera} caps={runtime.caps} prompt={prompt} start={() => start(prompt)} back={back} backRef={assistantBack} changeLanguage={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} /> : <Frame back={page === 'connection' ? back : undefined} languageChange={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} footer={loaded ? footer : undefined} floatingFooter={glassBar}>
       <Text ref={heading} accessibilityRole="header" style={{ color: colors.muted, fontSize: 12 }}>{page === 'welcome' ? 'AETHER / 01' : `AETHER / ${m[page]}`}</Text>
       {!loaded ? <T>{u.loading}</T> : <>
         {page === 'welcome' && <View style={{ gap: 24 }}><View style={{ alignItems: 'center', gap: 20 }}><Mark size={130} /><T variant="title">{m.welcome}</T><T>{m.welcomeBody}</T></View>

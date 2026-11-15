@@ -5,7 +5,7 @@ node_modules/
 dev-runtime/
 validation/artifacts/
 dist/
-android/
-ios/
+/android/
+/ios/
 .env.local
 *.tsbuildinfo

@@ -5,7 +5,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "android": { "buildType": "apk", "gradleCommand": ":app:assembleDebug" },
-      "env": { "AETHER_LAN_HOST": "any", "EXPO_PUBLIC_AETHER_HOST": "192.168.1.8" }
+      "env": { "AETHER_LAN_HOST": "any", "EXPO_PUBLIC_AETHER_HOST": "192.168.1.8", "ORG_GRADLE_PROJECT_reactNativeArchitectures": "arm64-v8a" }
     },
     "apk": {
       "distribution": "internal",

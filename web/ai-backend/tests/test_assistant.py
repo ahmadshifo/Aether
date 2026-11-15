@@ -4,6 +4,7 @@ Run from web/ai-backend:  .venv\\Scripts\\python -m unittest discover tests
 """
 
 import unittest
+from unittest.mock import patch
 from datetime import UTC, datetime, timedelta
 
 from app import assistant
@@ -70,6 +71,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual((mode, frames), ("recent", []))
         self.assertEqual(now[0], 8.0)
 
+    @patch.object(assistant.vision_provider, "configured", lambda: False)
     def test_answer_uses_the_configured_wait(self):
         memory = FakeMemory([frame(1, "after"), frame(-1, "before")])
         result = assistant.answer("what's in front of me", "en", "s", memory, asked_at=ASKED, wait=0)

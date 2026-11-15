@@ -2,6 +2,7 @@
 // Database credentials are never Expo public variables or command-line arguments.
 import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
+import { answerEnvironment } from './answer-environment.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
@@ -99,7 +100,7 @@ try {
       const child = launch(config.python, ['scripts/prepare-team-history.py'], native, serverEnv);
       child.once('exit', code => code === 0 ? resolve() : reject(Error('Team History table setup failed'))); child.once('error', reject);
     });
-    await ensure(config.python, ['-m', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', '8002'], path.join(repo, 'web/ai-backend'), serverEnv, 8002);
+    await ensure(config.python, ['-m', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', '8002'], path.join(repo, 'web/ai-backend'), { ...serverEnv, ...answerEnvironment(config) }, 8002);
     await check();
     const { address: host, name: lanInterface } = selectLanHost(os.networkInterfaces(), process.env.AETHER_LAN_HOST);
     console.log(`LAN: ${lanInterface} (${host}). Restart this launcher after changing networks.`);

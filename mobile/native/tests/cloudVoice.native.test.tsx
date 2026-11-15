@@ -4,7 +4,7 @@ import type { VoiceApi } from '../src/voice/apiClient';
 import { Platform } from 'react-native';
 
 let mockRecording = false, mockMeter = -80, mockStarted = 0, mockPlayback: ((status: object) => void) | undefined;
-const mockDeleted = jest.fn(), mockRelease = jest.fn(), mockWrite = jest.fn(), mockPlayerRemove = jest.fn();
+const mockDeleted = jest.fn(), mockRelease = jest.fn(), mockWrite = jest.fn(), mockPlayerRemove = jest.fn(), mockPlaybackRate = jest.fn();
 const mockMode = jest.fn(async () => {}), mockStop = jest.fn(async () => { mockRecording = false; });
 const mockPrepare = jest.fn(async (_options: object) => {}), mockConstruct = jest.fn();
 const mockAudio = {
@@ -25,7 +25,7 @@ const mockAudio = {
     stop = mockStop; release = mockRelease;
     getStatus() { return { isRecording: mockRecording, metering: mockMeter, durationMillis: Date.now() - mockStarted }; }
   } },
-  createAudioPlayer: jest.fn(() => ({ play: jest.fn(), pause: jest.fn(), remove: mockPlayerRemove,
+  createAudioPlayer: jest.fn(() => ({ play: jest.fn(), pause: jest.fn(), remove: mockPlayerRemove, setPlaybackRate: mockPlaybackRate,
     addListener: (_: string, fn: (status: object) => void) => { mockPlayback = fn; return { remove: jest.fn() }; },
   })),
 };
@@ -103,8 +103,11 @@ test('quota error is surfaced once with no fallback and recording cleanup', asyn
   expect(event.error).toHaveBeenCalledWith('voice_quota'); expect(api.transcribe).toHaveBeenCalledTimes(1); expect(mockDeleted).toHaveBeenCalled();
 });
 test('MP3 playback completes and removes the player and cached audio', async () => {
-  const { voice } = setup(), started = jest.fn(), speech = voice.speak('Bonjour tout le monde', 'fr', started);
+  const { voice } = setup(), started = jest.fn();
+  voice.rate = 0.65;
+  const speech = voice.speak('Bonjour tout le monde', 'fr', started);
   await jest.advanceTimersByTimeAsync(1); expect(mockWrite).toHaveBeenCalled();
+  expect(mockPlaybackRate).toHaveBeenCalledWith(0.65);
   mockPlayback!({ playing: true }); mockPlayback!({ didJustFinish: true });
   expect(await speech).toBe('done'); expect(started).toHaveBeenCalledTimes(1); expect(mockPlayerRemove).toHaveBeenCalled(); expect(mockDeleted).toHaveBeenCalled();
 });

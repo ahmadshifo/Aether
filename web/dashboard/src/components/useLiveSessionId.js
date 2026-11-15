@@ -33,3 +33,27 @@ export function useLiveSessionId() {
 
   return sessionId;
 }
+
+// True while the user has said "camera off" on the phone, so the live view shows that instead of an error.
+export function useCameraPaused(sessionId) {
+  const [paused, setPaused] = useState(false);
+
+  useEffect(() => {
+    if (!sessionId || !AUTH_ENABLED) { setPaused(false); return undefined; }
+    let cancelled = false;
+    let timer;
+    const look = async () => {
+      const session = await streamsClient.activeSession();
+      if (cancelled) return;
+      setPaused(Boolean(session && session.session_id === sessionId && session.camera_paused));
+      timer = window.setTimeout(look, FIND_EVERY_MS);
+    };
+    look();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [sessionId]);
+
+  return paused;
+}

@@ -14,11 +14,12 @@ export function parseAnswer(value: unknown, request: AskRequest): AskResponse {
   return { question_id: answer.question_id, answer: answer.answer, language: answer.language,
     uncertain: answer.uncertain, evidence_frame_ids: [...new Set(answer.evidence_frame_ids)] };
 }
-export function createTeamApi(origin: string, fetcher: typeof fetch = fetch, onUnauthorized = () => {}, timeoutMs = 20000) {
+export function createTeamApi(origin: string, fetcher: typeof fetch = fetch, onUnauthorized = () => {}, timeoutMs?: number) {
   async function send(path: string, method: string, body: unknown, signal: AbortSignal) {
     let response: Response;
     try { response = await boundedFetch(origin + path, { method, signal, credentials: 'include', cache: 'no-store',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, timeoutMs, fetcher); }
+      // A new stream can need 3s after the question + 8s for first frames + 13s for vision.
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, timeoutMs ?? (path === '/api/v1/ask' ? 40000 : 20000), fetcher); }
     catch { throw Error(signal.aborted ? 'cancelled' : 'server_unavailable'); }
     if (signal.aborted) throw Error('cancelled');
     if (response.status === 401) { onUnauthorized(); throw Error('auth_lost'); }
@@ -36,6 +37,39 @@ export function createTeamApi(origin: string, fetcher: typeof fetch = fetch, onU
     async ask(request: AskRequest, signal: AbortSignal): Promise<AskResponse> {
       if (!uuid(request.session_id) || !uuid(request.question_id) || !request.question.trim() || request.question.length > 4000 || !['en', 'ar', 'fr'].includes(request.language)) throw Error('answer_invalid');
       return parseAnswer(await send('/api/v1/ask', 'POST', request, signal), request);
+    },
+    /** "I need help": saves an SOS alert (with the latest frames) and returns the account's emergency number. */
+    async sos(sessionId: string, signal: AbortSignal): Promise<{ sos_number: string | null }> {
+      const body = await send('/api/v1/sos', 'POST', { session_id: sessionId }, signal);
+      return { sos_number: typeof body?.sos_number === 'string' && body.sos_number ? body.sos_number : null };
+    },
+    /** The account's emergency number, saved by a caregiver on the dashboard (null when none). */
+    async sosNumber(signal: AbortSignal): Promise<string | null> {
+      const body = await send('/api/v1/settings', 'GET', undefined, signal);
+      return typeof body?.sos_number === 'string' && body.sos_number ? body.sos_number : null;
+    },
+    /** Saves the emergency number for this account (the same one the dashboard's Profile page shows). */
+    async saveSosNumber(number: string, signal: AbortSignal): Promise<string | null> {
+      const body = await send('/api/v1/settings', 'PUT', { sos_number: number }, signal);
+      return typeof body?.sos_number === 'string' && body.sos_number ? body.sos_number : null;
+    },
+    /** Camera off/on by voice, so the dashboard shows "Camera paused by the user" instead of a stream error. */
+    async setCamera(sessionId: string, paused: boolean, signal: AbortSignal): Promise<void> {
+      await send('/api/v1/streams/camera', 'POST', { session_id: sessionId, paused }, signal);
+    },
+    /** The phone's battery, so the caregiver sees it on the dashboard (and gets a low-battery alert). */
+    async device(sessionId: string, battery: number, charging: boolean, signal: AbortSignal): Promise<void> {
+      await send('/api/v1/device', 'POST', { session_id: sessionId, battery: Math.round(battery), charging }, signal);
+    },
+    /** Caregiver messages typed on the dashboard that haven't been read aloud yet, oldest first. */
+    async pendingNotes(signal: AbortSignal): Promise<{ note_id: string; text: string }[]> {
+      const body = await send('/api/v1/notes/pending', 'GET', undefined, signal);
+      return Array.isArray(body?.notes) ? body.notes.filter((note: { note_id?: unknown; text?: unknown }) =>
+        typeof note?.note_id === 'string' && typeof note.text === 'string' && note.text.trim()) : [];
+    },
+    /** The phone read this caregiver message aloud. */
+    async noteRead(noteId: string, signal: AbortSignal): Promise<void> {
+      await send(`/api/v1/notes/${encodeURIComponent(noteId)}/read`, 'POST', {}, signal);
     },
     async updateName(name: string, userId: string, signal: AbortSignal) {
       name = name.trim();

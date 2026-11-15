@@ -51,7 +51,7 @@ const services = [
   { name: 'video', port: 8889, dir: 'mobile/streaming', command: `${path.join('mediamtx-local', 'mediamtx.exe')} mediamtx.yml`, env: { MTX_API: 'yes', MTX_APIADDRESS: '127.0.0.1:9997', MTX_WEBRTCIPSFROMINTERFACESLIST: 'WiFi' } },
   { name: 'voice', port: 8001, dir: 'mobile/voice-service', command: `${python} -m uvicorn app.main:app --port 8001` },
   { name: 'backend', port: 8002, dir: 'web/ai-backend', command: `${python} -m uvicorn app.main:app --host 0.0.0.0 --port 8002` },
-  ...(useRustfs ? [{ name: 'rustfs', port: 9000, dir: rustfsDir, command: 'rustfs.exe server data', waitFor: true,
+  ...(useRustfs ? [{ name: 'rustfs', port: 9000, dir: rustfsDir, command: '.\\rustfs.exe server data', waitFor: true, // .\ : some terminals don't run programs from the current folder
     env: { RUSTFS_ADDRESS: '127.0.0.1:9000', RUSTFS_CONSOLE_ENABLE: 'true', RUSTFS_CONSOLE_ADDRESS: '127.0.0.1:9001',
            RUSTFS_ACCESS_KEY: media.S3_ACCESS_KEY_ID, RUSTFS_SECRET_KEY: media.S3_SECRET_ACCESS_KEY } }] : []),
   // ahmadshifo's API (api.main) runs from multimedia/ with the api/.venv environment; it also reads phone streams.

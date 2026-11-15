@@ -3,9 +3,12 @@
 import { useContext, useEffect, useState } from 'react';
 import { AUTH_ENABLED } from '../auth.js';
 import LiveStream from '../components/LiveStream.jsx';
+import PhoneBattery from '../components/PhoneBattery.jsx';
+import CaregiverNotes from '../components/CaregiverNotes.jsx';
 import { DynamicButton, MagneticDropZone, ScrambleText } from '../components/ui/index.js';
 import { Icon, PageHeader, UserContext, formatShortTime } from '../components/ui.jsx';
 import { useWatchedSession } from '../components/useWatchedSession.js';
+import { useCameraPaused } from '../components/useLiveSessionId.js';
 import { useQuestions } from '../components/useBackend.js';
 import { STREAM } from '../data/mockData.js';
 
@@ -14,6 +17,7 @@ const BUTTON_STATE = { idle: 'busy', connecting: 'busy', waiting: 'busy', live: 
 export default function LiveCamera() {
   const user = useContext(UserContext);
   const { watching, looking, notice, liveId, connect, disconnect } = useWatchedSession(user?.email);
+  const paused = useCameraPaused(watching);
   const [streamState, setStreamState] = useState('idle');
   const [revealKey, setRevealKey] = useState(0);
   const history = useQuestions();
@@ -35,7 +39,7 @@ export default function LiveCamera() {
 
       <div className="grid grid-live">
         <section className="card section section-tight live-panel" aria-label="Live stream">
-          <LiveStream sessionId={watching} aspect="16x10" full onState={setStreamState}
+          <LiveStream sessionId={watching} aspect="16x10" full onState={setStreamState} paused={paused}
             idleText={AUTH_ENABLED
               ? (liveId ? 'Your phone is streaming. Press Connect to watch it.' : 'Press Connect to watch the phone’s camera.')
               : undefined} />
@@ -53,7 +57,10 @@ export default function LiveCamera() {
 
         <div className="stack">
           <section className="card section" aria-labelledby="session-title">
-            <h2 id="session-title" className="card-title">Stream session</h2>
+            <div className="card-head">
+              <h2 id="session-title" className="card-title">Stream session</h2>
+              {AUTH_ENABLED && <PhoneBattery />}
+            </div>
             <div className="session-field inset">
               {watching ? (
                 <ScrambleText className="session-path" text={`live/${watching}`} runKey={revealKey}
@@ -79,6 +86,7 @@ export default function LiveCamera() {
             </dl>
           </section>
 
+          {AUTH_ENABLED && <CaregiverNotes />}
           <section className="card section section-tight" aria-labelledby="drop-title">
             <div>
               <h2 id="drop-title" className="card-title">Test with a recorded video</h2>

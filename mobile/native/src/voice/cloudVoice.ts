@@ -11,6 +11,7 @@ const discard = (uri?: string | null) => { if (uri) { try { const file = new (fi
 const trace = (event: string, details?: object) => { if (__DEV__) console.info('[api-voice]', event, details ?? ''); };
 
 export class CloudVoice {
+  rate = 0.95;
   private api: VoiceApi;
   private playback?: () => void;
   private synthesis?: AbortController;
@@ -125,7 +126,7 @@ export class CloudVoice {
           else if (status.playbackState === 'error' || status.mediaServicesDidReset) finish('error');
         });
         this.playback = cancel;
-        try { player.play(); } catch { finish('error'); }
+        try { player.shouldCorrectPitch = true; player.setPlaybackRate(this.rate); player.play(); } catch { finish('error'); }
       });
     } catch (error) {
       if (request.signal.aborted || generation !== this.generation) return 'cancelled';

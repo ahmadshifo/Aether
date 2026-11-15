@@ -89,10 +89,13 @@ test.each(['en', 'ar'] as const)('Hey Aether opens one session, pulses before ca
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 1000)); });
   expect(Speech.speak).toHaveBeenCalledTimes(1);
   expect(Speech.speak).toHaveBeenCalledWith(sessionGreeting[language], expect.objectContaining({ language: language === 'ar' ? 'ar-SA' : 'en-US' }));
-  expect(Vibration.vibrate).toHaveBeenCalledTimes(2);
-  expect(mockOrder.indexOf('wake stopped')).toBeLessThan(mockOrder.indexOf('vibrate'));
-  expect(mockOrder.indexOf('vibrate')).toBeLessThan(mockOrder.indexOf('camera'));
-  expect(mockOrder.lastIndexOf('vibrate')).toBeLessThan(mockOrder.indexOf('camera'));
+  // Two start pulses before the camera, then one short buzz when it starts listening after the greeting.
+  expect(Vibration.vibrate).toHaveBeenCalledTimes(3);
+  expect(Vibration.vibrate).toHaveBeenLastCalledWith(70);
+  const pulses = mockOrder.flatMap((item, index) => item === 'vibrate' ? [index] : []);
+  expect(mockOrder.indexOf('wake stopped')).toBeLessThan(pulses[0]);
+  expect(pulses[1]).toBeLessThan(mockOrder.indexOf('camera'));
+  expect(mockOrder.indexOf('greet')).toBeLessThan(pulses[2]);
   expect(mockOrder.indexOf('greet')).toBeLessThan(mockOrder.indexOf('question'));
   expect(tree.root.findAllByType(Button).filter(item => item.props.label === m.stop)).toHaveLength(1);
   expect(tree.root.findAllByType(HoldButton)).toHaveLength(0);

@@ -66,9 +66,10 @@ function useLiveClock(running) {
 // aspect: '16x9' (Overview) or '16x10' (Live camera). full adds the MIC ON and privacy chips.
 // onState gets 'idle' (no session), 'connecting', 'waiting' or 'live'. idleText replaces the stand-in scene's
 // fake LIVE feed with a message when there's no stream (used once real accounts are on).
-export default function LiveStream({ sessionId = null, aspect = '16x9', full = false, idleText, onState }) {
+// paused: the user said "camera off" on the phone; the stream is gone on purpose, so say that instead of retrying.
+export default function LiveStream({ sessionId = null, aspect = '16x9', full = false, idleText, onState, paused = false }) {
   const videoRef = useRef(null);
-  const { state, setState, message } = useWhepStream(sessionId, videoRef);
+  const { state, setState, message } = useWhepStream(paused ? null : sessionId, videoRef);
   const playing = Boolean(sessionId) && state === 'live';
   const clock = useLiveClock(playing);
 
@@ -83,13 +84,20 @@ export default function LiveStream({ sessionId = null, aspect = '16x9', full = f
         <SceneArt scene="door" sign="ROOM 205" label="Stand-in camera view: a corridor door with a ROOM 205 sign" />
       )}
 
-      {sessionId && state === 'connecting' && (
+      {sessionId && paused && (
+        <div className="stage-overlay" role="status">
+          <LogoTraceLoader size={56} strokeWidth={1.2} />
+          <p>Camera paused by the user.</p>
+          <span className="label">The user said “camera off”. The voice assistant still works; the video returns when they say “camera on”.</span>
+        </div>
+      )}
+      {sessionId && !paused && state === 'connecting' && (
         <div className="stage-overlay" role="status">
           <LogoTraceLoader size={72} loop strokeWidth={1.2} />
           <span className="label">Connecting to the phone…</span>
         </div>
       )}
-      {sessionId && state === 'waiting' && (
+      {sessionId && !paused && state === 'waiting' && (
         <div className="stage-overlay" role="status">
           <LogoTraceLoader size={56} strokeWidth={1.2} />
           <p>{message}</p>

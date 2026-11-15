@@ -114,8 +114,9 @@ def test_application_metadata_docs_openapi_and_only_agreed_paths(configured):
     assert client.get("/docs").status_code == 200
     schema = client.get("/openapi.json").json()
     # /api/v1/frames/keep: contract addition 2026-11-08 (docs/decision-log.md), saves the frames an answer used.
+    # /api/v1/live/state: contract addition 2026-11-13, how the live camera is doing, for the dashboard's alerts.
     assert set(schema["paths"]) == {"/health", "/api/v1/search", "/api/v1/frames", "/api/v1/frames/{frame_id}/image",
-                                    "/api/v1/frames/keep"}
+                                    "/api/v1/frames/keep", "/api/v1/live/state"}
     assert "ExistingAccessCookie" in schema["components"]["securitySchemes"]
     assert schema["paths"]["/api/v1/frames"]["get"]["parameters"][1]["schema"]["maximum"] == 100
 

@@ -8,6 +8,10 @@ import {
   Icon, PageHeader, SceneArt, STATUS_LABELS, StatusPill, UserContext, formatTime, frameTitle, signText,
 } from '../components/ui.jsx';
 import { useWatchedSession } from '../components/useWatchedSession.js';
+import { useCameraPaused } from '../components/useLiveSessionId.js';
+import DailySummary from '../components/DailySummary.jsx';
+import PhoneBattery from '../components/PhoneBattery.jsx';
+import CaregiverNotes from '../components/CaregiverNotes.jsx';
 import { useQuestions, useStatus } from '../components/useBackend.js';
 // Saved-frame cards stay sample scenes until the Visual Memory page is wired to the multimedia service.
 import { FRAMES, sceneFor } from '../data/mockData.js';
@@ -51,6 +55,7 @@ export default function Overview() {
   const user = useContext(UserContext);
   // The phone's stream plays here only after Connect (shared with the Live camera page); Disconnect stops it.
   const { watching, looking, notice, liveId, connect, disconnect } = useWatchedSession(user?.email);
+  const paused = useCameraPaused(watching);
   const { status, checking, check: recheck } = useStatus();
   const history = useQuestions();
   const latest = history.questions[0];
@@ -96,13 +101,14 @@ export default function Overview() {
           <div className="card-head">
             <h2 id="live-title" className="card-title">Live stream</h2>
             <div className="btn-row">
+              {AUTH_ENABLED && <PhoneBattery />}
               {watching
                 ? <button type="button" className="btn" onClick={disconnect}>Disconnect</button>
                 : <button type="button" className="btn" onClick={connect} disabled={looking}>{looking ? 'Connecting…' : 'Connect'}</button>}
               <Link to="/live" className="btn">Open full view</Link>
             </div>
           </div>
-          <LiveStream sessionId={watching} aspect="16x9"
+          <LiveStream sessionId={watching} aspect="16x9" paused={paused}
             idleText={AUTH_ENABLED
               ? (streaming ? 'Your phone is streaming. Press Connect to watch it.' : 'Your phone isn’t streaming. Press Start in the Aether app.')
               : undefined} />
@@ -117,6 +123,9 @@ export default function Overview() {
         </section>
 
         <div className="stack">
+          <DailySummary />
+          {AUTH_ENABLED && <CaregiverNotes />}
+
           <section className="card section section-tight" aria-labelledby="answer-title">
             <div className="card-head">
               <h2 id="answer-title" className="card-title">

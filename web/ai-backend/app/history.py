@@ -73,8 +73,8 @@ def _uuid(value: str, field: str) -> str:
 def record_question(user_id: str, session_id: str, question_id: str, question: str, answer: str,
                     language: str, uncertain: bool, evidence_frame_ids: list[str], asked_at: datetime | None = None) -> None:
     """Called by /api/v1/ask after answering. Saving the same question_id twice keeps the first answer."""
-    if language not in ("en", "ar"):
-        raise ValueError("language must be en or ar")
+    if language not in ("en", "ar", "fr"):
+        raise ValueError("language must be en, ar or fr")
     with closing(_connect()) as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT IGNORE INTO questions (question_id, user_id, session_id, asked_at, question, answer, language, "
