@@ -236,12 +236,17 @@ class LiveIngestManager:
 
 def build_live(repository, memory):
     """(manager, inner pipeline) wired from api/.env; the manager is not started yet."""
+    from processing.card_redact import RedactingRepository
     from processing.face_blur import FaceBlurrer
     from processing.live_runner import LiveMultimediaRunner
     from processing.live_settings import LiveSettings, StreamSettings
     from processing.live_stream import RTSPFrameSource
     ocr, vision, embedding, real = analysis_services()
     blurrer = FaceBlurrer() if switch("MULTIMEDIA_FACE_BLUR") else None
+    # Bank and ID cards are blurred in every saved frame (no AI; MULTIMEDIA_CARD_BLUR=off turns it off).
+    cards = switch("MULTIMEDIA_CARD_BLUR")
+    if cards:
+        repository = RedactingRepository(repository)
     save_every = float(setting("LIVE_SAVE_EVERY_SECONDS", "15"))
     # A phone session runs until Stop; the Task 14 test limits are for the manual runner only.
     live_settings = replace(LiveSettings.from_env(), duration_seconds=86400, max_accepted_frames=10000)
@@ -256,6 +261,6 @@ def build_live(repository, memory):
         return LiveMultimediaRunner(stream_source=RTSPFrameSource(session_id, settings=stream_settings),
                                     pipeline=pipeline, settings=live_settings, dry_run=False)
 
-    log.info("Live ingestion ready (AI analysis: %s, face blur: %s, save every %ss)",
-             "on" if real else "off", "on" if blurrer else "off", save_every)
+    log.info("Live ingestion ready (AI analysis: %s, face blur: %s, card blur: %s, save every %ss)",
+             "on" if real else "off", "on" if blurrer else "off", "on" if cards else "off", save_every)
     return LiveIngestManager(make_runner), keeper

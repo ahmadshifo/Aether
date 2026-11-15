@@ -76,3 +76,14 @@ Record the date, owner, affected services, reason, and approved new contract ver
   service down. Nothing while the user said "camera off". SOS alerts stay on `GET /api/v1/sos`.
 - The dashboard shows them as an amber banner on every page and a list on System status.
 - Affected: multimedia (:8003, one read-only route), AI backend, dashboard. Needs ahmadshifo's approval.
+
+## 2026-11-15 - Card blur in saved frames (Member 2)
+
+- `multimedia/processing/card_redact.py` blurs card-shaped rectangles (ISO ID-1, about 1.59 : 1: bank cards,
+  ID cards, driving licences) in every frame before `save_frame` stores it, via a repository wrapper set up in
+  `build_live`. Plain OpenCV edge and shape checks, no AI, no keys. Fail-safe like face blur: a frame whose
+  redaction fails is not saved. `MULTIMEDIA_CARD_BLUR=off` turns it off.
+- Live frames in RAM and the pictures sent to the answer AI are not card-blurred, so reading a sign still works.
+- Not covered without OCR: ID numbers and addresses on letters or forms. Other card-shaped things (a screen seen
+  straight on, a postcard) may be blurred too, in the saved copy only.
+- Affected: multimedia (save path only, no API change). Needs ahmadshifo's approval.
