@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app import assistant
 from app.auth import ApiError, _connect, _now, signed_in_user_id
 from app.history import get_question, record_question
+from app.history_location import HistoryLocation
 from app.memory_client import MemoryClient, MemoryUnavailable
 
 router = APIRouter(prefix="/api/v1", tags=["ask"])
@@ -32,6 +33,7 @@ class AskRequest(BaseModel):
     question_id: uuid.UUID
     question: str = Field(min_length=1, max_length=2000)
     language: Literal["en", "ar", "fr"]
+    location: HistoryLocation | None = None
 
 
 class AskResponse(BaseModel):
@@ -40,6 +42,7 @@ class AskResponse(BaseModel):
     language: Literal["en", "ar", "fr"]
     uncertain: bool
     evidence_frame_ids: list[uuid.UUID]
+    location: HistoryLocation | None = None
 
 
 def memory_client(request: Request) -> MemoryClient:
@@ -64,14 +67,19 @@ def ask(body: AskRequest, user_id: str = Depends(signed_in_user_id),
     saved = get_question(user_id, question_id)
     if saved:
         return AskResponse(question_id=question_id, answer=saved["answer"], language=saved["language"],
-                           uncertain=saved["uncertain"], evidence_frame_ids=saved["evidence_frame_ids"])
+                           uncertain=saved["uncertain"], evidence_frame_ids=saved["evidence_frame_ids"], location=saved.get("location"))
     _check_session_owner(session_id, user_id)
 
     # The question's time is when it arrived; "what's in front of me" then waits a few seconds for newer frames.
     asked_at, arrived = _now(), datetime.now(UTC)
     result = assistant.answer(question, body.language, session_id, memory, asked_at=arrived)
     record_question(user_id, session_id, question_id, question, result.text, body.language,
-                    result.uncertain, result.evidence_frame_ids, asked_at=asked_at)
+                    result.uncertain, result.evidence_frame_ids, asked_at=asked_at, location=body.location)
+    # A concurrent retry may have won INSERT IGNORE. Return what MySQL actually kept,
+    # including that request's original area, rather than claiming a different tag was saved.
+    persisted = get_question(user_id, question_id)
+    if persisted is None:
+        raise ApiError(503, "history_save_failed", "The answer could not be saved. Please try again.")
     if result.evidence_frame_ids:
         try:
             kept = memory.keep(session_id, result.evidence_frame_ids)
@@ -79,5 +87,5 @@ def ask(body: AskRequest, user_id: str = Depends(signed_in_user_id),
                 log.warning("Question %s: %d evidence frame(s) were already gone", question_id, len(kept["missing"]))
         except MemoryUnavailable as error:
             log.warning("Question %s: evidence frames not kept (%s)", question_id, error)
-    return AskResponse(question_id=question_id, answer=result.text, language=body.language,
-                       uncertain=result.uncertain, evidence_frame_ids=result.evidence_frame_ids)
+    return AskResponse(question_id=question_id, answer=persisted["answer"], language=persisted["language"],
+                       uncertain=persisted["uncertain"], evidence_frame_ids=persisted["evidence_frame_ids"], location=persisted.get("location"))

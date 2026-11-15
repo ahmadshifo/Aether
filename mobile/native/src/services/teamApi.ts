@@ -1,9 +1,10 @@
 import { boundedFetch } from '../platform/config.ts';
 import { parseUser } from '../auth/authClient.ts';
-import type { Language } from '../shared/types.ts';
+import type { HistoryLocation, Language } from '../shared/types.ts';
+import { parseHistoryLocation } from '../storage/historyLocation.ts';
 
-export type AskRequest = { session_id: string; question_id: string; question: string; language: Language };
-export type AskResponse = { question_id: string; answer: string; language: Language; uncertain: boolean; evidence_frame_ids: string[] };
+export type AskRequest = { session_id: string; question_id: string; question: string; language: Language; location?: HistoryLocation };
+export type AskResponse = { question_id: string; answer: string; language: Language; uncertain: boolean; evidence_frame_ids: string[]; location?: HistoryLocation };
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(value);
 export function parseAnswer(value: unknown, request: AskRequest): AskResponse {
   const answer = value as Partial<AskResponse> | null;
@@ -11,14 +12,16 @@ export function parseAnswer(value: unknown, request: AskRequest): AskResponse {
     || typeof answer.answer !== 'string' || !answer.answer.trim() || answer.answer.length > 32000
     || typeof answer.uncertain !== 'boolean' || !Array.isArray(answer.evidence_frame_ids)
     || answer.evidence_frame_ids.length > 100 || !answer.evidence_frame_ids.every(uuid)) throw Error('answer_invalid');
+  const location = parseHistoryLocation(answer.location);
   return { question_id: answer.question_id, answer: answer.answer, language: answer.language,
-    uncertain: answer.uncertain, evidence_frame_ids: [...new Set(answer.evidence_frame_ids)] };
+    uncertain: answer.uncertain, evidence_frame_ids: [...new Set(answer.evidence_frame_ids)], ...(location ? { location } : {}) };
 }
-export function createTeamApi(origin: string, fetcher: typeof fetch = fetch, onUnauthorized = () => {}, timeoutMs = 20000) {
+export function createTeamApi(origin: string, fetcher: typeof fetch = fetch, onUnauthorized = () => {}, timeoutMs?: number) {
   async function send(path: string, method: string, body: unknown, signal: AbortSignal) {
     let response: Response;
     try { response = await boundedFetch(origin + path, { method, signal, credentials: 'include', cache: 'no-store',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, timeoutMs, fetcher); }
+      // A new stream can need 3s after the question + 8s for first frames + 13s for vision.
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, timeoutMs ?? (path === '/api/v1/ask' ? 40000 : 20000), fetcher); }
     catch { throw Error(signal.aborted ? 'cancelled' : 'server_unavailable'); }
     if (signal.aborted) throw Error('cancelled');
     if (response.status === 401) { onUnauthorized(); throw Error('auth_lost'); }

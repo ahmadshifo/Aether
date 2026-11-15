@@ -4,10 +4,11 @@
 import { boundedFetch } from '../platform/config.ts';
 import { parseAnswer } from '../services/teamApi.ts';
 import type { Entry } from '../shared/types';
+import { parseHistoryLocation } from './historyLocation.ts';
 
 type ServerQuestion = {
   question_id: string; session_id: string; asked_at: string; question: string; answer: string;
-  language: string; uncertain?: boolean; evidence_frame_ids?: string[]; demo?: boolean;
+  language: string; uncertain?: boolean; evidence_frame_ids?: string[]; demo?: boolean; location?: unknown;
 };
 
 export function toEntry(q: ServerQuestion): Entry | null {
@@ -16,8 +17,9 @@ export function toEntry(q: ServerQuestion): Entry | null {
     || ![q.question_id, q.session_id].every(id => /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(id))) return null;
   const language = q.language as Entry['language'];
   try { parseAnswer(q, { session_id: q.session_id, question_id: q.question_id, question: q.question, language }); } catch { return null; }
+  const location = parseHistoryLocation(q.location);
   return { id: q.question_id, sessionId: q.session_id, questionId: q.question_id, question: q.question, answer: q.answer,
-    language, createdAt: new Date(q.asked_at).toISOString(), provenance: 'server', input: 'speech', uncertain: q.uncertain!, evidenceFrameIds: [...new Set(q.evidence_frame_ids!)] };
+    language, createdAt: new Date(q.asked_at).toISOString(), provenance: 'server', input: 'speech', uncertain: q.uncertain!, evidenceFrameIds: [...new Set(q.evidence_frame_ids!)], ...(location ? { location } : {}) };
 }
 
 export type HistoryPage = { entries: Entry[]; nextCursor: string | null; demo: boolean };

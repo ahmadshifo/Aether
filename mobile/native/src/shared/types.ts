@@ -3,8 +3,9 @@ export type Phase = 'idle' | 'starting' | 'greeting' | 'listening' | 'hearing' |
 export type Page = 'welcome' | 'home' | 'assistant' | 'history' | 'settings' | 'help' | 'connection';
 export type Owner = Readonly<{ source: string; userId: string; epoch: number }>;
 export type Photo = { path: string; bytes: number; capturedAt: string };
+export type HistoryLocation = { label: string; captured_at: string };
 export type Entry = {
   id: string; sessionId: string; questionId: string; question: string; answer: string;
   language: Language; createdAt: string; provenance: 'server'; input: 'speech' | 'typed'; photo?: Photo;
-  uncertain: boolean; evidenceFrameIds: string[];
+  uncertain: boolean; evidenceFrameIds: string[]; location?: HistoryLocation;
 };

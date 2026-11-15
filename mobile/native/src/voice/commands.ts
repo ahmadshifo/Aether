@@ -99,29 +99,36 @@ function fixWord(word: string) {
 }
 
 /** Lower-cased, punctuation removed, spaces collapsed, near-miss command words fixed: "Camera of." -> "camera off". */
+function plainText(text: string) {
+  return text.toLocaleLowerCase().replace(/[.,!?؟،;:"“”«»]/g, ' ').replace(/[’`]/g, "'").replace(/\s+/g, ' ').trim();
+}
 export function normalize(text: string) {
-  const plain = text.toLocaleLowerCase().replace(/[.,!?؟،;:"“”«»]/g, ' ').replace(/[’`]/g, "'").replace(/\s+/g, ' ').trim();
-  return plain.split(' ').map(fixWord).join(' ');
+  return plainText(text).split(' ').map(fixWord).join(' ');
+}
+
+function contactName(text: string, patterns: RegExp[]): string | null {
+  const plain = plainText(text);
+  for (const pattern of patterns) {
+    const match = pattern.exec(plain);
+    if (match) return match[match.length - 1].trim() || null;
+  }
+  // Repair command words ("kol Mom"), but take the name from the original words.
+  // Otherwise "Cole" becomes "call" and "Camila" becomes "camera".
+  for (const pattern of patterns) {
+    const match = pattern.exec(normalize(text));
+    if (match) return plain.split(' ').slice(-match[match.length - 1].trim().split(' ').length).join(' ') || null;
+  }
+  return null;
 }
 
 /** The person (or number) in a plain "call Mom", or null when the sentence isn't a call. */
 export function callContactName(text: string): string | null {
-  const sentence = normalize(text);
-  for (const pattern of [CALL_EN, CALL_AR, CALL_FR]) {
-    const match = pattern.exec(sentence);
-    if (match) return match[match.length - 1].trim() || null;
-  }
-  return null;
+  return contactName(text, [CALL_EN, CALL_AR, CALL_FR]);
 }
 
 /** The person to call in an SOS like "I need help, call Mom" ("Mom"), or null for a plain "I need help". */
 export function sosContactName(text: string): string | null {
-  const sentence = normalize(text);
-  for (const pattern of [SOS_CALL_EN, SOS_CALL_AR, SOS_CALL_FR]) {
-    const match = pattern.exec(sentence);
-    if (match) return match[match.length - 1].trim() || null;
-  }
-  return null;
+  return contactName(text, [SOS_CALL_EN, SOS_CALL_AR, SOS_CALL_FR]);
 }
 
 /** The command a spoken sentence is, or null when it is an ordinary question. */

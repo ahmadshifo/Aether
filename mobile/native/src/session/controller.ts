@@ -1,4 +1,4 @@
-import type { Entry, Language, Phase, Photo } from '../shared/types.ts';
+import type { Entry, HistoryLocation, Language, Phase, Photo } from '../shared/types.ts';
 import { validTranscript } from '../voice/transcript.ts';
 import type { Transport } from '../streaming/whip.ts';
 import { sessionGreeting } from '../voice/sessionGreeting.ts';
@@ -6,10 +6,13 @@ import type { AskRequest, AskResponse } from '../services/teamApi.ts';
 import { callContactName, commandCopy, detectCommand, heardStop, sosContactName, SOS_DELAY_SECONDS, type Command } from '../voice/commands.ts';
 import { batteryWarning, connectionWarning, warningCopy, type Warning } from '../voice/warnings.ts';
 import { batteryAnswer, connectionAnswer, dateAnswer, timeAnswer } from '../voice/basics.ts';
+import { ContactLookupError } from '../platform/contactErrors.ts';
+import { contactCopy } from '../i18n/contactCopy.ts';
 export interface CameraHandle { url?: string; release(): void; snapshot?(): Promise<{ uri: string; capturedAt: string } | undefined> }
 export interface RecognitionEvents { start(): void; result(text: string, final: boolean, confidence?: number): void; end(): void; error(code: string): void }
 export interface SessionPorts {
   ask?(request: AskRequest, signal: AbortSignal): Promise<AskResponse>;
+  location?(signal: AbortSignal): Promise<HistoryLocation | undefined>;
   preview: boolean; recognitionAvailable: boolean; streamingAvailable: boolean;
   uuid(): string; allowed(): boolean;
   prepareStart?(): Promise<void>;
@@ -323,16 +326,19 @@ export class SessionController {
     this.set({ phase: 'processing', transcript: text, error: '', answer: undefined });
     // Capture at final question time, before speech shutdown or any answer work.
     const frame = this.capture?.snapshot?.().catch(() => undefined);
+    const place = this.ports.location?.(request.signal).catch(() => undefined);
     await this.silenceInput();
     const snapshot = await frame;
     if (!valid()) { if (snapshot) this.ports.discardSnapshot?.(snapshot); return; }
     const photo = snapshot ? await this.ports.savePhoto?.(snapshot, valid).catch(() => undefined) : undefined;
     if (!valid()) { this.ports.discardPhoto?.(photo); return; }
-    let result: Pick<Entry, 'answer' | 'provenance' | 'uncertain' | 'evidenceFrameIds'>;
+    const location = await place;
+    if (!valid()) { this.ports.discardPhoto?.(photo); return; }
+    let result: Pick<Entry, 'answer' | 'provenance' | 'uncertain' | 'evidenceFrameIds' | 'location'>;
     try {
       if (!this.ports.ask) throw Error('answers_unavailable');
-      const response = await this.ports.ask({ session_id: this.state.id!, question_id: questionId, question: text.trim(), language: lang }, request.signal);
-      result = { answer: response.answer, provenance: 'server', uncertain: response.uncertain, evidenceFrameIds: response.evidence_frame_ids };
+      const response = await this.ports.ask({ session_id: this.state.id!, question_id: questionId, question: text.trim(), language: lang, ...(location ? { location } : {}) }, request.signal);
+      result = { answer: response.answer, provenance: 'server', uncertain: response.uncertain, evidenceFrameIds: response.evidence_frame_ids, ...(response.location ? { location: response.location } : {}) };
     } catch (error) {
       this.ports.discardPhoto?.(photo);
       if (valid()) { this.lastQuestion = ''; this.set({ phase: 'paused', error: error instanceof Error ? error.message : 'server_unavailable' }); }
@@ -461,9 +467,17 @@ export class SessionController {
   private async callByName(g: number, name: string) {
     const copy = commandCopy[this.language];
     const digits = name.replace(/[\s\-().]/g, '');
-    const contact = /^\+?\d{3,15}$/.test(digits)
-      ? { name, number: digits }
-      : await this.ports.findContact?.(name).catch(() => null) ?? null;
+    let contact: { name: string; number: string } | null;
+    try {
+      if (/^\+?\d{3,15}$/.test(digits)) contact = { name, number: digits };
+      else {
+        if (!this.ports.findContact) throw new ContactLookupError('unavailable');
+        contact = await this.ports.findContact(name);
+      }
+    } catch (error) {
+      if (this.valid(g)) await this.say(contactCopy[this.language][error instanceof ContactLookupError ? error.reason : 'readFailed']);
+      return;
+    }
     if (!this.valid(g)) return;
     if (!contact || !this.ports.call) { await this.say(copy.sosNameNotFound.replace('{name}', name)); return; }
     await this.say(copy.callingName.replace('{name}', contact.name));

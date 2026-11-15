@@ -1,6 +1,7 @@
 // Adapted from mobile/frontend/src/historyRepository.ts at bb54dbd.
 // One metadata store; app-private files replace browser Blobs. No legacy import.
 import type { Entry, Owner, Photo } from '../shared/types.ts';
+import { parseHistoryLocation } from './historyLocation.ts';
 export const RETENTION_MS = 86400000, MAX_PHOTO = 1500000, MAX_TOTAL = 20000000, MAX_ENTRIES = 50;
 export type HistoryState = { items: Entry[]; loading: boolean; error: boolean; undo: Entry | null };
 export interface StorageAdapter {
@@ -31,9 +32,10 @@ export function boundEntries(value: unknown, now = Date.now(), limit = MAX_ENTRI
     const photo = validPhoto(row.photo) && bytes + row.photo.bytes <= MAX_TOTAL ? row.photo : undefined;
     if (photo) bytes += photo.bytes;
     // Explicit fields exclude unknown payloads/credentials/prototypes.
+    const location = parseHistoryLocation(row.location);
     return { id: row.id, sessionId: row.sessionId, questionId: row.questionId, question: row.question, answer: row.answer,
       language: row.language, createdAt: row.createdAt, provenance: 'server', input: row.input, ...(photo ? { photo } : {}),
-      uncertain: row.uncertain, evidenceFrameIds: [...new Set(row.evidenceFrameIds)] };
+      uncertain: row.uncertain, evidenceFrameIds: [...new Set(row.evidenceFrameIds)], ...(location ? { location } : {}) };
   });
 }
 // Server rows use question_id as their UI id; live answers originally had a different id.
@@ -42,7 +44,7 @@ export function mergeHistory(remote: Entry[], local: Entry[]): Entry[] {
   const entries = new Map(local.map(entry => [entry.questionId, entry]));
   for (const entry of remote) {
     const cached = entries.get(entry.questionId);
-    entries.set(entry.questionId, { ...cached, ...entry, id: cached?.id ?? entry.id, input: cached?.input ?? entry.input, ...(cached?.photo ? { photo: cached.photo } : {}) });
+    entries.set(entry.questionId, { ...cached, ...entry, location: entry.location, id: cached?.id ?? entry.id, input: cached?.input ?? entry.input, ...(cached?.photo ? { photo: cached.photo } : {}) });
   }
   return boundEntries([...entries.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || b.questionId.localeCompare(a.questionId)), Date.now(), Number.MAX_SAFE_INTEGER);
 }
@@ -134,5 +136,5 @@ export function dateGroup(item: Entry, now = new Date()): 'today' | 'yesterday' 
 }
 export function searchHistory(items: Entry[], query: string) {
   const normalize = (s: string) => s.normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase().trim();
-  return items.filter(row => normalize(`${row.question} ${row.answer}`).includes(normalize(query)));
+  return items.filter(row => normalize(`${row.question} ${row.answer} ${row.location?.label ?? ''}`).includes(normalize(query)));
 }

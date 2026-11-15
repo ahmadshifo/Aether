@@ -2,11 +2,11 @@ import React, { useSyncExternalStore } from 'react';
 import renderer, { act } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Dimensions, Pressable, Share, TextInput, View } from 'react-native';
-import { UIContext, Button, HoldButton, Sheet } from '../src/components/ui';
+import { UIContext, Button, HoldButton, Sheet, T } from '../src/components/ui';
 import { monoCopy } from '../src/i18n/monoCopy';
 import { uiCopy } from '../src/i18n/uiCopy';
 import { authCopy } from '../src/i18n/authCopy';
-import { nativeCopy } from '../src/i18n/nativeCopy';
+import { nativeCopy, copies } from '../src/i18n/nativeCopy';
 import { teamCopy } from '../src/i18n/teamCopy';
 import { ProfileSettings } from '../src/components/ProfileSettings';
 import { light, dark, geometry } from '../src/theme/tokens';
@@ -22,6 +22,8 @@ import * as Speech from 'expo-speech';
 import * as Clipboard from 'expo-clipboard';
 import { HistoryScreen } from '../src/screens/HistoryScreen';
 import { historyStreamCopy } from '../src/i18n/historyStreamCopy';
+import { locationCopy } from '../src/i18n/locationCopy';
+import { toEntry } from '../src/storage/serverHistory';
 import { HistoryRepository } from '../src/storage/history';
 import { HistorySync } from '../src/storage/historySync';
 import type { Language } from '../src/shared/types';
@@ -30,6 +32,21 @@ const wrapper = (children: React.ReactNode, language: Language = 'en', colors = 
 async function render(element: React.ReactNode) { let tree!: renderer.ReactTestRenderer; await act(async () => { tree = renderer.create(element); }); return tree; }
 async function press(tree: renderer.ReactTestRenderer, label: string) { const item = tree.root.findAllByType(Button).find(x => x.props.label === label); expect(item).toBeTruthy(); await act(async () => { item!.props.onPress(); }); }
 afterEach(() => jest.clearAllMocks());
+test.each(['en', 'ar', 'fr'] as const)('History displays, searches and copies the saved area: %s', async language => {
+  const repository = new HistoryRepository({ userId: user.user_id, source: `location-ui-${language}`, epoch: 1 }, { read: async () => null, write: async () => {}, collect: async () => {} }, () => true);
+  await repository.ready;
+  const label = language === 'ar' ? 'بيروت، الشياح' : 'Beirut, Chiyah';
+  repository.upsert(toEntry({ question_id: '11111111-1111-1111-1111-111111111111', session_id: '22222222-2222-2222-2222-222222222222', asked_at: new Date().toISOString(), language, question: 'Q', answer: 'A', uncertain: false, evidence_frame_ids: [], location: { label, captured_at: new Date().toISOString() } }));
+  const tree = await render(wrapper(<HistoryScreen repository={repository} state={repository.getSnapshot()} replay={() => {}} active={false} speaking={false} stopSpeech={() => {}} focus={() => {}} />, language));
+  expect(JSON.stringify(tree.toJSON())).toContain(label);
+  await act(async () => tree.root.findByType(TextInput).props.onChangeText(label));
+  expect(JSON.stringify(tree.toJSON())).toContain(label);
+  await press(tree, copies(language).u.copy);
+  expect(Clipboard.setStringAsync).toHaveBeenLastCalledWith(expect.stringContaining(`${locationCopy[language].label}: ${label}`));
+  await press(tree, copies(language).u.readMore);
+  expect(tree.root.findByType(Sheet).findAllByType(T).some(node => Array.isArray(node.props.children) && node.props.children.includes(label))).toBe(true);
+  await act(async () => tree.unmount()); repository.dispose();
+});
 test('EN/AR key parity, source theme values and native hit targets', () => {
   const keys = (obj: Record<string, unknown>, prefix = ''): string[] => Object.entries(obj).flatMap(([k, v]) => typeof v === 'object' && v && !Array.isArray(v) ? keys(v as Record<string, unknown>, `${prefix}${k}.`) : [`${prefix}${k}`]).sort();
   for (const dictionary of [monoCopy, uiCopy, authCopy, nativeCopy, teamCopy]) expect(keys(dictionary.en)).toEqual(keys(dictionary.ar));
