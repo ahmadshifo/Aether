@@ -10,6 +10,8 @@ import { ClassicBottomBar } from '../components/ClassicBottomBar';
 import { Button, Card, HoldButton, Mark, Notice, Row, Sheet, T, UIContext, useUI } from '../components/ui';
 import Icon from '../components/Icon';
 import { copies } from '../i18n/nativeCopy';
+import { locationCopy } from '../i18n/locationCopy';
+import { HistoryLocationSource } from '../platform/historyLocation';
 import type { AuthController, AuthSession } from '../auth/authController';
 import type { Endpoints } from '../platform/config';
 import type { Language, Page } from '../shared/types';
@@ -40,7 +42,7 @@ import { HelpScreen } from './HelpScreen';
 import { HistoryScreen, entryTime } from './HistoryScreen';
 import { createTeamApi } from '../services/teamApi';
 import { ProfileSettings } from '../components/ProfileSettings';
-type Preferences = { welcome?: boolean; motion?: boolean; haptics?: boolean; wake?: boolean };
+type Preferences = { welcome?: boolean; motion?: boolean; haptics?: boolean; wake?: boolean; historyLocation?: boolean };
 export function Account({ auth, session, endpoints, saveEndpoints, changeLanguage, themeMode, changeTheme }: { auth: AuthController; session: AuthSession; endpoints: Endpoints; saveEndpoints(value: Endpoints): void; changeLanguage(language: Language): void; themeMode: ThemeMode; changeTheme(mode: ThemeMode): void }) {
   const ui = useUI(), { language, colors } = ui, { m, u, n } = copies(language), dimensions = useWindowDimensions();
   const [page, setPage] = useState<Page>('welcome'), [preferences, setPreferences] = useState<Preferences>({}), [loaded, setLoaded] = useState(false), [selected, setSelected] = useState(0), [prompt, setPrompt] = useState<number | null>(null), [notice, setNotice] = useState('');
@@ -52,6 +54,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
   const [runtime] = useState(() => {
     const allowed = () => alive.current && auth.authorized(session.owner);
     const unauthorized = () => { if (allowed()) auth.external('changed'); };
+    const location = new HistoryLocationSource(allowed, () => currentPrefs.current.historyLocation !== false);
     const api = createTeamApi(endpoints.backend, nativeFetch, unauthorized);
     const repository = new HistoryRepository(session.owner, nativeStorage, allowed), camera = new GoCamera(), speech = new SpeechOwner(), registry = new StreamRegistry(endpoints.backend, nativeFetch, unauthorized, allowed), caps = capabilities();
     let wakeGeneration = 0, wakeTag: string | undefined;
@@ -69,12 +72,15 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       sessionOpened: async signal => {
         await sessionHaptics(currentPrefs.current.haptics === true, signal);
         if (signal.aborted || !allowed()) return;
+        await duringPermission(() => location.prepare(signal), signal);
+        if (signal.aborted || !allowed()) return;
         // Ask before an SOS, and stop the permission sequence if the session closes.
         void duringPermission(prepareContacts, signal).then(() => {
           if (!signal.aborted && allowed()) return duringPermission(prepareEmergencyCall, signal);
         }).catch(() => {});
       },
       prepareRecognition, speak: speech.speak, stopSpeech: speech.stop,
+      location: signal => location.capture(signal),
       // With no internet, Google's online recognizer fails with "network": switch to the phone's offline one for a
       // minute, so offline questions (time, battery, "am I connected?") are still heard.
       recognition: (language, events, signal) => recognize(language, { ...events, error: code => {
@@ -114,15 +120,16 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       noteRead: async id => { await api.noteRead?.(id, new AbortController().signal); },
     });
     const historySync = new HistorySync(repository, createHistoryApi(endpoints.backend, nativeFetch, unauthorized), allowed);
-    return { repository, camera, controller, caps, api, historySync };
+    return { repository, camera, controller, caps, api, historySync, location };
   });
   const media = useSyncExternalStore(runtime.controller.subscribe, runtime.controller.getSnapshot), history = useSyncExternalStore(runtime.repository.subscribe, runtime.repository.getSnapshot);
   const syncedHistory = useSyncExternalStore(runtime.historySync.subscribe, runtime.historySync.getSnapshot);
+  const locationStatus = useSyncExternalStore(runtime.location.subscribe, runtime.location.getSnapshot), loc = locationCopy[language];
   const prefsKey = `${runtime.repository.key}:display`;
   useEffect(() => {
     void AsyncStorage.getItem(prefsKey).then(raw => {
       if (!alive.current || !auth.authorized(session.owner)) return;
-      const value = raw ? JSON.parse(raw) : {}; const safe = { welcome: value.welcome === true, motion: value.motion !== false, haptics: value.haptics === true, wake: value.wake === true };
+      const value = raw ? JSON.parse(raw) : {}; const safe = { welcome: value.welcome === true, motion: value.motion !== false, haptics: value.haptics === true, wake: value.wake === true, historyLocation: value.historyLocation !== false };
       currentPrefs.current = safe; setPreferences(safe); setPage(safe.welcome ? 'home' : 'welcome'); setLoaded(true);
     }).catch(() => { if (alive.current) setLoaded(true); });
     const lock = auth.onLock(() => { runtime.controller.stop(); runtime.historySync.cancel(); setConfirm(null); setNotice(''); });
@@ -189,6 +196,10 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
         </View>}
         {page === 'history' && <HistoryScreen repository={runtime.repository} state={{ ...history, items: syncedHistory.items }} sync={runtime.historySync} network={syncedHistory} stopSession={() => runtime.controller.stop()} replay={entry => { void runtime.controller.replay(entry); }} active={media.active} speaking={media.phase === 'speaking'} stopSpeech={() => runtime.controller.stopPlayback()} focus={focus} />}
         {page === 'settings' && <View style={{ gap: 24 }}><T variant="title">{m.settings}</T>
+          <T variant="heading">{loc.title}</T><Card><Row><T style={{ flex: 1 }}>{loc.save}</T><Switch accessibilityLabel={loc.save} value={preferences.historyLocation !== false} trackColor={{ false: colors.muted, true: colors.ok }} thumbColor={colors.card} onValueChange={value => {
+            runtime.location.cancel(); updatePrefs({ historyLocation: value });
+            if (value) void duringPermission(() => runtime.location.prepare()).catch(() => {});
+          }} /></Row><T variant="small">{loc.description}</T>{preferences.historyLocation !== false && !!loc[locationStatus] && <T variant="small" accessibilityLiveRegion="polite">{loc[locationStatus]}</T>}</Card>
           <T variant="heading">{m.appearance}</T><Card><View style={{ gap: 8 }}>{themeModes.map(mode => <Button key={mode} label={mode === 'system' ? m.themeSystem : mode === 'light' ? m.themeLight : m.themeDark} icon={themeMode === mode ? 'check' : mode === 'system' ? 'phone' : mode === 'light' ? 'sun' : 'moon'} selected={themeMode === mode} onPress={() => changeTheme(mode)} />)}</View></Card>
           <T variant="heading">{m.voice}</T><Card>
           {([['wake', m.wake, m.wakeNote], ['haptics', m.vibrate, m.vibrateNote], ['motion', m.motion, m.motionNote]] as const).map(([key, label, body]) => <View key={key} style={{ gap: 8 }}><Row><T style={{ flex: 1 }}>{label}</T><Switch accessibilityLabel={label} trackColor={{ false: colors.muted, true: colors.ok }} thumbColor={colors.card} value={key === 'motion' ? preferences.motion !== false : preferences[key] === true} onValueChange={value => updatePrefs({ [key]: value })} /></Row><T variant="small">{body}</T></View>)}</Card>

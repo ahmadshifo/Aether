@@ -31,6 +31,29 @@ test('manual stream retry keeps camera/session and cannot overwrite state after 
   h.controller.stop(); publishers[1]('failed'); h.controller.retryStream();
   assert.equal(h.controller.getSnapshot().transport, 'off'); assert.equal(publishers.length, 2); assert.equal(h.counts.release, 1);
 });
+test('question locations reach the API and only server-confirmed places enter History', async () => {
+  const place = { label: 'Beirut, Chiyah', captured_at: new Date().toISOString() }; let confirmed = true;
+  const h = harness({ preview: true, recognitionAvailable: false, location: async () => place, ask: async r => {
+    assert.deepEqual(r.location, place);
+    return { question_id: r.question_id, language: r.language, answer: 'A door', uncertain: false, evidence_frame_ids: [], ...(confirmed ? { location: place } : {}) };
+  } });
+  await h.controller.start('en'); await h.controller.typedQuestion('Read the sign');
+  assert.deepEqual(h.answers[0].location, place);
+  confirmed = false; await h.controller.typedQuestion('What is nearby?');
+  assert.equal(h.answers[1].location, undefined); h.controller.stop();
+});
+
+test('Stop while locating prevents a late question, and GPS failure does not block answers', async () => {
+  const gate = deferred(); let signal;
+  const h = harness({ preview: true, location: s => { signal = s; return gate.promise; } });
+  await h.controller.start('en'); const pending = h.controller.typedQuestion('Read the sign'); await tick();
+  h.controller.stop(); assert.equal(signal.aborted, true); gate.resolve({ label: 'Old area', captured_at: new Date().toISOString() });
+  await pending; assert.equal(h.answers.length, 0);
+  const next = harness({ preview: true, location: async () => { throw Error('GPS unavailable'); } });
+  await next.controller.start('en'); await next.controller.typedQuestion('Read the sign');
+  assert.equal(next.answers.length, 1); assert.equal(next.answers[0].location, undefined); next.controller.stop();
+});
+
 test('real answer is spoken and stored with server evidence', async () => {
   const evidence = crypto.randomUUID(); let received;
   const h = harness({ ask: async (request, signal) => { received = request; assert.equal(signal.aborted, false); return { question_id: request.question_id, language: request.language, answer: 'Server answer', uncertain: true, evidence_frame_ids: [evidence] }; } });

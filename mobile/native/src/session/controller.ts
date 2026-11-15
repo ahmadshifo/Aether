@@ -1,4 +1,4 @@
-import type { Entry, Language, Phase, Photo } from '../shared/types.ts';
+import type { Entry, HistoryLocation, Language, Phase, Photo } from '../shared/types.ts';
 import { validTranscript } from '../voice/transcript.ts';
 import type { Transport } from '../streaming/whip.ts';
 import { sessionGreeting } from '../voice/sessionGreeting.ts';
@@ -12,6 +12,7 @@ export interface CameraHandle { url?: string; release(): void; snapshot?(): Prom
 export interface RecognitionEvents { start(): void; result(text: string, final: boolean, confidence?: number): void; end(): void; error(code: string): void }
 export interface SessionPorts {
   ask?(request: AskRequest, signal: AbortSignal): Promise<AskResponse>;
+  location?(signal: AbortSignal): Promise<HistoryLocation | undefined>;
   preview: boolean; recognitionAvailable: boolean; streamingAvailable: boolean;
   uuid(): string; allowed(): boolean;
   prepareStart?(): Promise<void>;
@@ -325,16 +326,19 @@ export class SessionController {
     this.set({ phase: 'processing', transcript: text, error: '', answer: undefined });
     // Capture at final question time, before speech shutdown or any answer work.
     const frame = this.capture?.snapshot?.().catch(() => undefined);
+    const place = this.ports.location?.(request.signal).catch(() => undefined);
     await this.silenceInput();
     const snapshot = await frame;
     if (!valid()) { if (snapshot) this.ports.discardSnapshot?.(snapshot); return; }
     const photo = snapshot ? await this.ports.savePhoto?.(snapshot, valid).catch(() => undefined) : undefined;
     if (!valid()) { this.ports.discardPhoto?.(photo); return; }
-    let result: Pick<Entry, 'answer' | 'provenance' | 'uncertain' | 'evidenceFrameIds'>;
+    const location = await place;
+    if (!valid()) { this.ports.discardPhoto?.(photo); return; }
+    let result: Pick<Entry, 'answer' | 'provenance' | 'uncertain' | 'evidenceFrameIds' | 'location'>;
     try {
       if (!this.ports.ask) throw Error('answers_unavailable');
-      const response = await this.ports.ask({ session_id: this.state.id!, question_id: questionId, question: text.trim(), language: lang }, request.signal);
-      result = { answer: response.answer, provenance: 'server', uncertain: response.uncertain, evidenceFrameIds: response.evidence_frame_ids };
+      const response = await this.ports.ask({ session_id: this.state.id!, question_id: questionId, question: text.trim(), language: lang, ...(location ? { location } : {}) }, request.signal);
+      result = { answer: response.answer, provenance: 'server', uncertain: response.uncertain, evidenceFrameIds: response.evidence_frame_ids, ...(response.location ? { location: response.location } : {}) };
     } catch (error) {
       this.ports.discardPhoto?.(photo);
       if (valid()) { this.lastQuestion = ''; this.set({ phase: 'paused', error: error instanceof Error ? error.message : 'server_unavailable' }); }

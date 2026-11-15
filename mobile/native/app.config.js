@@ -23,6 +23,13 @@ module.exports = {
       ['expo-build-properties', { android: { enableMinifyInReleaseBuilds: false, enableShrinkResourcesInReleaseBuilds: false } }],
       // expo-contacts: choose the SOS emergency contact from the phone's contacts (Settings).
       ['expo-contacts', { contactsPermission: 'Allow Aether to let you choose an emergency contact from your contacts.' }],
+      ['expo-location', {
+        locationWhenInUsePermission: 'Allow Aether to save your city or district with questions in your account History.',
+        locationAlwaysPermission: false, locationAlwaysAndWhenInUsePermission: false,
+        motionUsagePermission: false, locationFullAccuracyPermission: false,
+        isIosBackgroundLocationEnabled: false, isAndroidBackgroundLocationEnabled: false,
+        isAndroidForegroundServiceEnabled: false, isAndroidMotionActivityEnabled: false,
+      }],
       'expo-font', 'expo-sharing', 'expo-status-bar', ['./plugins/withLocalNetwork.cjs', { host: lanHost }],
     ],
   },
