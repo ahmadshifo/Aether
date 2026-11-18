@@ -60,6 +60,8 @@ class NoAIVision:
 
 
 class NoAIEmbedding:
+    available = False  # the pipeline then saves frames without a search vector instead of failing them
+
     def embed_frame(self, ocr_text=None, objects=None, caption=None):
         return None  # Never reached: empty metadata skips embedding.
 
@@ -72,14 +74,22 @@ def ai_available() -> bool:
             and bool(setting("MISTRAL_API_KEY", "")))
 
 
+def gemini_captions_available() -> bool:
+    return switch("MULTIMEDIA_AI_ANALYSIS") and bool(setting("GEMINI_API_KEY", ""))
+
+
 def ocr_available() -> bool:
-    return switch("MULTIMEDIA_AI_ANALYSIS") and bool(setting("MISTRAL_API_KEY", ""))
+    # MULTIMEDIA_OCR=off: no text reading even with a Mistral key (its free plan allows 0 OCR requests, and a
+    # failed OCR request would stop the frame from being saved).
+    return (switch("MULTIMEDIA_AI_ANALYSIS") and switch("MULTIMEDIA_OCR")
+            and bool(setting("MISTRAL_API_KEY", "")))
 
 
 def analysis_services():
     """(ocr, vision, embedding, real). Each pretrained service is on when its own key is configured:
     reading text (OCR) needs only the Mistral key; captions/objects and search vectors need the OpenAI key.
-    real is True when any of them is a real service."""
+    Without the OpenAI key, captions/objects come from Gemini when GEMINI_API_KEY is set (no search vectors:
+    the frames table only accepts OpenAI's text-embedding-3-small). real is True when any of them is real."""
     ocr = vision = embedding = None
     if ocr_available():
         from processing.ocr_service import OCRService
@@ -88,6 +98,10 @@ def analysis_services():
         from processing.embedding_service import EmbeddingService
         from processing.object_detector import VisionService
         vision, embedding = VisionService(), EmbeddingService()
+    elif gemini_captions_available():
+        from processing.gemini_vision import GeminiVisionService
+        vision = GeminiVisionService(setting("GEMINI_API_KEY", ""), setting("GEMINI_MODEL", "") or None,
+                                     float(setting("GEMINI_CAPTION_MIN_SECONDS", "60")))
     real = ocr is not None or vision is not None
     return ocr or NoAIOCR(), vision or NoAIVision(), embedding or NoAIEmbedding(), real
 
@@ -288,7 +302,8 @@ def build_live(repository, memory):
         return LiveMultimediaRunner(stream_source=RTSPFrameSource(session_id, settings=stream_settings),
                                     pipeline=pipeline, settings=live_settings, dry_run=False)
 
-    log.info("Live ingestion ready (reading text: %s, captions and search: %s, face blur: %s, card blur: %s, "
-             "save every %ss)", _on_off(not isinstance(ocr, NoAIOCR)), _on_off(not isinstance(vision, NoAIVision)),
+    log.info("Live ingestion ready (reading text: %s, captions: %s, search vectors: %s, face blur: %s, "
+             "card blur: %s, save every %ss)", _on_off(not isinstance(ocr, NoAIOCR)),
+             type(vision).__name__.replace("NoAIVision", "off"), _on_off(not isinstance(embedding, NoAIEmbedding)),
              _on_off(blurrer), _on_off(cards), save_every)
     return LiveIngestManager(make_runner), keeper

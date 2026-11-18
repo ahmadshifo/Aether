@@ -87,3 +87,16 @@ Record the date, owner, affected services, reason, and approved new contract ver
 - Not covered without OCR: ID numbers and addresses on letters or forms. Other card-shaped things (a screen seen
   straight on, a postcard) may be blurred too, in the saved copy only.
 - Affected: multimedia (save path only, no API change). Needs ahmadshifo's approval.
+
+## 2026-11-18 - Gemini captions for saved frames, OCR switch (Member 2)
+
+- Without an OpenAI key, saved frames get their caption and object labels from Gemini
+  (`multimedia/processing/gemini_vision.py`, same instructions and `VisionResult` as the OpenAI vision service,
+  same free `GEMINI_API_KEY` as the AI backend). At most one request per `GEMINI_CAPTION_MIN_SECONDS` (default 60),
+  because the free daily quota is shared with answers. A skipped or failed caption leaves it empty; the frame is
+  still saved.
+- Search vectors stay off: the `frames` table only accepts OpenAI's `text-embedding-3-small`. Frames without a
+  vector are now saved instead of failing the pipeline. A free embedding model needs a schema change (Member 3).
+- `MULTIMEDIA_OCR=off` turns text reading off while keeping the Mistral key (its free plan allows 0 OCR requests,
+  and a failed OCR request stopped periodic frames from being saved). A free local OCR is planned.
+- Affected: multimedia only, no API or database change. Needs ahmadshifo's approval.

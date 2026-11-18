@@ -186,7 +186,8 @@ class MultimediaPipeline:
             stage = "embedding"
             description = build_frame_description(ocr.text, vision.objects, caption)
             vector = model = None
-            if description:
+            # No embedding service configured (e.g. Gemini captions only): save the frame without a vector.
+            if description and getattr(self.embedding, "available", True):
                 embedding = self.embedding.embed_frame(ocr_text=ocr.text, objects=vision.objects, caption=caption)
                 if not isinstance(embedding, EmbeddingResult) or embedding.dimensions != 1536 or embedding.source_text != description:
                     raise ValueError("Invalid Task 9 embedding result.")
