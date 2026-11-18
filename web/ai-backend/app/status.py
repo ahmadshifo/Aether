@@ -3,8 +3,8 @@
 Each value is a ServiceStatus (online | connecting | offline | error), checked live:
 - streaming:  MediaMTX's local API answers (or, with the API off, its WebRTC port is open).
 - multimedia: Member 3's /health answers; its own "error" (e.g. storage down) is passed on.
-- ai:         this backend is running; "offline" while OPENAI_API_KEY is missing, since no answer
-              can be generated without it.
+- ai:         this backend is running; "offline" while the Gemini key (GEMINI_API_KEY) is missing,
+              since no answer can be generated without it.
 `details` explains each value in a sentence; `live_session` is the signed-in account's live phone
 session (and whether its stream is actually reaching MediaMTX), or null.
 """
@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends
 
+from app import vision_provider
 from app.auth import _connect, _iso, signed_in_user_id
 
 router = APIRouter(prefix="/api/v1", tags=["status"])
@@ -72,8 +73,8 @@ def check_multimedia() -> tuple[str, str]:
 
 
 def check_ai() -> tuple[str, str]:
-    if not os.getenv("OPENAI_API_KEY", "").strip():
-        return "offline", "No OpenAI key yet, so the assistant can't answer questions."
+    if not vision_provider.configured():
+        return "offline", "No Gemini key yet, so the assistant can't answer questions."
     return "online", "The assistant is ready."
 
 
