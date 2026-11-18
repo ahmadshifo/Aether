@@ -94,6 +94,12 @@ def analysis_services():
 
 # ---------- per-session pipeline ----------
 
+def redact_before_reading(inner, image):
+    """With card blur on (a RedactingRepository), blur cards before the frame goes to OCR or storage."""
+    from processing.card_redact import RedactingRepository, redact_cards
+    return redact_cards(image)[0] if isinstance(inner.repository, RedactingRepository) else image
+
+
 class CombinedLivePipeline:
     """What LiveMultimediaRunner calls for every sampled frame."""
 
@@ -133,41 +139,16 @@ class CombinedLivePipeline:
         return outcome
 
 
-def redact_before_reading(inner, image):
-    """With card blur on (a RedactingRepository), blur cards before the frame goes to OCR or storage."""
-    from processing.card_redact import RedactingRepository, redact_cards
-    return redact_cards(image)[0] if isinstance(inner.repository, RedactingRepository) else image
-
-
 def keep_frames(inner: MultimediaPipeline, frames) -> list[str]:
     """Analyze and save frames an answer used, under their memory frame_id (no duplicate/blur filter:
     the answer already relied on them). An AI failure stores empty metadata rather than losing the image."""
     from database.errors import DuplicateFrameError
-    from processing.caption_service import get_caption
-    from processing.embedding_service import build_frame_description
     saved = []
     for item in frames:
         image = redact_before_reading(inner, item.frame)
-        text, objects, caption, vector, model = "", [], "", None, None
+        analysis = _analyze_kept_frame(inner, image)
         try:
-            text = inner.ocr.extract_text(image).text
-        except Exception as error:
-            log.warning("Kept frame without OCR (%s)", type(error).__name__)
-        try:
-            vision = inner.vision.analyze_image(image)
-            objects, caption = list(vision.objects), get_caption(vision)
-        except Exception as error:
-            log.warning("Kept frame without vision (%s)", type(error).__name__)
-        if build_frame_description(text, objects, caption):
-            try:
-                result = inner.embedding.embed_frame(ocr_text=text, objects=objects, caption=caption)
-                if result is not None:
-                    vector, model = result.embedding, result.model
-            except Exception as error:
-                log.warning("Kept frame without embedding (%s)", type(error).__name__)
-        try:
-            inner.repository.save_frame(item.session_id, item.captured_at, image, ocr_text=text, objects=objects,
-                                        caption=caption, embedding=vector, embedding_model=model,
+            inner.repository.save_frame(item.session_id, item.captured_at, image, **analysis,
                                         frame_id=item.frame_id, source_frame_index=item.frame_index)
             saved.append(str(item.frame_id))
         except DuplicateFrameError:
@@ -175,6 +156,30 @@ def keep_frames(inner: MultimediaPipeline, frames) -> list[str]:
         except Exception as error:
             log.error("Kept frame %s was not saved (%s)", item.frame_id, type(error).__name__)
     return saved
+
+
+def _analyze_kept_frame(inner: MultimediaPipeline, image) -> dict:
+    """Text, objects, caption and search vector for one kept frame. A step that fails is logged and left empty."""
+    from processing.caption_service import get_caption
+    from processing.embedding_service import build_frame_description
+    text, objects, caption, vector, model = "", [], "", None, None
+    try:
+        text = inner.ocr.extract_text(image).text
+    except Exception as error:
+        log.warning("Kept frame without OCR (%s)", type(error).__name__)
+    try:
+        vision = inner.vision.analyze_image(image)
+        objects, caption = list(vision.objects), get_caption(vision)
+    except Exception as error:
+        log.warning("Kept frame without vision (%s)", type(error).__name__)
+    if build_frame_description(text, objects, caption):  # nothing to search for, so no vector
+        try:
+            result = inner.embedding.embed_frame(ocr_text=text, objects=objects, caption=caption)
+            if result is not None:
+                vector, model = result.embedding, result.model
+        except Exception as error:
+            log.warning("Kept frame without embedding (%s)", type(error).__name__)
+    return {"ocr_text": text, "objects": objects, "caption": caption, "embedding": vector, "embedding_model": model}
 
 
 # ---------- automatic start/stop ----------
@@ -252,6 +257,10 @@ class LiveIngestManager:
             self._thread.join(timeout)
 
 
+def _on_off(enabled) -> str:
+    return "on" if enabled else "off"
+
+
 def build_live(repository, memory):
     """(manager, inner pipeline) wired from api/.env; the manager is not started yet."""
     from processing.card_redact import RedactingRepository
@@ -280,7 +289,6 @@ def build_live(repository, memory):
                                     pipeline=pipeline, settings=live_settings, dry_run=False)
 
     log.info("Live ingestion ready (reading text: %s, captions and search: %s, face blur: %s, card blur: %s, "
-             "save every %ss)", "on" if not isinstance(ocr, NoAIOCR) else "off",
-             "on" if not isinstance(vision, NoAIVision) else "off", "on" if blurrer else "off",
-             "on" if cards else "off", save_every)
+             "save every %ss)", _on_off(not isinstance(ocr, NoAIOCR)), _on_off(not isinstance(vision, NoAIVision)),
+             _on_off(blurrer), _on_off(cards), save_every)
     return LiveIngestManager(make_runner), keeper

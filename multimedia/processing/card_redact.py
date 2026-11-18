@@ -20,12 +20,18 @@ import numpy as np
 
 log = logging.getLogger("multimedia.redact")
 
-CARD_RATIO = 85.6 / 54.0          # 1.585, the ID-1 card shape
-RATIO_RANGE = (1.35, 1.85)        # wide enough for a card held at an angle
-AREA_RANGE = (0.008, 0.7)         # share of the frame: from a card at arm's length to one held to the lens
-RECTANGULAR = 0.82                # how completely the shape fills its rectangle (rounded corners allowed)
-PADDING = 0.08                    # blur a little past the edge, so no digit survives at the border
-# In the text read from a frame (OCR): 8 or more digits in a row, allowing spaces, dashes and dots between them,
+# An ID-1 card is about 1.585 times as wide as it is tall; accept a little more or less for a card held at an angle.
+RATIO_RANGE = (1.35, 1.85)
+# Share of the frame a card may cover: from a card at arm's length to one held up to the lens.
+AREA_RANGE = (0.008, 0.7)
+# How completely the outline fills its rectangle (rounded corners allowed).
+RECTANGULAR = 0.82
+# Blur a little past the edge, so no digit survives at the border.
+PADDING = 0.08
+# Each card is pixelated in blocks this many pixels wide before the blur.
+BLOCK_SIZE = 14
+
+# Text read from a frame (OCR): 8 or more digits in a row, allowing spaces, dashes and dots between them,
 # such as card, ID, account or passport numbers. Short numbers (prices, room numbers, times) stay readable.
 LONG_NUMBER = re.compile(r"(?<![\w])\d(?:[ \-.]?\d){7,}(?![\w])")
 HIDDEN = "[number hidden]"
@@ -36,29 +42,34 @@ def find_cards(image: np.ndarray) -> list[tuple[int, int, int, int]]:
     height, width = image.shape[:2]
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    # Find edges, then thicken them so each card outline closes into one contour.
     edges = cv2.dilate(cv2.Canny(gray, 40, 140), np.ones((3, 3), np.uint8), iterations=2)
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    frame_area, boxes = float(width * height), []
-    for contour in contours:
-        hull = cv2.convexHull(contour)
-        area = cv2.contourArea(hull)
-        if not AREA_RANGE[0] * frame_area <= area <= AREA_RANGE[1] * frame_area:
-            continue
-        corners = cv2.approxPolyDP(hull, 0.04 * cv2.arcLength(hull, True), True)
-        if len(corners) != 4:
-            continue
-        (_, _), (side_a, side_b), _ = cv2.minAreaRect(corners)
-        if min(side_a, side_b) <= 0:
-            continue
-        ratio = max(side_a, side_b) / min(side_a, side_b)
-        if not RATIO_RANGE[0] <= ratio <= RATIO_RANGE[1] or area / (side_a * side_b) < RECTANGULAR:
-            continue
-        x, y, w, h = cv2.boundingRect(corners)
-        pad_x, pad_y = int(w * PADDING), int(h * PADDING)
-        left, top = max(0, x - pad_x), max(0, y - pad_y)
-        right, bottom = min(width, x + w + pad_x), min(height, y + h + pad_y)
-        boxes.append((left, top, right - left, bottom - top))
-    return boxes
+    boxes = (_card_box(contour, width, height) for contour in contours)
+    return [box for box in boxes if box is not None]
+
+
+def _card_box(contour, width: int, height: int):
+    """The padded (x, y, w, h) box if this contour is a card-shaped rectangle, otherwise None."""
+    hull = cv2.convexHull(contour)
+    area = cv2.contourArea(hull)
+    frame_area = float(width * height)
+    if not AREA_RANGE[0] * frame_area <= area <= AREA_RANGE[1] * frame_area:
+        return None
+    corners = cv2.approxPolyDP(hull, 0.04 * cv2.arcLength(hull, True), True)
+    if len(corners) != 4:
+        return None
+    (_, _), (side_a, side_b), _ = cv2.minAreaRect(corners)
+    if min(side_a, side_b) <= 0:
+        return None
+    ratio = max(side_a, side_b) / min(side_a, side_b)
+    if not RATIO_RANGE[0] <= ratio <= RATIO_RANGE[1] or area / (side_a * side_b) < RECTANGULAR:
+        return None
+    x, y, w, h = cv2.boundingRect(corners)
+    pad_x, pad_y = int(w * PADDING), int(h * PADDING)
+    left, top = max(0, x - pad_x), max(0, y - pad_y)
+    right, bottom = min(width, x + w + pad_x), min(height, y + h + pad_y)
+    return left, top, right - left, bottom - top
 
 
 def redact_cards(image: np.ndarray) -> tuple[np.ndarray, int]:
@@ -68,12 +79,16 @@ def redact_cards(image: np.ndarray) -> tuple[np.ndarray, int]:
         return image, 0
     result = image.copy()
     for x, y, w, h in boxes:
-        region = result[y:y + h, x:x + w]
-        small = cv2.resize(region, (max(1, w // 14), max(1, h // 14)), interpolation=cv2.INTER_AREA)
-        pixelated = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
-        kernel = max(3, (min(w, h) // 4) | 1)
-        result[y:y + h, x:x + w] = cv2.GaussianBlur(pixelated, (kernel, kernel), 0)
+        result[y:y + h, x:x + w] = _pixelate_and_blur(result[y:y + h, x:x + w], w, h)
     return result, len(boxes)
+
+
+def _pixelate_and_blur(region: np.ndarray, w: int, h: int) -> np.ndarray:
+    """The region in coarse blocks, then softened so the blocks don't look like a grid."""
+    small = cv2.resize(region, (max(1, w // BLOCK_SIZE), max(1, h // BLOCK_SIZE)), interpolation=cv2.INTER_AREA)
+    pixelated = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+    kernel = max(3, (min(w, h) // 4) | 1)  # odd kernel size, scaled to the card
+    return cv2.GaussianBlur(pixelated, (kernel, kernel), 0)
 
 
 def redact_text(text: str | None) -> str | None:
