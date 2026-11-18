@@ -13,6 +13,7 @@ repository's save_frame, which both save paths use (the periodic save and the fr
 """
 
 import logging
+import re
 
 import cv2
 import numpy as np
@@ -24,6 +25,10 @@ RATIO_RANGE = (1.35, 1.85)        # wide enough for a card held at an angle
 AREA_RANGE = (0.008, 0.7)         # share of the frame: from a card at arm's length to one held to the lens
 RECTANGULAR = 0.82                # how completely the shape fills its rectangle (rounded corners allowed)
 PADDING = 0.08                    # blur a little past the edge, so no digit survives at the border
+# In the text read from a frame (OCR): 8 or more digits in a row, allowing spaces, dashes and dots between them,
+# such as card, ID, account or passport numbers. Short numbers (prices, room numbers, times) stay readable.
+LONG_NUMBER = re.compile(r"(?<![\w])\d(?:[ \-.]?\d){7,}(?![\w])")
+HIDDEN = "[number hidden]"
 
 
 def find_cards(image: np.ndarray) -> list[tuple[int, int, int, int]]:
@@ -71,8 +76,13 @@ def redact_cards(image: np.ndarray) -> tuple[np.ndarray, int]:
     return result, len(boxes)
 
 
+def redact_text(text: str | None) -> str | None:
+    """The read text with every long number hidden ("Card 4532 7714 0091 2245" -> "Card [number hidden]")."""
+    return LONG_NUMBER.sub(HIDDEN, text) if text else text
+
+
 class RedactingRepository:
-    """The frame repository, but every image is redacted before save_frame stores it.
+    """The frame repository, but every image (and the text read from it) is redacted before save_frame stores it.
     Everything else is passed straight through to the real repository."""
 
     def __init__(self, repository):
@@ -87,6 +97,8 @@ class RedactingRepository:
         # so a card is never stored unblurred.
         image, cards = redact_cards(image)
         self.cards_blurred += cards
+        if "ocr_text" in kwargs:
+            kwargs["ocr_text"] = redact_text(kwargs["ocr_text"])
         if cards:
             log.info("Blurred %d card-shaped area(s) before saving", cards)
         return self._repository.save_frame(session_id, captured_at, image, *args, **kwargs)

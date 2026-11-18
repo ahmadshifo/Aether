@@ -72,14 +72,24 @@ def ai_available() -> bool:
             and bool(setting("MISTRAL_API_KEY", "")))
 
 
+def ocr_available() -> bool:
+    return switch("MULTIMEDIA_AI_ANALYSIS") and bool(setting("MISTRAL_API_KEY", ""))
+
+
 def analysis_services():
-    """(ocr, vision, embedding, real) — real pretrained services only when both keys are configured."""
+    """(ocr, vision, embedding, real). Each pretrained service is on when its own key is configured:
+    reading text (OCR) needs only the Mistral key; captions/objects and search vectors need the OpenAI key.
+    real is True when any of them is a real service."""
+    ocr = vision = embedding = None
+    if ocr_available():
+        from processing.ocr_service import OCRService
+        ocr = OCRService()
     if ai_available():
         from processing.embedding_service import EmbeddingService
         from processing.object_detector import VisionService
-        from processing.ocr_service import OCRService
-        return OCRService(), VisionService(), EmbeddingService(), True
-    return NoAIOCR(), NoAIVision(), NoAIEmbedding(), False
+        vision, embedding = VisionService(), EmbeddingService()
+    real = ocr is not None or vision is not None
+    return ocr or NoAIOCR(), vision or NoAIVision(), embedding or NoAIEmbedding(), real
 
 
 # ---------- per-session pipeline ----------
@@ -113,12 +123,20 @@ class CombinedLivePipeline:
         now = self.clock()
         if self._last_save is not None and (now - self._last_save).total_seconds() < self.save_every:
             return FrameOutcome(source_frame_index, None, selection_reason="kept_in_memory")
+        # Cards are blurred before the saved copy is read (OCR) or stored, so a card number is never sent or kept.
+        image = redact_before_reading(self.inner, image)
         outcome = self.inner.process_live_frame(image, session_id, captured_at=captured_at,
                                                 source_frame_index=source_frame_index, elapsed_ms=elapsed_ms,
                                                 dry_run=dry_run)
         if outcome.frame_id:
             self._last_save = now
         return outcome
+
+
+def redact_before_reading(inner, image):
+    """With card blur on (a RedactingRepository), blur cards before the frame goes to OCR or storage."""
+    from processing.card_redact import RedactingRepository, redact_cards
+    return redact_cards(image)[0] if isinstance(inner.repository, RedactingRepository) else image
 
 
 def keep_frames(inner: MultimediaPipeline, frames) -> list[str]:
@@ -129,7 +147,7 @@ def keep_frames(inner: MultimediaPipeline, frames) -> list[str]:
     from processing.embedding_service import build_frame_description
     saved = []
     for item in frames:
-        image = item.frame
+        image = redact_before_reading(inner, item.frame)
         text, objects, caption, vector, model = "", [], "", None, None
         try:
             text = inner.ocr.extract_text(image).text
@@ -261,6 +279,8 @@ def build_live(repository, memory):
         return LiveMultimediaRunner(stream_source=RTSPFrameSource(session_id, settings=stream_settings),
                                     pipeline=pipeline, settings=live_settings, dry_run=False)
 
-    log.info("Live ingestion ready (AI analysis: %s, face blur: %s, card blur: %s, save every %ss)",
-             "on" if real else "off", "on" if blurrer else "off", "on" if cards else "off", save_every)
+    log.info("Live ingestion ready (reading text: %s, captions and search: %s, face blur: %s, card blur: %s, "
+             "save every %ss)", "on" if not isinstance(ocr, NoAIOCR) else "off",
+             "on" if not isinstance(vision, NoAIVision) else "off", "on" if blurrer else "off",
+             "on" if cards else "off", save_every)
     return LiveIngestManager(make_runner), keeper
