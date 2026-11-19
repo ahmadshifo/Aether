@@ -1,7 +1,7 @@
 // "Stop" while the phone talks, and the basics it answers by itself (time, date, battery, connection).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectCommand, heardStop } from '../src/voice/commands.ts';
+import { detectCommand, heardStop, isOwnVoice } from '../src/voice/commands.ts';
 import { batteryAnswer, connectionAnswer, dateAnswer, timeAnswer } from '../src/voice/basics.ts';
 import { SessionController } from '../src/session/controller.ts';
 
@@ -132,5 +132,62 @@ test('the battery is sent to the dashboard when it changes, and caregiver notes 
   await h.listening(); await h.listening();
   assert.equal(h.spoken.filter(text => text === 'Message from your caregiver: Dinner is ready.').length, 1);
   assert.deepEqual(read, ['n1']);
+  h.controller.stop();
+});
+
+test('the phone hearing its own voice is told apart from the user speaking over it', () => {
+  const answer = 'A closed door straight ahead, and a chair on your left.';
+  for (const heard of ['A closed door straight', 'a close door straight ahead', 'chair on your left', 'and a chair', 'a']) {
+    assert.equal(isOwnVoice(heard, answer), true, heard);
+  }
+  for (const heard of ['what is on my left', "what's behind me", 'help me', 'turn the camera off', 'read the sign']) {
+    assert.equal(isOwnVoice(heard, answer), false, heard);
+  }
+  assert.equal(isOwnVoice('مساعدة', 'باب مغلق أمامك'), false);
+  assert.equal(isOwnVoice('au secours', 'Une porte fermée devant vous.'), false);
+});
+
+async function speakingAnswer() {
+  const h = harness();
+  await h.controller.start('en'); await h.listening();
+  h.events.at(-1).result('What is in front of me', true);
+  await settle(); await wait(50); await settle();
+  assert.equal(h.controller.getSnapshot().phase, 'speaking');
+  // The listener started when the answer began; stopSpeech is also called before every sentence, so count from here.
+  const before = h.stopped();
+  return { ...h, overAnswer: h.events.at(-1), cutOff: () => h.stopped() > before };
+}
+
+test('a question asked while an answer is read stops it and is asked straight away', async () => {
+  const h = await speakingAnswer();
+  h.overAnswer.result('what is on my', false);  // not finished yet: keep talking
+  await settle();
+  assert.equal(h.controller.getSnapshot().phase, 'speaking');
+  h.overAnswer.result('what is on my left', true);
+  await settle(); await wait(50); await settle();
+  assert.ok(h.cutOff());
+  assert.deepEqual(h.asked, ['What is in front of me', 'what is on my left']);
+  h.controller.stop();
+});
+
+test('help said while an answer is read starts the SOS countdown at once', async () => {
+  const h = await speakingAnswer();
+  h.overAnswer.result('help me', true);
+  await settle(); await wait(50); await settle();
+  assert.ok(h.cutOff());
+  assert.equal(h.controller.getSnapshot().sos, 'countdown');
+  assert.match(h.spoken.at(-1), /Sending a help alert/);
+  assert.deepEqual(h.asked, ['What is in front of me']);
+  h.controller.stop();
+});
+
+test('the phone hearing its own answer, even as a finished sentence, does not interrupt it', async () => {
+  const h = await speakingAnswer();
+  h.overAnswer.result('a close door straight ahead', true);
+  h.overAnswer.result('and a chair on your left', true);
+  await settle(); await wait(50); await settle();
+  assert.equal(h.controller.getSnapshot().phase, 'speaking');
+  assert.equal(h.cutOff(), false);
+  assert.deepEqual(h.asked, ['What is in front of me']);
   h.controller.stop();
 });

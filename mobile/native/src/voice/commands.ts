@@ -160,6 +160,23 @@ export function heardStop(heard: string, speaking: string): boolean {
   return !sentence.split(' ').some(word => word.length > 1 && reading.includes(` ${word} `));
 }
 
+/**
+ * True when what was heard while the phone was talking is most likely the phone hearing its own voice: at least
+ * 3 in 4 of the heard words are in the text being read. A word counts when it starts like a word being read
+ * ("close" for "closed"), since the recognizer often mishears the speaker slightly. A real question shares a few
+ * words with the answer at most ("what is on my left" against "There is a chair on your left").
+ */
+export function isOwnVoice(heard: string, speaking: string): boolean {
+  const sentence = normalize(heard);
+  const words = sentence.split(' ').filter(word => word.length > 1);
+  if (!words.length) return true;  // a single letter or noise: nothing the user said
+  const reading = normalize(speaking).split(' ').filter(word => word.length > 1);
+  if (` ${reading.join(' ')} `.includes(` ${words.join(' ')} `)) return true;
+  const stem = (word: string) => word.slice(0, Math.max(3, Math.min(word.length, 4)));
+  const found = words.filter(word => reading.some(read => read === word || (word.length > 3 && read.length > 3 && stem(read) === stem(word))));
+  return found.length / words.length >= 0.75;
+}
+
 /** Seconds the user has to say "cancel" before an SOS is sent. */
 export const SOS_DELAY_SECONDS = 5;
 
