@@ -1,4 +1,4 @@
-"""Member 2: call Member 3's search, frame-image and live-state APIs (no mock: they are always the real service).
+"""Member 2: call Member 3's search, frame-timeline, frame-image and live-state APIs (no mock: they are always the real service).
 
 The multimedia service listens on this PC only (MULTIMEDIA_API_URL, default http://127.0.0.1:8003).
 Failures raise MemoryUnavailable so /ask can still answer honestly ("I can't see the camera").
@@ -79,6 +79,10 @@ class MemoryClient:
             raise MemoryUnavailable(f"multimedia image answered {error.code}") from None
         except (urllib.error.URLError, OSError) as error:
             raise MemoryUnavailable(f"multimedia image failed: {type(error).__name__}") from None
+
+    def timeline(self, session_id: str, limit: int = 60) -> list[dict]:
+        """The session's saved frames, newest first (caption, objects, read text), for "Ask my history"."""
+        return _get(f"/api/v1/frames?session_id={session_id}&limit={max(1, min(limit, 100))}", self.cookie).get("frames", [])
 
     def live_state(self, session_id: str) -> dict:
         """How the live camera is doing: last_frame_at, dark_since, frozen_since (ISO times or None)."""

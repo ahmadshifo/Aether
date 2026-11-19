@@ -2,9 +2,10 @@
 
 POST /api/v1/ask (shared contract AskRequest -> AskResponse):
 1. checks the camera session belongs to the signed-in account,
-2. finds the evidence frames (assistant.py) and answers with Gemini from those pictures (vision_provider.py),
+2. answers with Gemini (assistant.py): about the camera's frames, or, for a question about the past,
+   from the user's last 24 hours of questions and saved frames (history_answer.py),
 3. saves question + answer + evidence to the history,
-4. asks the multimedia service to keep those frames (so their images survive the 2-minute memory).
+4. asks the multimedia service to keep this session's evidence frames (so they survive the 2-minute memory).
 Asking again with the same question_id returns the saved answer instead of answering twice.
 """
 
@@ -72,7 +73,7 @@ def ask(body: AskRequest, user_id: str = Depends(signed_in_user_id),
 
     # The question's time is when it arrived; "what's in front of me" then waits a few seconds for newer frames.
     asked_at, arrived = _now(), datetime.now(UTC)
-    result = assistant.answer(question, body.language, session_id, memory, asked_at=arrived)
+    result = assistant.answer(question, body.language, session_id, memory, asked_at=arrived, user_id=user_id)
     record_question(user_id, session_id, question_id, question, result.text, body.language,
                     result.uncertain, result.evidence_frame_ids, asked_at=asked_at, location=body.location)
     # A concurrent retry may have won INSERT IGNORE. Return what MySQL actually kept,
@@ -80,7 +81,8 @@ def ask(body: AskRequest, user_id: str = Depends(signed_in_user_id),
     persisted = get_question(user_id, question_id)
     if persisted is None:
         raise ApiError(503, "history_save_failed", "The answer could not be saved. Please try again.")
-    if result.evidence_frame_ids:
+    # History answers point at frames that were already saved (maybe in an earlier session): nothing to keep.
+    if result.evidence_frame_ids and result.mode != "history":
         try:
             kept = memory.keep(session_id, result.evidence_frame_ids)
             if kept.get("missing"):

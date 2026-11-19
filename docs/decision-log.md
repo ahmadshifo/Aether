@@ -100,3 +100,16 @@ Record the date, owner, affected services, reason, and approved new contract ver
 - `MULTIMEDIA_OCR=off` turns text reading off while keeping the Mistral key (its free plan allows 0 OCR requests,
   and a failed OCR request stopped periodic frames from being saved). A free local OCR is planned.
 - Affected: multimedia only, no API or database change. Needs ahmadshifo's approval.
+
+## 2026-11-19 - Where am I, Ask my history (Member 2)
+
+- "Where am I?" (also "which street is this", "وين أنا", "où suis-je") is a phone command, answered on the
+  phone: a fresh GPS fix turned into street, place name and area (`mobile/native/src/platform/whereAmI.ts`,
+  `placeAnswer` in `src/voice/basics.ts`). Nothing is saved or sent to Aether. It asks for location permission
+  when needed and is separate from the "Save area in History" setting. Needs a new phone build (the location
+  permission text changed). Affects Member 1's app: needs Hassan's approval.
+- "Ask my history": a question about the past ("what did I ask earlier?", "where did I see my keys?",
+  "شو سألت اليوم", "qu'est-ce que j'ai demandé tout à l'heure") is answered from the account's last 24 hours:
+  its questions and answers plus the captions, objects and read text of saved frames (Member 3's existing
+  `GET /api/v1/frames` timeline). Gemini gets this as text only and must answer only from it; the frames it
+  names become the answer's evidence (`web/ai-backend/app/history_answer.py`). No API or database change.
