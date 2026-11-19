@@ -3,7 +3,7 @@ import { validTranscript } from '../voice/transcript.ts';
 import type { Transport } from '../streaming/whip.ts';
 import { sessionGreeting } from '../voice/sessionGreeting.ts';
 import type { AskRequest, AskResponse } from '../services/teamApi.ts';
-import { callContactName, commandCopy, detectCommand, heardStop, sosContactName, SOS_DELAY_SECONDS, type Command } from '../voice/commands.ts';
+import { callContactName, commandCopy, detectCommand, heardStop, isOwnVoice, sosContactName, SOS_DELAY_SECONDS, type Command } from '../voice/commands.ts';
 import { batteryWarning, connectionWarning, warningCopy, type Warning } from '../voice/warnings.ts';
 import { batteryAnswer, connectionAnswer, dateAnswer, timeAnswer } from '../voice/basics.ts';
 import { ContactLookupError } from '../platform/contactErrors.ts';
@@ -90,10 +90,12 @@ export class SessionController {
   private warned = new Set<Warning>();
   private pendingWarnings: Warning[] = [];
   private stopBattery?: () => void;
-  // While the phone talks it listens only for "stop" (see listenForStop); stoppedBy is the speech it stopped.
+  // While the phone talks it still listens (see listenForStop): "stop", a command or a new question cuts it off.
+  // stoppedBy is the speech it stopped; interruption is what the user said, handled once the speech has ended.
   private stopListener?: Promise<() => Promise<void>>;
   private stopRequest?: AbortController;
   private stoppedBy = 0;
+  private interruption?: { token: number; text: string; command: Command | null };
   private buzzWhenListening = false;
   // Caregiver messages waiting to be read aloud (said like warnings: only while listening), and the ones already
   // queued or read this session, so a message is never read twice.
@@ -365,8 +367,16 @@ export class SessionController {
       if (resume && this.valid(g)) this.listenForStop(g, token, text);
     });
     await this.endStopListener();
+    const heard = this.interruption?.token === token ? this.interruption : undefined;
+    if (heard) this.interruption = undefined;
     if (token !== this.speechGeneration || !this.ports.allowed() || g !== this.generation) return;
     if (this.stoppedBy === token) result = 'done';  // the user said "stop": go straight back to listening
+    if (heard && resume && this.valid(g)) {
+      // The user spoke over the answer: run their command or ask their question now, instead of listening again.
+      this.set({ phase: 'hearing', transcript: heard.text });
+      void (heard.command ? this.command(heard.command, heard.text) : this.question(heard.text, 'speech'));
+      return;
+    }
     this.set({ phase: this.state.active ? 'paused' : 'idle', ...(result === 'error' ? { voiceError: 'tts_failed' } : {}) });
     if (result === 'done' && resume && this.valid(g) && this.ports.recognitionAvailable) {
       this.buzzWhenListening = true;
@@ -374,8 +384,10 @@ export class SessionController {
     } else if (this.valid(g) && this.ports.preview) this.set({ phase: 'unavailable' });
   }
   /**
-   * While an answer is being read, listen only for "stop". Anything else (including the phone hearing its own
-   * voice) is ignored. The recognizer may end on its own during a long answer, so it starts again.
+   * While the phone is talking it keeps listening, so the user never has to wait: "stop" stops it, and a command
+   * (SOS, cancel, camera off...) or a new question stops it and is handled right away. What the phone hears of its
+   * own voice is ignored (heardStop and isOwnVoice compare it with the text being read). The recognizer may end on
+   * its own during a long answer, so it starts again.
    */
   private listenForStop(g: number, token: number, speaking: string) {
     if (!this.ports.recognitionAvailable || this.stopRequest) return;
@@ -383,9 +395,15 @@ export class SessionController {
     const current = () => this.valid(g) && token === this.speechGeneration && this.state.phase === 'speaking' && !request.signal.aborted;
     this.stopListener = this.ports.recognition(this.language, {
       start: () => {}, error: () => {},
-      result: heard => {
-        if (!current() || !heardStop(heard, speaking)) return;
+      result: (heard, final, confidence) => {
+        if (!current()) return;
+        if (heardStop(heard, speaking)) { this.stoppedBy = token; this.ports.stopSpeech(); return; }
+        if (!final || isOwnVoice(heard, speaking)) return;
+        const command = detectCommand(heard);
+        // During an SOS countdown only "cancel" counts, as when listening normally.
+        if (this.state.sos === 'countdown' ? command !== 'cancel' : !command && !validTranscript(heard, confidence)) return;
         this.stoppedBy = token;
+        this.interruption = { token, text: heard, command };
         this.ports.stopSpeech();
       },
       end: () => {
