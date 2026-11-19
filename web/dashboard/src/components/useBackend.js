@@ -1,6 +1,7 @@
 // Member 2: live data from the AI backend for the dashboard pages.
 // useStatus: service health, re-checked every 15 s and on demand. useQuestions: the account's Q&A history.
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { memoryClient } from '../services/memoryClient.js';
 import { assistantClient } from '../services/assistantClient.js';
 
 const STATUS_EVERY_MS = 15000;
@@ -40,16 +41,29 @@ export function useStatus() {
 }
 
 export function useQuestions() {
-  const [state, setState] = useState({ questions: [], demo: false, loading: true, error: null });
+  const [state, setState] = useState({ questions: [], loading: true, error: null });
   const reload = useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }));
     try {
       const data = await assistantClient.questions();
-      setState({ questions: data.questions, demo: data.demo, loading: false, error: null });
+      setState({ questions: data.questions, loading: false, error: null });
     } catch (error) {
-      setState({ questions: [], demo: false, loading: false, error: error.message });
+      setState({ questions: [], loading: false, error: error.message });
     }
   }, []);
   useEffect(() => { reload(); }, [reload]);
   return { ...state, reload };
+}
+
+// The account's saved frames (newest first) from the multimedia service.
+export function useRecentFrames() {
+  const [state, setState] = useState({ frames: [], loading: true, error: null });
+  useEffect(() => {
+    let alive = true;
+    memoryClient.recentFrames()
+      .then((frames) => { if (alive) setState({ frames, loading: false, error: null }); })
+      .catch((error) => { if (alive) setState({ frames: [], loading: false, error: error.message }); });
+    return () => { alive = false; };
+  }, []);
+  return state;
 }

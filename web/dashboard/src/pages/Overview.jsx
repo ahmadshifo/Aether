@@ -1,26 +1,20 @@
 // Member 2: overview: live stream with the text it just read, latest answer slip, system health and recently remembered frames.
 import { useContext, useState } from 'react';
 import { Link } from 'react-router';
-import { AUTH_ENABLED } from '../auth.js';
 import LiveStream from '../components/LiveStream.jsx';
 import { Barcode, LogoTraceLoader, ReceiptPrinter, ScrambleText, Stamp } from '../components/ui/index.js';
 import {
-  Icon, PageHeader, SceneArt, STATUS_LABELS, StatusPill, UserContext, formatTime, frameTitle, signText,
+  Icon, PageHeader, STATUS_LABELS, StatusPill, UserContext, formatTime,
 } from '../components/ui.jsx';
 import { useWatchedSession } from '../components/useWatchedSession.js';
 import { useCameraPaused } from '../components/useLiveSessionId.js';
 import DailySummary from '../components/DailySummary.jsx';
 import PhoneBattery from '../components/PhoneBattery.jsx';
 import CaregiverNotes from '../components/CaregiverNotes.jsx';
-import { useQuestions, useStatus } from '../components/useBackend.js';
-// Saved-frame cards stay sample scenes until the Visual Memory page is wired to the multimedia service.
-import { FRAMES, sceneFor } from '../data/mockData.js';
+import { useQuestions, useRecentFrames, useStatus } from '../components/useBackend.js';
+import { memoryClient } from '../services/memoryClient.js';
 
-const RECENT = [
-  ['a1e5c9f3-7d2b-4c8e-9a6f-3b0d5e1c7a94', -1.5],
-  ['7b3f9d1e-6c2a-4e5b-8f0d-1a9c3e7b5d28', 1],
-  ['b8b51e4a-32f2-4542-bbb1-cc9e6de18384', -0.5],
-];
+const TILTS = [-1.5, 1, -0.5];
 
 const SERVICES = [
   { key: 'streaming', name: 'Stream', owner: 'Member 1 · MediaMTX' },
@@ -59,14 +53,14 @@ export default function Overview() {
   const { status, checking, check: recheck } = useStatus();
   const history = useQuestions();
   const latest = history.questions[0];
-  // Demo answers point at the sample scenes, which carry the text that was read.
-  const sampleEvidence = latest ? FRAMES.filter((frame) => latest.evidence_frame_ids.includes(frame.frame_id)) : [];
-  const readText = sampleEvidence.find((frame) => frame.ocr_text)?.ocr_text ?? '';
-  const recent = RECENT.map(([id, tilt]) => ({ frame: FRAMES.find((frame) => frame.frame_id === id), tilt }));
+  const saved = useRecentFrames();
+  // The text read in the newest saved frame that has some (empty while text reading is off).
+  const readText = saved.frames.find((frame) => frame.ocr_text)?.ocr_text ?? '';
+  const recent = saved.frames.slice(0, TILTS.length);
   const [readKey, setReadKey] = useState(0);
   const [checkKey, setCheckKey] = useState(0);
   const streaming = Boolean(liveId);
-  const questionCount = history.demo ? 'Samples only' : String(history.questions.length);
+  const questionCount = String(history.questions.length);
 
   const check = () => {
     setCheckKey((n) => n + 1);
@@ -101,7 +95,7 @@ export default function Overview() {
           <div className="card-head">
             <h2 id="live-title" className="card-title">Live stream</h2>
             <div className="btn-row">
-              {AUTH_ENABLED && <PhoneBattery />}
+              <PhoneBattery />
               {watching
                 ? <button type="button" className="btn" onClick={disconnect}>Disconnect</button>
                 : <button type="button" className="btn" onClick={connect} disabled={looking}>{looking ? 'Connecting…' : 'Connect'}</button>}
@@ -109,14 +103,12 @@ export default function Overview() {
             </div>
           </div>
           <LiveStream sessionId={watching} aspect="16x9" paused={paused}
-            idleText={AUTH_ENABLED
-              ? (streaming ? 'Your phone is streaming. Press Connect to watch it.' : 'Your phone isn’t streaming. Press Start in the Aether app.')
-              : undefined} />
+            idleText={streaming ? 'Your phone is streaming. Press Connect to watch it.' : 'Your phone isn’t streaming. Press Start in the Aether app.'} />
           {notice && <p className="note" role="status"><Icon name="alert" size={16} />{notice}</p>}
           <div className="ocr-panel inset">
             <span>
               <span className="label">Text read just now</span>
-              <ScrambleText className="ocr-text" text={readText} runKey={readKey} />
+              <ScrambleText className="ocr-text" text={readText || 'No text read yet.'} runKey={readKey} />
             </span>
             <button type="button" className="btn" onClick={() => setReadKey((n) => n + 1)}>Read again</button>
           </div>
@@ -124,12 +116,12 @@ export default function Overview() {
 
         <div className="stack">
           <DailySummary />
-          {AUTH_ENABLED && <CaregiverNotes />}
+          <CaregiverNotes />
 
           <section className="card section section-tight" aria-labelledby="answer-title">
             <div className="card-head">
               <h2 id="answer-title" className="card-title">
-                Latest answer {history.demo && <span className="chip-warn">DEMO</span>}
+                Latest answer
               </h2>
               {latest && <span className="label">{formatTime(latest.asked_at)} · {latest.language.toUpperCase()}</span>}
             </div>
@@ -168,20 +160,26 @@ export default function Overview() {
 
       <section className="card section" aria-labelledby="recent-title">
         <div className="card-head">
-          <h2 id="recent-title" className="card-title">Recently remembered <span className="chip">SAMPLE</span></h2>
-          <Link to="/memory" className="btn">View all {FRAMES.length}</Link>
+          <h2 id="recent-title" className="card-title">Recently remembered</h2>
+          <Link to="/memory" className="btn">View all {saved.frames.length}</Link>
         </div>
-        <ul className="stamps">
-          {recent.map(({ frame, tilt }) => (
-            <li key={frame.frame_id}>
-              <Stamp to={`/memory/${frame.frame_id}`} tilt={tilt}
-                label={`${frameTitle(frame)} at ${formatTime(frame.captured_at)}`}
-                caption={<><span>{frameTitle(frame)}</span><span>{formatTime(frame.captured_at)}</span></>}>
-                <SceneArt scene={sceneFor(frame)} sign={signText(frame.ocr_text)} />
-              </Stamp>
-            </li>
-          ))}
-        </ul>
+        {recent.length ? (
+          <ul className="stamps">
+            {recent.map((frame, index) => (
+              <li key={frame.frame_id}>
+                <Stamp to={`/memory/${frame.frame_id}`} tilt={TILTS[index]}
+                  label={`${frame.caption || 'Saved frame'} at ${formatTime(frame.captured_at)}`}
+                  caption={<><span>{frame.caption || 'Saved frame'}</span><span>{formatTime(frame.captured_at)}</span></>}>
+                  <img src={memoryClient.imageUrl(frame.frame_id)} alt="" loading="lazy" draggable={false}
+                    style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
+                </Stamp>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="empty">{saved.loading ? 'Loading…' : saved.error ? `Couldn't load saved frames: ${saved.error}`
+            : 'No saved frames yet. They appear while the phone streams and when the assistant answers.'}</p>
+        )}
       </section>
     </>
   );

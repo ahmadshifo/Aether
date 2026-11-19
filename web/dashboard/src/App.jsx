@@ -1,12 +1,12 @@
 // Member 2: dashboard shell: the Option B sidebar and routes (/overview, /memory/{frame_id}, ...).
 import { useEffect, useRef, useState } from 'react';
 import { Link, matchPath, Navigate, NavLink, Route, Routes, useLocation } from 'react-router';
-import { AUTH_ENABLED, getCurrentUser, logout } from './auth.js';
+import { getCurrentUser, logout } from './auth.js';
 import { Avatar, Icon, UserContext } from './components/ui.jsx';
 import { Mark, Wordmark } from './components/ui/index.js';
 import SosAlerts from './components/SosAlerts.jsx';
 import LiveAlerts from './components/LiveAlerts.jsx';
-import { STATUS } from './data/mockData.js';
+import { useLiveSessionId } from './components/useLiveSessionId.js';
 import AiHistory from './pages/AiHistory.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import LiveCamera from './pages/LiveCamera.jsx';
@@ -51,18 +51,15 @@ function useTheme() {
   return [theme, setTheme];
 }
 
-const PREVIEW_USER = { user_id: null, email: 'Mock data · login off', name: 'Team preview', created_at: null };
-
 const routePath = (item) => `/${item.path ?? item.id}`;
 
 export default function App() {
   const [theme, setTheme] = useTheme();
   // undefined = still checking, null = signed out
-  const [user, setUser] = useState(AUTH_ENABLED ? undefined : PREVIEW_USER);
+  const [user, setUser] = useState(undefined);
   const [authError, setAuthError] = useState('');
 
   useEffect(() => {
-    if (!AUTH_ENABLED) return;
     getCurrentUser().then(setUser).catch((error) => { setAuthError(error.message); setUser(null); });
   }, []);
 
@@ -97,7 +94,8 @@ function Shell({ user, onUserChange, onLogout, theme, onThemeChange }) {
   const mainRef = useRef(null);
   const previousPath = useRef(pathname);
   const current = NAV.find((item) => matchPath(routePath(item), pathname)) ?? NAV[0];
-  const streaming = STATUS.streaming === 'online';
+  // The signed-in account's phone is publishing its camera right now.
+  const streaming = Boolean(useLiveSessionId());
 
   useEffect(() => {
     document.title = `${current.label} · Aether`;
@@ -150,22 +148,20 @@ function Shell({ user, onUserChange, onLogout, theme, onThemeChange }) {
                 <span className="foot-email" title={user.email}>{user.email}</span>
               </span>
             </Link>
-            {AUTH_ENABLED && (
-              <button type="button" className="foot-logout" onClick={onLogout} aria-label="Log out" title="Log out">
-                <Icon name="logout" size={17} />
-              </button>
-            )}
+            <button type="button" className="foot-logout" onClick={onLogout} aria-label="Log out" title="Log out">
+              <Icon name="logout" size={17} />
+            </button>
           </div>
         </aside>
 
         <main ref={mainRef} className="main" tabIndex={-1}>
           {/* SOS alerts show above every page until a caregiver presses "I'm on it". */}
-          {AUTH_ENABLED && <SosAlerts />}
-          {AUTH_ENABLED && <LiveAlerts />}
+          <SosAlerts />
+          <LiveAlerts />
           <Routes>
             {NAV.map(({ id, path, Page }) => (
               <Route key={id} path={path ?? id} element={
-                <Page key={pathname} user={user} authEnabled={AUTH_ENABLED} onUserChange={onUserChange} onLogout={onLogout}
+                <Page key={pathname} user={user} onUserChange={onUserChange} onLogout={onLogout}
                   theme={theme} onThemeChange={onThemeChange} />
               } />
             ))}

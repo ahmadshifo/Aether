@@ -1,4 +1,4 @@
-// Member 2: shared dashboard pieces: icons, the stand-in camera scene, page header, avatar, status labels and UTC time formatting.
+// Member 2: shared dashboard pieces: icons, page header, avatar, status labels and UTC time formatting.
 import { createContext, useContext } from 'react';
 
 const ICON_PATHS = {
@@ -31,36 +31,6 @@ export function Icon({ name, size = 18, strokeWidth = '1.8', ...rest }) {
       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...rest}>
       {ICON_PATHS[name]}
     </svg>
-  );
-}
-
-// Stand-in camera frame (door, exit, hallway or chair) until Member 3's JPEGs are wired in. Flat fills only.
-export function SceneArt({ scene = 'hallway', sign = '', blur = false, label }) {
-  return (
-    <span className={`scene${blur ? ' scene-blur' : ''}`} role={label ? 'img' : undefined} aria-label={label}
-      aria-hidden={label ? undefined : 'true'} style={{ display: 'block' }}>
-      <span className="scene-inner">
-        <span className="s-floor" />
-        <span className="s-wall-l" />
-        <span className="s-wall-r" />
-        {scene === 'door' && (
-          <span className="s-door">
-            {sign && <span className="s-sign" style={{ display: 'block' }}>{sign}</span>}
-            <span className="s-knob" />
-          </span>
-        )}
-        {scene === 'exit' && (<><span className="s-exit">EXIT →</span><span className="s-exit-door" /></>)}
-        {scene === 'hallway' && (<><span className="s-hall-end" /><span className="s-hall-light" /></>)}
-        {scene === 'chair' && (
-          <>
-            <span className="s-chair-back" />
-            <span className="s-chair-seat" />
-            <span className="s-chair-leg" style={{ left: '40%' }} />
-            <span className="s-chair-leg" style={{ left: '57%' }} />
-          </>
-        )}
-      </span>
-    </span>
   );
 }
 
@@ -109,13 +79,3 @@ const dateFormat = new Intl.DateTimeFormat('en-US', {
 export const formatTime = (iso) => timeFormat.format(new Date(iso));
 export const formatShortTime = (iso) => shortTimeFormat.format(new Date(iso));
 export const formatDate = (iso) => dateFormat.format(new Date(iso));
-
-// Short label for a frame, e.g. "ROOM 205", "CHAIR".
-export function frameTitle(frame) {
-  if (frame.ocr_text) return frame.ocr_text.toUpperCase();
-  const object = frame.objects.find((name) => name !== 'hallway') ?? frame.objects[0] ?? 'scene';
-  return object.toUpperCase();
-}
-
-// What the stand-in door sign shows: the frame's text, kept short enough to fit.
-export const signText = (ocr) => (ocr && ocr.length <= 12 ? ocr : '');

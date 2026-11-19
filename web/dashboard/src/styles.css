@@ -17,7 +17,7 @@
   /* Roles the dark theme swaps: primary buttons, the brand mark, chips and the stamp perforation. */
   --btn-bg: #202020; --btn-edge: #000000; --btn-text: #FFFFFF;
   --mark: #000000; --mark-eye: #FFFFFF;
-  --chip-bg: #F7F7F7; --perf: #CFCFCF; --drop-bg: #FAFAFA; --drop-line: #D4D4D4; --drop-near: #F0F0F0;
+  --chip-bg: #F7F7F7; --perf: #CFCFCF; --drop-line: #D4D4D4;
   --slot: #2A2A2E; --overlay: rgba(255,255,255,.88);
   color-scheme: light;
   font-family: var(--font);
@@ -33,7 +33,7 @@
   --shadow-card: 0 1px 2px rgba(0,0,0,.4);
   --btn-bg: #EDEDED; --btn-edge: #FFFFFF; --btn-text: #111111;
   --mark: #EDEDED; --mark-eye: #111111;
-  --chip-bg: #232323; --perf: #4A4A4A; --drop-bg: #1D1D1D; --drop-line: #3A3A3A; --drop-near: #262626;
+  --chip-bg: #232323; --perf: #4A4A4A; --drop-line: #3A3A3A;
   --overlay: rgba(17,17,17,.86);
   color-scheme: dark;
 }
@@ -262,7 +262,7 @@ img, svg, video { display: block; }
 .section { display: flex; flex-direction: column; gap: 14px; padding: 20px; }
 .section-tight { gap: 10px; }
 
-/* ---------- camera stage (live video or the stand-in scene) ---------- */
+/* ---------- camera stage (live video) ---------- */
 
 .stage { position: relative; overflow: hidden; border-radius: var(--r-inset); background: var(--inset); }
 .stage-16x9 { aspect-ratio: 16 / 9; }
@@ -281,36 +281,6 @@ img, svg, video { display: block; }
   gap: 12px; padding: 20px; background: var(--overlay); text-align: center;
 }
 .stage-overlay p { font-size: 14px; color: var(--ink-2); max-width: 32ch; }
-
-/* Stand-in camera scene, drawn with flat fills until real frames arrive. */
-.scene {
-  position: relative; width: 100%; height: 100%; min-height: 60px; overflow: hidden; background: #A9A59A;
-  container-type: inline-size;
-}
-.scene-inner { position: absolute; inset: 0; }
-.scene-blur .scene-inner { filter: blur(1.6px); }
-.scene .s-floor { position: absolute; left: 0; right: 0; bottom: 0; height: 42%; background: #7E796E; }
-.scene .s-wall-l, .scene .s-wall-r { position: absolute; top: 0; bottom: 0; width: 20%; background: #85817A; }
-.scene .s-wall-l { left: 0; }
-.scene .s-wall-r { right: 0; }
-.scene .s-door {
-  position: absolute; left: 34%; top: 16%; width: 32%; height: 46%; background: #7A5639; border: 4px solid #553A26; border-bottom: 0;
-}
-.scene .s-sign {
-  margin: 20% auto 0; width: 80%; padding: 4% 0; border-radius: 3px; background: #F4F1E8; color: #1F2933; text-align: center;
-  font-family: Arial, sans-serif; font-size: min(11px, 3.4cqw); font-weight: 800; letter-spacing: .5px; white-space: nowrap; overflow: hidden;
-}
-.scene .s-knob { position: absolute; right: 10%; top: 58%; width: 7px; height: 7px; border-radius: 50%; background: #D6B46A; }
-.scene .s-exit {
-  position: absolute; left: 32%; top: 14%; width: 36%; padding: 3% 0; border-radius: 4px; background: #1F9D55; color: #FFFFFF;
-  text-align: center; font-family: Arial, sans-serif; font-size: min(12px, 4.2cqw); font-weight: 800; letter-spacing: 1px;
-}
-.scene .s-exit-door { position: absolute; left: 36%; top: 30%; width: 28%; height: 32%; background: #9AA3AD; }
-.scene .s-hall-end { position: absolute; left: 38%; top: 28%; width: 24%; height: 30%; background: #F3EFE8; }
-.scene .s-hall-light { position: absolute; left: 30%; top: 8%; width: 40%; height: 4%; border-radius: 4px; background: #FFF8DC; }
-.scene .s-chair-back { position: absolute; left: 40%; top: 34%; width: 20%; height: 22%; border-radius: 6px 6px 0 0; background: #3F5D7A; }
-.scene .s-chair-seat { position: absolute; left: 38%; top: 54%; width: 24%; height: 6%; background: #2F4A63; }
-.scene .s-chair-leg { position: absolute; top: 60%; width: 3%; height: 14%; background: #2F4A63; }
 
 /* ---------- Overview ---------- */
 
@@ -596,19 +566,6 @@ img, svg, video { display: block; }
 .hold-fill.is-resetting { transition: width 250ms ease; }
 .hold-label { position: relative; }
 .undo-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; font-size: 14px; }
-
-/* Magnetic Drop Zone. */
-.drop {
-  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-  min-height: 150px; padding: 18px; border-radius: 12px; border: 2px dashed var(--drop-line); background: var(--drop-bg);
-  color: var(--ink); text-align: center; cursor: pointer;
-  transition: transform 250ms var(--ease-out), border-color 200ms, background 200ms;
-}
-.drop.is-near { transform: scale(1.03); border-color: var(--ink); background: var(--drop-near); }
-.drop.has-file { color: var(--ok-text); }
-.drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.drop:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
-.drop-text { font-size: 15px; font-weight: 500; overflow-wrap: anywhere; }
 
 /* Live Dot. */
 .live-dot { width: 7px; height: 7px; flex-shrink: 0; background: var(--danger); animation: blink 1.4s steps(1, end) infinite; }

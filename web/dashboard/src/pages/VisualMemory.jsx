@@ -1,13 +1,12 @@
 // Member 2: saved frames fanned as playing cards, newest first, searchable by caption, read text and objects.
 // Data: the signed-in account's camera sessions of the last 24 hours (AI backend), and each session's saved
 // frames and images from Member 3's API. Captions, read text and objects come from Member 3's frame analysis,
-// which turns on with its AI keys; until then each card says what is still missing.
+// (captions from Gemini; text reading is off until a free OCR is added). Empty fields say what is missing.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 import { PlayingCards, Segmented } from '../components/ui/index.js';
 import { Icon, PageHeader, formatDate, formatTime } from '../components/ui.jsx';
 import { memoryClient } from '../services/memoryClient.js';
-import { streamsClient } from '../services/streamsClient.js';
 
 // Same windows as the search modes in api-v1.yaml, counted back from the newest saved frame.
 const RANGES = [
@@ -17,7 +16,7 @@ const RANGES = [
 ];
 const HAND_SIZE = 7;
 const NO_CAPTION = 'Not described yet';
-const NO_TEXT = 'No text read yet. Reading turns on with the OCR key.';
+const NO_TEXT = 'No text read yet.';
 const NO_OBJECTS = 'No objects listed yet.';
 const describe = (frame) => frame.caption || NO_CAPTION;
 
@@ -26,16 +25,6 @@ function matches(frame, query) {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const haystack = [describe(frame), frame.ocr_text, ...frame.objects].join(' ').toLowerCase();
   return words.every((word) => haystack.includes(word));
-}
-
-// Every saved frame of this account's recent sessions, newest first. A session that fails to load is skipped.
-async function loadFrames() {
-  const sessions = await streamsClient.recentSessions();
-  const results = await Promise.allSettled(sessions.map((session) => memoryClient.frames(session.session_id)));
-  const failed = results.filter((result) => result.status === 'rejected');
-  if (sessions.length && failed.length === sessions.length) throw failed[0].reason;
-  return results.flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
-    .sort((a, b) => Date.parse(b.captured_at) - Date.parse(a.captured_at));
 }
 
 function FrameImage({ frame, alt = '' }) {
@@ -65,7 +54,7 @@ export default function VisualMemory() {
   const load = useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }));
     try {
-      setState({ loading: false, error: null, frames: await loadFrames() });
+      setState({ loading: false, error: null, frames: await memoryClient.recentFrames() });
     } catch (error) {
       setState({ loading: false, error: error.message, frames: [] });
     }

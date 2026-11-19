@@ -2,7 +2,7 @@
 
 POST /api/v1/ask (shared contract AskRequest -> AskResponse):
 1. checks the camera session belongs to the signed-in account,
-2. finds the evidence frames (assistant.py) and answers (no vision model yet: an honest placeholder),
+2. finds the evidence frames (assistant.py) and answers with Gemini from those pictures (vision_provider.py),
 3. saves question + answer + evidence to the history,
 4. asks the multimedia service to keep those frames (so their images survive the 2-minute memory).
 Asking again with the same question_id returns the saved answer instead of answering twice.
