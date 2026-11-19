@@ -25,8 +25,12 @@ class LocationTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 HistoryLocation(**place)
 
-    def test_old_rows_and_demo_have_no_made_up_place(self):
-        self.assertTrue(all(row["location"] is None for row in history.demo_records()))
+    def test_an_old_row_without_a_place_has_no_made_up_place(self):
+        row = {"question_id": "q", "session_id": "s", "asked_at": datetime(2026, 11, 18, 12, 0), "question": "?", "answer": ".",
+               "language": "en", "uncertain": 0, "evidence_frame_ids": "[]"}
+        record = history._record(row)
+        self.assertIsNone(record["location"])
+        self.assertFalse(record["demo"])
 
     def test_schema_only_adds_missing_nullable_columns(self):
         connection, cursor = MagicMock(), MagicMock()

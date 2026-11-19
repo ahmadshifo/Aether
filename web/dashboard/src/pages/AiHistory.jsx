@@ -1,10 +1,8 @@
 // Member 2: every question and answer, filterable by "not sure" and language, with the spoken answer and its evidence frames.
-// Loads GET /api/v1/questions from the AI backend. While the assistant has not answered anything yet,
-// the backend returns sample records marked demo, and this page says so.
+// Loads GET /api/v1/questions from the AI backend; evidence images come from the multimedia service.
 import { useCallback, useEffect, useState } from 'react';
 import { CassettePlayer, ScrollFadeList, Segmented, Stamp } from '../components/ui/index.js';
-import { PageHeader, SceneArt, formatTime, frameTitle, signText } from '../components/ui.jsx';
-import { FRAMES, sceneFor } from '../data/mockData.js';
+import { PageHeader, formatTime } from '../components/ui.jsx';
 import { assistantClient } from '../services/assistantClient.js';
 
 const FILTERS = [
@@ -13,22 +11,10 @@ const FILTERS = [
   { value: 'en', label: 'English', test: (q) => q.language === 'en' },
   { value: 'ar', label: 'Arabic', test: (q) => q.language === 'ar' },
 ];
-// Demo answers point at the sample scenes; real answers point at saved frames in the multimedia service.
-const sampleFrame = Object.fromEntries(FRAMES.map((frame) => [frame.frame_id, frame]));
 const dir = (language) => (language === 'ar' ? 'rtl' : 'ltr');
 
 function Evidence({ id, index }) {
   const tilt = index % 2 ? 1.5 : -1.5;
-  const frame = sampleFrame[id];
-  if (frame) {
-    return (
-      <Stamp small to={`/memory/${frame.frame_id}`} tilt={tilt}
-        label={`Open evidence frame: ${frameTitle(frame)} at ${formatTime(frame.captured_at)}`}
-        caption={`${formatTime(frame.captured_at)} · ${frameTitle(frame)}`}>
-        <SceneArt scene={sceneFor(frame)} sign={signText(frame.ocr_text)} blur={/blur/i.test(frame.caption)} />
-      </Stamp>
-    );
-  }
   const src = `/api/v1/frames/${id}/image`;
   return (
     <a className="stamp stamp-sm" href={src} target="_blank" rel="noreferrer" style={{ transform: `rotate(${tilt}deg)` }}
@@ -42,15 +28,15 @@ function Evidence({ id, index }) {
 export default function AiHistory() {
   const [filter, setFilter] = useState('all');
   const [selectedId, setSelectedId] = useState(null);
-  const [state, setState] = useState({ loading: true, error: null, questions: [], demo: false });
+  const [state, setState] = useState({ loading: true, error: null, questions: [] });
 
   const load = useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }));
     try {
       const data = await assistantClient.questions();
-      setState({ loading: false, error: null, questions: data.questions, demo: data.demo });
+      setState({ loading: false, error: null, questions: data.questions });
     } catch (error) {
-      setState({ loading: false, error: error.message, questions: [], demo: false });
+      setState({ loading: false, error: error.message, questions: [] });
     }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -65,9 +51,7 @@ export default function AiHistory() {
       <PageHeader
         eyebrow="Assistant / AI history"
         title="AI history"
-        subtitle={state.demo
-          ? 'Sample questions shown until the assistant answers real ones.'
-          : 'Every question asked, and the answer the user heard.'}
+        subtitle="Every question asked, and the answer the user heard."
         actions={<Segmented label="Filter questions" options={FILTERS} value={filter} onChange={setFilter} />}
       />
 
@@ -75,7 +59,7 @@ export default function AiHistory() {
         <section className="card section section-tight" aria-labelledby="list-title" aria-busy={state.loading}>
           <div className="card-head">
             <h2 id="list-title" className="card-title">
-              Questions {state.demo && <span className="chip-warn">DEMO</span>}
+              Questions
             </h2>
             <span className="label" aria-live="polite">{state.loading ? 'Loading…' : `${list.length} of ${all.length}`}</span>
           </div>

@@ -60,11 +60,11 @@ class MySQLHistoryLocationTests(unittest.TestCase):
             self.assertEqual(by_id[requests[1]["question_id"]]["location"]["label"], "بيروت، بعبدا")
             self.assertIsNone(by_id[requests[2]["question_id"]]["location"])
             active[0] = users[1]
-            self.assertTrue(client.get("/api/v1/questions").json()["demo"])
+            self.assertEqual(client.get("/api/v1/questions").json(), {"questions": [], "next_cursor": None, "demo": False})
             self.assertEqual(client.delete("/api/v1/questions").json()["deleted"], 0)
             active[0] = users[0]
             self.assertEqual(client.delete("/api/v1/questions").json()["deleted"], 3)
-            self.assertTrue(client.get("/api/v1/questions").json()["demo"])
+            self.assertEqual(client.get("/api/v1/questions").json()["questions"], [])
         finally:
             app.dependency_overrides.clear(); client.close()
             with closing(_connect()) as conn, conn.cursor() as cur:

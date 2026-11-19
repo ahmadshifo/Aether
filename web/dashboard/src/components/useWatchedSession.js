@@ -2,7 +2,6 @@
 // Shared by Overview and Live camera, so moving between the pages keeps the choice.
 // While connected, a new session after the phone's Stop and Start is followed; the phone stopping disconnects.
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { AUTH_ENABLED } from '../auth.js';
 import { findLiveSessionId, useLiveSessionId } from './useLiveSessionId.js';
 
 let state = { watching: null, looking: false, notice: '' };
@@ -17,7 +16,7 @@ const subscribe = (listener) => {
 };
 const snapshot = () => state;
 
-const notStreaming = (email) => (AUTH_ENABLED && email
+const notStreaming = (email) => (email
   ? `Your phone isn't streaming yet. Open the Aether app, signed in as ${email}, press Start, then press Connect.`
   : 'No phone is streaming yet. Press Start in the Aether app, then press Connect.');
 

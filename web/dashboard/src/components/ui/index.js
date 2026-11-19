@@ -6,7 +6,6 @@ export { default as DynamicButton } from './DynamicButton.jsx';
 export { default as HoldToConfirm } from './HoldToConfirm.jsx';
 export { default as LiveDot } from './LiveDot.jsx';
 export { default as LogoTraceLoader } from './LogoTraceLoader.jsx';
-export { default as MagneticDropZone } from './MagneticDropZone.jsx';
 export { default as PlayingCards } from './PlayingCards.jsx';
 export { default as ReceiptPrinter } from './ReceiptPrinter.jsx';
 export { default as ScrambleText, useScramble } from './ScrambleText.jsx';

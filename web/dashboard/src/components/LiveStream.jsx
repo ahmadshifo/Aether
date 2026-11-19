@@ -1,11 +1,9 @@
-// Member 2: plays Member 1's MediaMTX stream over WebRTC/WHEP when a session ID is set; otherwise shows the stand-in scene.
+// Member 2: plays Member 1's MediaMTX stream over WebRTC/WHEP when a session ID is set; otherwise says no phone is streaming.
 import { useEffect, useRef, useState } from 'react';
 import { mediaClient } from '../services/mediaClient.js';
 import { LiveDot, LogoTraceLoader } from './ui/index.js';
-import { SceneArt } from './ui.jsx';
 
 const RETRY_MS = 3000;
-const MOCK_CLOCK = '00:32:14';
 
 // Connects to the stream and keeps retrying while the phone hasn't started or drops out.
 function useWhepStream(sessionId, videoRef) {
@@ -64,10 +62,9 @@ function useLiveClock(running) {
 }
 
 // aspect: '16x9' (Overview) or '16x10' (Live camera). full adds the MIC ON and privacy chips.
-// onState gets 'idle' (no session), 'connecting', 'waiting' or 'live'. idleText replaces the stand-in scene's
-// fake LIVE feed with a message when there's no stream (used once real accounts are on).
+// onState gets 'idle' (no session), 'connecting', 'waiting' or 'live'. idleText is shown when there's no stream.
 // paused: the user said "camera off" on the phone; the stream is gone on purpose, so say that instead of retrying.
-export default function LiveStream({ sessionId = null, aspect = '16x9', full = false, idleText, onState, paused = false }) {
+export default function LiveStream({ sessionId = null, aspect = '16x9', full = false, idleText, onState, onSize, paused = false }) {
   const videoRef = useRef(null);
   const { state, setState, message } = useWhepStream(paused ? null : sessionId, videoRef);
   const playing = Boolean(sessionId) && state === 'live';
@@ -77,11 +74,10 @@ export default function LiveStream({ sessionId = null, aspect = '16x9', full = f
 
   return (
     <div className={`stage stage-${aspect}`}>
-      {sessionId ? (
+      {sessionId && (
         <video ref={videoRef} autoPlay muted playsInline onPlaying={() => setState('live')}
+          onResize={(event) => onSize?.(event.currentTarget.videoWidth, event.currentTarget.videoHeight)}
           aria-label="Live video from the phone camera" />
-      ) : (
-        <SceneArt scene="door" sign="ROOM 205" label="Stand-in camera view: a corridor door with a ROOM 205 sign" />
       )}
 
       {sessionId && paused && (
@@ -105,15 +101,15 @@ export default function LiveStream({ sessionId = null, aspect = '16x9', full = f
         </div>
       )}
 
-      {!sessionId && idleText && (
+      {!sessionId && (
         <div className="stage-overlay" role="status">
           <LogoTraceLoader size={56} strokeWidth={1.2} />
-          <p>{idleText}</p>
+          <p>{idleText ?? 'No phone is streaming.'}</p>
         </div>
       )}
 
-      {(playing || (!sessionId && !idleText)) && (
-        <span className="stage-chip chip-tl"><LiveDot />LIVE {sessionId ? clock : MOCK_CLOCK}</span>
+      {playing && (
+        <span className="stage-chip chip-tl"><LiveDot />LIVE {clock}</span>
       )}
       {full && <span className="stage-chip chip-tr">MIC ON</span>}
       {full && <span className="stage-chip stage-chip-plain chip-br">Faces are never identified</span>}

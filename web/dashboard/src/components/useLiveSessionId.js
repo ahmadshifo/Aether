@@ -1,13 +1,10 @@
-// Member 2: the stream to watch: the signed-in account's live session (from the AI backend),
-// or, with login switched off, whatever phone is live in MediaMTX.
+// Member 2: the stream to watch: the signed-in account's live session (from the AI backend).
 import { useEffect, useState } from 'react';
-import { AUTH_ENABLED } from '../auth.js';
-import { mediaClient } from '../services/mediaClient.js';
 import { streamsClient } from '../services/streamsClient.js';
 
 const FIND_EVERY_MS = 3000;
 
-export const findLiveSessionId = () => (AUTH_ENABLED ? streamsClient.activeSessionId() : mediaClient.findLiveSessionId());
+export const findLiveSessionId = () => streamsClient.activeSessionId();
 
 // undefined until the first check, then the live session ID or null. Keeps checking, so the phone's Stop and Start are picked up.
 export function useLiveSessionId() {
@@ -39,7 +36,7 @@ export function useCameraPaused(sessionId) {
   const [paused, setPaused] = useState(false);
 
   useEffect(() => {
-    if (!sessionId || !AUTH_ENABLED) { setPaused(false); return undefined; }
+    if (!sessionId) { setPaused(false); return undefined; }
     let cancelled = false;
     let timer;
     const look = async () => {

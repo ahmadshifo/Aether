@@ -1,4 +1,4 @@
-"""Member 2: call Member 3's search and image APIs, or a schema-compatible mock while developing.
+"""Member 2: call Member 3's search, frame-image and live-state APIs (no mock: they are always the real service).
 
 The multimedia service listens on this PC only (MULTIMEDIA_API_URL, default http://127.0.0.1:8003).
 Failures raise MemoryUnavailable so /ask can still answer honestly ("I can't see the camera").

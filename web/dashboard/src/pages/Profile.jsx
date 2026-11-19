@@ -11,18 +11,17 @@ const THEMES = [{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dar
 
 // The number the phone calls after the user says "I need help" or "SOS". A caregiver sets it here, because
 // typing a number on the phone is hard for a blind user.
-function SosNumberCard({ authEnabled }) {
+function SosNumberCard() {
   const [number, setNumber] = useState('');
   const [saved, setSaved] = useState(null);
   const [state, setState] = useState('loading'); // loading | idle | busy | done
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!authEnabled) return;
     safetyClient.sosNumber()
       .then((value) => { setSaved(value); setNumber(value ?? ''); setState('idle'); })
       .catch((err) => { setError(err.message); setState('idle'); });
-  }, [authEnabled]);
+  }, []);
 
   async function submit(event) {
     event.preventDefault();
@@ -49,19 +48,19 @@ function SosNumberCard({ authEnabled }) {
       </p>
       <label className="field">Phone number
         <input className="input" type="tel" inputMode="tel" autoComplete="tel" value={number} placeholder="+961 3 123 456"
-          disabled={!authEnabled || state === 'loading'} maxLength={24}
+          disabled={state === 'loading'} maxLength={24}
           onChange={(event) => { setNumber(event.target.value); if (state === 'done') setState('idle'); }} />
         <span className="hint">{saved ? `The phone calls ${saved}.` : 'No number saved: without an emergency contact on the phone, the alert is still sent but nobody is called.'}</span>
       </label>
       {error && <p className="form-error" role="alert"><Icon name="alert" size={16} />{error}</p>}
       <DynamicButton type="submit" state={state === 'busy' ? 'busy' : state === 'done' ? 'done' : 'idle'}
-        disabled={!authEnabled || state === 'loading' || (state === 'idle' && number.trim() === (saved ?? ''))}
+        disabled={state === 'loading' || (state === 'idle' && number.trim() === (saved ?? ''))}
         labels={{ idle: 'Save number', busy: 'Saving…', done: 'Saved' }} />
     </form>
   );
 }
 
-export default function Profile({ user, authEnabled, onUserChange, onLogout, theme, onThemeChange }) {
+export default function Profile({ user, onUserChange, onLogout, theme, onThemeChange }) {
   const [name, setName] = useState(user.name);
   const [save, setSave] = useState('idle'); // idle | busy | done
   const [error, setError] = useState('');
@@ -70,14 +69,13 @@ export default function Profile({ user, authEnabled, onUserChange, onLogout, the
   const [cleared, setCleared] = useState(null); // number deleted by the last clear
   const [clearError, setClearError] = useState('');
   const [clearKey, setClearKey] = useState(0);
-  const real = history.demo ? 0 : history.questions.length;
-  const canClear = authEnabled && !history.loading && !history.error && real > 0;
-  const clearText = !authEnabled ? 'Log in to manage your question history.'
-    : history.loading ? 'Checking your saved questions…'
+  const real = history.questions.length;
+  const canClear = !history.loading && !history.error && real > 0;
+  const clearText = history.loading ? 'Checking your saved questions…'
     : history.error ? `Couldn't check your history: ${history.error}`
     : real > 0 ? `Permanently deletes your ${real} saved question${real === 1 ? '' : 's'} and answers. This can't be undone after 5 seconds.`
     : cleared !== null ? `History cleared (${cleared} deleted).`
-    : 'Nothing to clear yet: only sample questions are shown until the assistant answers real ones.';
+    : 'Nothing to clear: no questions saved in the last 24 hours.';
 
   async function clearHistory() {
     setClearError('');
@@ -115,7 +113,7 @@ export default function Profile({ user, authEnabled, onUserChange, onLogout, the
         <div>
           <h2 className="card-title">{user.name}</h2>
           <p className="sub">
-            {authEnabled ? `${user.email} · member since ${formatDate(user.created_at)}` : 'Preview account · login is off'}
+            {`${user.email} · member since ${formatDate(user.created_at)}`}
           </p>
         </div>
         <span className="pill pill-ok"><span className="dot" />Watching 1 session</span>
@@ -126,21 +124,19 @@ export default function Profile({ user, authEnabled, onUserChange, onLogout, the
           <h2 id="details-title" className="card-title">Personal details</h2>
           <label className="field">Name
             <input className="input" type="text" value={name} autoComplete="name" required maxLength={80}
-              disabled={!authEnabled}
               onChange={(event) => { setName(event.target.value); if (save === 'done') setSave('idle'); }} />
           </label>
           <label className="field">Email
-            <input className="input" type="email" value={authEnabled ? user.email : ''} readOnly
-              placeholder={authEnabled ? undefined : 'No email: login is off'} aria-describedby="email-hint" />
+            <input className="input" type="email" value={user.email} readOnly aria-describedby="email-hint" />
             <span id="email-hint" className="hint">Your email is your login and can’t be changed yet.</span>
           </label>
           {error && <p className="form-error" role="alert"><Icon name="alert" size={16} />{error}</p>}
-          <DynamicButton type="submit" state={save} disabled={!authEnabled || (save === 'idle' && !changed)}
+          <DynamicButton type="submit" state={save} disabled={save === 'idle' && !changed}
             labels={{ idle: 'Save changes', busy: 'Saving…', done: 'Saved' }} />
         </form>
 
         <div className="stack">
-          <SosNumberCard authEnabled={authEnabled} />
+          <SosNumberCard />
 
           <section className="card section" aria-labelledby="look-title">
             <div className="card-head">
@@ -159,12 +155,10 @@ export default function Profile({ user, authEnabled, onUserChange, onLogout, the
             )}
           </section>
 
-          {authEnabled && (
-            <button type="button" className="card row-link" onClick={onLogout}>
-              <span>Log out</span>
-              <Icon name="logout" size={20} />
-            </button>
-          )}
+          <button type="button" className="card row-link" onClick={onLogout}>
+            <span>Log out</span>
+            <Icon name="logout" size={20} />
+          </button>
         </div>
       </div>
     </>

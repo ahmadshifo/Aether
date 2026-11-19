@@ -1,16 +1,14 @@
 // Member 2: full-size live view of the phone's camera. Connect finds the stream this account's phone is publishing
 // (no link needed) and Disconnect stops watching it; the phone keeps streaming either way.
 import { useContext, useEffect, useState } from 'react';
-import { AUTH_ENABLED } from '../auth.js';
 import LiveStream from '../components/LiveStream.jsx';
 import PhoneBattery from '../components/PhoneBattery.jsx';
 import CaregiverNotes from '../components/CaregiverNotes.jsx';
-import { DynamicButton, MagneticDropZone, ScrambleText } from '../components/ui/index.js';
+import { DynamicButton, ScrambleText } from '../components/ui/index.js';
 import { Icon, PageHeader, UserContext, formatShortTime } from '../components/ui.jsx';
 import { useWatchedSession } from '../components/useWatchedSession.js';
 import { useCameraPaused } from '../components/useLiveSessionId.js';
 import { useQuestions } from '../components/useBackend.js';
-import { STREAM } from '../data/mockData.js';
 
 const BUTTON_STATE = { idle: 'busy', connecting: 'busy', waiting: 'busy', live: 'done' };
 
@@ -20,17 +18,18 @@ export default function LiveCamera() {
   const paused = useCameraPaused(watching);
   const [streamState, setStreamState] = useState('idle');
   const [revealKey, setRevealKey] = useState(0);
+  const [size, setSize] = useState(null); // [width, height] of the video actually arriving
   const history = useQuestions();
   const question = history.questions[0];
 
   useEffect(() => { if (watching) setRevealKey((n) => n + 1); }, [watching]);
 
   const buttonState = looking ? 'busy' : watching ? BUTTON_STATE[streamState] : 'idle';
+  const playing = Boolean(watching) && streamState === 'live';
   const facts = [
-    ['Protocol', STREAM.protocol],
-    ['Resolution', STREAM.resolution],
-    ['Frame rate', `${STREAM.fps} fps`],
-    ['Codec', STREAM.codec],
+    ['Protocol', 'WebRTC (WHEP) from MediaMTX'],
+    ['Resolution', playing && size ? `${size[0]} × ${size[1]}` : '—'],
+    ['Status', !watching ? 'Not watching' : playing ? 'Receiving video' : 'Connecting'],
   ];
 
   return (
@@ -40,13 +39,12 @@ export default function LiveCamera() {
       <div className="grid grid-live">
         <section className="card section section-tight live-panel" aria-label="Live stream">
           <LiveStream sessionId={watching} aspect="16x10" full onState={setStreamState} paused={paused}
-            idleText={AUTH_ENABLED
-              ? (liveId ? 'Your phone is streaming. Press Connect to watch it.' : 'Press Connect to watch the phone’s camera.')
-              : undefined} />
+            onSize={(width, height) => setSize(width && height ? [width, height] : null)}
+            idleText={liveId ? 'Your phone is streaming. Press Connect to watch it.' : 'Press Connect to watch the phone’s camera.'} />
           <div className="under-stage">
             {question ? (
               <span>
-                <span className="label">Last question · {formatShortTime(question.asked_at)}{history.demo ? ' · demo' : ''}</span>
+                <span className="label">Last question · {formatShortTime(question.asked_at)}</span>
                 <span className="last-question" lang={question.language} dir="auto">“{question.question}”</span>
               </span>
             ) : (
@@ -59,7 +57,7 @@ export default function LiveCamera() {
           <section className="card section" aria-labelledby="session-title">
             <div className="card-head">
               <h2 id="session-title" className="card-title">Stream session</h2>
-              {AUTH_ENABLED && <PhoneBattery />}
+              <PhoneBattery />
             </div>
             <div className="session-field inset">
               {watching ? (
@@ -86,14 +84,7 @@ export default function LiveCamera() {
             </dl>
           </section>
 
-          {AUTH_ENABLED && <CaregiverNotes />}
-          <section className="card section section-tight" aria-labelledby="drop-title">
-            <div>
-              <h2 id="drop-title" className="card-title">Test with a recorded video</h2>
-              <p className="sub">No phone? Drop an MP4 and the memory pipeline reads it like a live stream.</p>
-            </div>
-            <MagneticDropZone />
-          </section>
+          <CaregiverNotes />
         </div>
       </div>
     </>
