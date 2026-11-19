@@ -12,6 +12,7 @@ import Icon from '../components/Icon';
 import { copies } from '../i18n/nativeCopy';
 import { locationCopy } from '../i18n/locationCopy';
 import { HistoryLocationSource } from '../platform/historyLocation';
+import { findPlace } from '../platform/whereAmI';
 import type { AuthController, AuthSession } from '../auth/authController';
 import type { Endpoints } from '../platform/config';
 import type { Language, Page } from '../shared/types';
@@ -111,6 +112,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
         return rate;
       },
       buzz: times => buzz(times, currentPrefs.current.haptics === true),
+      place: findPlace,
       watchBattery, batteryLevel: readBattery, connectivity: () => checkConnectivity(endpoints.backend),
       call: callEmergencyNumber,
       cameraPaused: (id, paused) => api.setCamera(id, paused, new AbortController().signal),

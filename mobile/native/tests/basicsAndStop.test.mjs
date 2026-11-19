@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { detectCommand, heardStop, isOwnVoice } from '../src/voice/commands.ts';
-import { batteryAnswer, connectionAnswer, dateAnswer, timeAnswer } from '../src/voice/basics.ts';
+import { batteryAnswer, connectionAnswer, dateAnswer, placeAnswer, timeAnswer } from '../src/voice/basics.ts';
 import { SessionController } from '../src/session/controller.ts';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -189,5 +189,46 @@ test('the phone hearing its own answer, even as a finished sentence, does not in
   assert.equal(h.controller.getSnapshot().phase, 'speaking');
   assert.equal(h.cutOff(), false);
   assert.deepEqual(h.asked, ['What is in front of me']);
+  h.controller.stop();
+});
+
+test('where am I is a command in three languages, but questions about where things are stay questions', () => {
+  for (const sentence of ['Where am I?', 'where am I right now', "what's my location", 'which street is this', 'وين أنا', 'أين أنا الآن', 'شو موقعي', 'où suis-je', 'je suis où', 'quelle est mon adresse']) {
+    assert.equal(detectCommand(sentence), 'where', sentence);
+  }
+  for (const question of ['Where are my keys?', 'where is the door', 'وين المفاتيح', 'où est la porte', 'Where am I going to find a chair?']) {
+    assert.equal(detectCommand(question), null, question);
+  }
+});
+
+test('the place is said with only the parts the phone found', () => {
+  assert.equal(placeAnswer('en', { status: 'found', street: 'Hamra Street', number: '12', name: '12', district: 'Ras Beirut', city: 'Beirut' }),
+    'You are on 12 Hamra Street, in Ras Beirut, Beirut.');
+  assert.equal(placeAnswer('en', { status: 'found', street: 'Bliss Street', name: 'AUB Medical Center', city: 'Beirut' }),
+    'You are on Bliss Street, near AUB Medical Center, in Beirut.');
+  assert.equal(placeAnswer('en', { status: 'found', district: 'Hamra', city: 'Hamra' }), 'You are in Hamra.');
+  assert.equal(placeAnswer('fr', { status: 'found', street: 'Rue Hamra', city: 'Beyrouth' }), 'Vous êtes sur Rue Hamra, à Beyrouth.');
+  assert.equal(placeAnswer('ar', { status: 'found', street: 'شارع الحمرا', city: 'بيروت' }), 'أنت في شارع الحمرا، في بيروت.');
+  assert.match(placeAnswer('en', { status: 'permission' }), /location access/);
+  assert.match(placeAnswer('en', { status: 'servicesOff' }), /turned off/);
+  assert.match(placeAnswer('en', { status: 'found' }), /not the street name/);
+});
+
+test('where am I is answered on the phone, never sent to the server as a question', async () => {
+  const h = harness({ place: async () => ({ status: 'found', street: 'Hamra Street', city: 'Beirut' }) });
+  await h.controller.start('en'); await h.listening();
+  h.events.at(-1).result('where am I', true); await h.listening();
+  assert.deepEqual(h.asked, []);
+  assert.equal(h.spoken.at(-1), 'You are on Hamra Street, in Beirut.');
+  assert.equal(h.controller.getSnapshot().phase, 'listening');
+  h.controller.stop();
+});
+
+test('a failed location lookup is said honestly and the session keeps listening', async () => {
+  const h = harness({ place: async () => { throw new Error('gps'); } });
+  await h.controller.start('en'); await h.listening();
+  h.events.at(-1).result('where am I', true); await h.listening();
+  assert.match(h.spoken.at(-1), /couldn't find your location/);
+  assert.equal(h.controller.getSnapshot().phase, 'listening');
   h.controller.stop();
 });
