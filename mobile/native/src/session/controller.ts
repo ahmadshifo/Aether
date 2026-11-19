@@ -5,7 +5,7 @@ import { sessionGreeting } from '../voice/sessionGreeting.ts';
 import type { AskRequest, AskResponse } from '../services/teamApi.ts';
 import { callContactName, commandCopy, detectCommand, heardStop, isOwnVoice, sosContactName, SOS_DELAY_SECONDS, type Command } from '../voice/commands.ts';
 import { batteryWarning, connectionWarning, warningCopy, type Warning } from '../voice/warnings.ts';
-import { batteryAnswer, connectionAnswer, dateAnswer, timeAnswer } from '../voice/basics.ts';
+import { batteryAnswer, connectionAnswer, dateAnswer, placeAnswer, timeAnswer, type Place } from '../voice/basics.ts';
 import { ContactLookupError } from '../platform/contactErrors.ts';
 import { contactCopy } from '../i18n/contactCopy.ts';
 export interface CameraHandle { url?: string; release(): void; snapshot?(): Promise<{ uri: string; capturedAt: string } | undefined> }
@@ -49,6 +49,8 @@ export interface SessionPorts {
   watchBattery?(listener: (level: number, charging: boolean) => void): () => void;
   /** The battery right now, or null when this build can't read it ("what's my battery?"). */
   batteryLevel?(): Promise<{ level: number; charging: boolean } | null>;
+  /** Where the user is right now ("where am I?"): street and area from GPS, or why it can't say. */
+  place?(signal: AbortSignal): Promise<Place>;
   /** Whether the internet and the Aether server can be reached right now ("am I connected?"). */
   connectivity?(): Promise<{ internet: boolean; server: boolean }>;
   /** Reading speed one step slower (-1) or faster (+1); the new rate, or null at the limit. */
@@ -441,6 +443,16 @@ export class SessionController {
     if (kind === 'battery') {
       const battery = await this.ports.batteryLevel?.().catch(() => null) ?? null;
       if (this.valid(g)) await this.say(batteryAnswer(this.language, battery));
+      return;
+    }
+    if (kind === 'where') {
+      // A GPS fix and the street name can take a few seconds; give up after 15 so the user isn't left waiting.
+      const request = new AbortController(), timer = setTimeout(() => request.abort(), 15000);
+      const place: Place = this.ports.place
+        ? await this.ports.place(request.signal).catch((): Place => ({ status: 'failed' }))
+        : { status: 'unavailable' };
+      clearTimeout(timer);
+      if (this.valid(g)) await this.say(placeAnswer(this.language, place));
       return;
     }
     if (kind === 'internet') {

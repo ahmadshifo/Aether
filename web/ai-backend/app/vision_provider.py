@@ -137,6 +137,12 @@ def _post(model: str, key: str, body: dict, timeout: float) -> dict:
 
 def ask(question: str, language: str, pictures: list[tuple[bytes, float]]) -> tuple[str, bool]:
     """One short answer about the pictures, in the user's language."""
+    return generate(lambda thinking: build_request(question, language, pictures, thinking), parse_response)
+
+
+def generate(make_body, parse):
+    """Sends make_body(thinking) to Gemini within the time budget and returns parse(reply).
+    Shared by camera questions (ask) and questions about the past (app/history_answer.py)."""
     if not configured():
         raise VisionUnavailable("no_key")
     key, model = os.environ["GEMINI_API_KEY"].strip(), os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite").strip()
@@ -146,7 +152,7 @@ def ask(question: str, language: str, pictures: list[tuple[bytes, float]]) -> tu
         if left < 2:
             break
         try:
-            return parse_response(_post(model, key, build_request(question, language, pictures, thinking), left))
+            return parse(_post(model, key, make_body(thinking), left))
         except urllib.error.HTTPError as error:
             detail = error.read().decode(errors="replace")[:300]
             if error.code == 429:

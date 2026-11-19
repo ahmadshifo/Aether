@@ -1,6 +1,9 @@
 """Member 2: select latest/recent/history search, evaluate retrieved evidence and enforce safe short answers.
 
-The assistant finds the frames that show what the question is about (one from just before the question,
+Questions about the past ("what did I ask earlier?", "where did I see my keys?") are answered from the
+user's own last 24 hours instead (app/history_answer.py: past questions and answers plus saved frame captions).
+
+For everything else the assistant finds the frames that show what the question is about (one from just before the question,
 one from a few seconds after), sends them to the vision AI (app/vision_provider.py, Google Gemini) and
 returns one short answer. Without frames, or when the AI is not set up or fails, it says so honestly and
 marks the answer uncertain; it never answers from nothing. The frames are kept as evidence either way, so
@@ -14,7 +17,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from app import vision_provider
+from app import history_answer, vision_provider
 from app.memory_client import MemoryClient, MemoryUnavailable
 from app.summary import topic_of
 from app.vision_provider import VisionUnavailable
@@ -22,8 +25,13 @@ from app.vision_provider import VisionUnavailable
 log = logging.getLogger("ai.assistant")
 
 # Words that point back in time. Anything else is about what is in front of the user now.
-HISTORY_WORDS = re.compile(r"\b(earlier|before|today|ago|remember|this morning|where (did|was)|previously)\b|"
-                           r"(سابق|سابقا|سابقًا|اليوم|تذكر|أين كان|من قبل)", re.IGNORECASE)
+HISTORY_WORDS = re.compile(
+    r"\b(earlier|before|today|ago|remember|this morning|yesterday|last time|previously|where (did|was)|"
+    r"did i (ask|see|leave|put)|what did you (say|tell)|did you (say|tell)|have i (seen|asked|been)|"
+    r"my (history|questions)|last question)\b|"
+    r"(سابق|سابقا|سابقًا|اليوم|تذكر|أين كان|من قبل|مبارح|امبارح|البارحة|شو سألت|ماذا سألت|وين حطيت|وين شفت|أين رأيت|شو قلتلي|ماذا قلت لي)|"
+    r"(tout à l'heure|plus tôt|aujourd'hui|hier|auparavant|tout a l'heure|où ai-je|qu'est-ce que j'ai|"
+    r"tu m'as dit|je t'ai demandé|j'ai demandé|ce matin)", re.IGNORECASE)
 RECENT_WORDS = re.compile(r"\b(just|passed|last|recently|a moment|behind me|went by)\b|"
                           r"(للتو|مررت|قبل قليل|خلفي|الأخير)", re.IGNORECASE)
 LIMITS = {"latest": 2, "recent": 3, "history": 3}
@@ -173,8 +181,11 @@ def camera_blocked(memory: MemoryClient, session_id: str) -> bool:
 
 
 def answer(question: str, language: str, session_id: str, memory: MemoryClient | None = None,
-           asked_at: datetime | None = None, wait: float | None = None) -> Answer:
+           asked_at: datetime | None = None, wait: float | None = None, user_id: str | None = None) -> Answer:
     memory = memory or MemoryClient()
+    # "Ask my history": a question about the past is answered from the user's own last 24 hours.
+    if user_id and choose_mode(question) == "history":
+        return history_answer.answer(question, language, user_id, memory)
     try:
         mode, frames = find_evidence(memory, session_id, question, asked_at or datetime.now(UTC),
                                      AFTER_SECONDS if wait is None else wait,

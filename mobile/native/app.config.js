@@ -24,7 +24,7 @@ module.exports = {
       // expo-contacts: choose the SOS emergency contact from the phone's contacts (Settings).
       ['expo-contacts', { contactsPermission: 'Allow Aether to let you choose an emergency contact from your contacts.' }],
       ['expo-location', {
-        locationWhenInUsePermission: 'Allow Aether to save your city or district with questions in your account History.',
+        locationWhenInUsePermission: 'Allow Aether to tell you where you are when you ask, and to save your city or district with questions in your account History.',
         locationAlwaysPermission: false, locationAlwaysAndWhenInUsePermission: false,
         motionUsagePermission: false, locationFullAccuracyPermission: false,
         isIosBackgroundLocationEnabled: false, isAndroidBackgroundLocationEnabled: false,

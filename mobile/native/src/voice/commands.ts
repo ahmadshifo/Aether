@@ -1,11 +1,11 @@
 // Spoken commands that the session handles itself instead of sending them to the assistant as questions:
-// SOS ("I need help"), cancel, camera off, camera on, and read it again. English, Arabic and French.
+// SOS ("I need help"), cancel, camera off, camera on, read it again and where am I. English, Arabic and French.
 //
 // A command must be (almost) the whole sentence, so "can you help me read this sign?" stays a question and
 // never starts an SOS by accident. Each SOS still waits 5 seconds and can be cancelled by voice.
 import type { Language } from '../shared/types.ts';
 
-export type Command = 'sos' | 'cancel' | 'cameraOff' | 'cameraOn' | 'repeat' | 'call' | 'battery' | 'internet' | 'time' | 'date' | 'examples' | 'slower' | 'faster';
+export type Command = 'sos' | 'cancel' | 'cameraOff' | 'cameraOn' | 'repeat' | 'call' | 'battery' | 'internet' | 'time' | 'date' | 'examples' | 'slower' | 'faster' | 'where';
 
 // A plain phone call (not an emergency): "call Mom" / "اتصل بأحمد" / "appelle Marie". The last group is the name.
 const CALL_EN = /^(please )?call (.{1,40})$/;
@@ -40,6 +40,10 @@ const PATTERNS: [Command, RegExp][] = [
   ['examples', /^(what can i (ask|say|do)( you)?|what can you do|what do you do|what should i ask|what questions can i ask|give me (some )?examples|how do i use (this|you|aether))( please)?$/],
   ['examples', /^(شو بقدر (اسأل|اسال|قول)|شو فيك تعمل|شو بتعمل|ماذا يمكنني أن أسأل|ماذا أستطيع أن أسأل|شو الأسئلة|اعطيني أمثلة|أعطني أمثلة)$/],
   ['examples', /^(qu'est-ce que je peux (demander|dire)|que puis-je demander|qu'est-ce que tu sais faire|que sais-tu faire|donne-moi des exemples|donne moi des exemples)( s'il te plaît)?$/],
+  // "Where am I?": the street and area from the phone's GPS (src/platform/whereAmI.ts), said out loud.
+  ['where', /^(where am i|where are we|what'?s my (location|address)|what is my (location|address)|tell me where i am|tell me my location|which street am i on|what street am i on|which street is this|what street is this)( now| right now)?( please)?$/],
+  ['where', /^(وين أنا|وين انا|أين أنا|اين انا|وين صرت|وين صرنا|وين نحنا|أين نحن|شو موقعي|ما هو موقعي|ما موقعي|وين موقعي|بأي شارع أنا|بأي شارع انا|في أي شارع أنا|شو هالشارع|شو اسم هالشارع)( هلق| هلأ| الآن)?$/],
+  ['where', /^(où suis-je|ou suis-je|où je suis|ou je suis|je suis où|je suis ou|où est-ce que je suis|où sommes-nous|on est où|quelle est ma position|quelle est mon adresse|dans quelle rue (suis-je|je suis)|c'est quelle rue)( maintenant)?( s'il te plaît| s'il vous plaît)?$/],
   // Reading speed.
   ['slower', /^(please )?((speak|talk|read) )?(more )?(slower|slowly)( please)?$|^slow down( please)?$|^too fast$/],
   ['slower', /^((احكي|تكلم|اقرأ|إقرأ) )?(أبطأ|ابطأ|على مهل|ع مهل|بشويش|شوي شوي|أبطأ شوي)( من فضلك)?$/],
@@ -199,7 +203,7 @@ export const commandCopy: Record<Language, Record<string, string>> = {
     cameraOffQuestion: 'The camera is off. Say camera on first.',
     nothingToRepeat: "There's no answer to repeat yet.",
     note: 'Message from your caregiver: {text}',
-    examples: 'You can ask: What is in front of me? What does this say? What colour is this? Is the way clear? Where are my keys? You can also say: read it again, speak slower, camera off, what time is it, what is my battery, am I connected, or I need help.',
+    examples: 'You can ask: What is in front of me? What does this say? What colour is this? Is the way clear? Where are my keys? What did I ask earlier? You can also say: where am I, read it again, speak slower, camera off, what time is it, what is my battery, am I connected, or I need help.',
     slower: "Okay, I'll speak slower.", faster: "Okay, I'll speak faster.",
     slowest: "This is already the slowest I can speak.", fastest: "This is already the fastest I can speak.",
     pausedLabel: 'Camera paused. Say "camera on" to start it again.',
@@ -227,7 +231,7 @@ export const commandCopy: Record<Language, Record<string, string>> = {
     cameraOffQuestion: 'الكاميرا مطفأة. قل شغّل الكاميرا أولًا.',
     nothingToRepeat: 'لا توجد إجابة لإعادتها بعد.',
     note: 'رسالة من مرافقك: {text}',
-    examples: 'يمكنك أن تسأل: شو في قدامي؟ شو مكتوب هون؟ شو لون هيدا؟ هل الطريق فاضي؟ وين مفاتيحي؟ ويمكنك أن تقول: عيد، احكي أبطأ، أطفئ الكاميرا، قديش الساعة، قديش البطارية، في انترنت، أو ساعدني.',
+    examples: 'يمكنك أن تسأل: شو في قدامي؟ شو مكتوب هون؟ شو لون هيدا؟ هل الطريق فاضي؟ وين مفاتيحي؟ شو سألت قبل؟ ويمكنك أن تقول: وين أنا، عيد، احكي أبطأ، أطفئ الكاميرا، قديش الساعة، قديش البطارية، في انترنت، أو ساعدني.',
     slower: 'حسنًا، سأتكلم أبطأ.', faster: 'حسنًا، سأتكلم أسرع.',
     slowest: 'هذه أبطأ سرعة لدي.', fastest: 'هذه أسرع سرعة لدي.',
     pausedLabel: 'الكاميرا متوقفة. قل «شغّل الكاميرا» لتشغيلها.',
@@ -255,7 +259,7 @@ export const commandCopy: Record<Language, Record<string, string>> = {
     cameraOffQuestion: "La caméra est éteinte. Dites d'abord allume la caméra.",
     nothingToRepeat: "Il n'y a pas encore de réponse à répéter.",
     note: 'Message de votre aidant : {text}',
-    examples: "Vous pouvez demander : qu'est-ce qu'il y a devant moi ? Qu'est-ce qui est écrit ? De quelle couleur est ceci ? Le chemin est-il libre ? Où sont mes clés ? Vous pouvez aussi dire : répète, parle plus lentement, éteins la caméra, quelle heure est-il, ma batterie, suis-je connecté, ou au secours.",
+    examples: "Vous pouvez demander : qu'est-ce qu'il y a devant moi ? Qu'est-ce qui est écrit ? De quelle couleur est ceci ? Le chemin est-il libre ? Où sont mes clés ? Qu'est-ce que j'ai demandé tout à l'heure ? Vous pouvez aussi dire : où suis-je, répète, parle plus lentement, éteins la caméra, quelle heure est-il, ma batterie, suis-je connecté, ou au secours.",
     slower: "D'accord, je vais parler plus lentement.", faster: "D'accord, je vais parler plus vite.",
     slowest: 'Je parle déjà le plus lentement possible.', fastest: 'Je parle déjà le plus vite possible.',
     pausedLabel: 'Caméra en pause. Dites « allume la caméra » pour la rallumer.',
