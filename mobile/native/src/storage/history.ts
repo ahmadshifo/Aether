@@ -1,4 +1,4 @@
-// Adapted from mobile/frontend/src/historyRepository.ts at bb54dbd.
+// Adapted from mobile/frontend/src/historyRepository.ts at bb54dbd (the PWA, since removed).
 // One metadata store; app-private files replace browser Blobs. No legacy import.
 import type { Entry, Owner, Photo } from '../shared/types.ts';
 import { parseHistoryLocation } from './historyLocation.ts';

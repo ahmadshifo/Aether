@@ -1,4 +1,4 @@
-// Adapted from mobile/frontend/src/authController.ts at bb54dbd; original remains read-only.
+// Adapted from mobile/frontend/src/authController.ts at bb54dbd (the PWA, since removed).
 import { AuthError } from './authClient.ts'
 import type { AuthClient, AuthUser, SignupInput } from './authClient.ts'
 

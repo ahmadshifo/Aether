@@ -14,7 +14,7 @@ From the repository root:
 npm.cmd --prefix mobile/native run start:team
 ```
 
-This starts the local MySQL 8.4 instance, RustFS image storage, shared account backend, multimedia API/retention worker, MediaMTX, dashboard, PWA, voice scaffold and Metro. Open the installed development build on the same Wi-Fi, save the backend/media addresses printed by the launcher and create a real account once. The same account works with the teammate dashboard at http://127.0.0.1:5174. No database or RustFS credentials belong on the phone.
+This starts the local MySQL 8.4 instance, RustFS image storage, shared account backend, multimedia API/retention worker, MediaMTX, dashboard, voice scaffold and Metro. Open the installed development build on the same Wi-Fi, save the backend/media addresses printed by the launcher and create a real account once. The same account works with the teammate dashboard at http://127.0.0.1:5174. No database or RustFS credentials belong on the phone.
 
 See [TEAM-INTEGRATION.md](TEAM-INTEGRATION.md) for installed components, validation, configuration, teammate action items and exact API/media contracts. [INSTALL.md](INSTALL.md) contains earlier device-build instructions; use this page's launcher for current services. No native dependency changed in the integration, so an existing compatible development build can reload the JavaScript.
 

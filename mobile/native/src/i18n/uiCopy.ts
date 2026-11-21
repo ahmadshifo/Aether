@@ -1,4 +1,4 @@
-// Adapted from mobile/frontend/src/uiCopy.ts at bb54dbd; original remains read-only.
+// Adapted from mobile/frontend/src/uiCopy.ts at bb54dbd (the PWA, since removed).
 export const uiCopy = {
   en: {
     signOut: 'Sign out', signOutTitle: 'Sign out?', signOutBody: "You'll need to log in again.",

@@ -1,4 +1,4 @@
-// Adapted from mobile/frontend/src/authClient.ts at bb54dbd; original remains read-only.
+// Adapted from mobile/frontend/src/authClient.ts at bb54dbd (the PWA, since removed).
 export type AuthUser = Readonly<{ user_id: string; email: string; name: string; created_at: string }>
 export type LoginInput = { email: string; password: string }
 export type SignupInput = LoginInput & { name: string }

@@ -7,7 +7,7 @@ This is the **initial project structure**, not the completed application. Each s
 
 | Teammate | Folder | Responsibility |
 | --- | --- | --- |
-| 1 | `mobile/` | Mobile frontend, camera streaming, speech recognition, speech synthesis |
+| 1 | `mobile/` | Native phone app (`mobile/native`), camera streaming, speech recognition, speech synthesis |
 | 2 | `web/` | Web dashboard, AI answers, question history |
 | 3 | `multimedia/` | Frame processing, OCR, objects, database, semantic search |
 

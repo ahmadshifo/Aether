@@ -1,7 +1,7 @@
 <!-- All members: checklist for connecting independent systems and recording end-to-end acceptance tests. -->
 # Integration Checklist
 
-- [ ] Confirm mobile PWA is acceptable to the instructor, or agree on a native alternative.
+- [x] The phone app is native (`mobile/native`); the old browser PWA was removed.
 - [ ] Agree on accessible HTTPS hostname, network, server ports and authentication.
 - [ ] Phone publishes a real WebRTC stream; dashboard receives it.
 - [ ] Multimedia processor reads the same stream over RTSP.

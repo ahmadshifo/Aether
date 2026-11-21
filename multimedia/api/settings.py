@@ -16,8 +16,7 @@ AUTH_ENV_FILE = Path(__file__).resolve().parents[2] / "web" / "ai-backend" / ".e
 class ApiSettings:
     host: str = "127.0.0.1"
     port: int = 8000
-    cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173",
-                                    "http://localhost:5174", "http://127.0.0.1:5174")
+    cors_origins: tuple[str, ...] = ("http://localhost:5174", "http://127.0.0.1:5174")
     jwt_secret: str | None = field(default=None, repr=False)
     refresh_max_days: float = 7.0
 

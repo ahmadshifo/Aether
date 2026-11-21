@@ -1,4 +1,4 @@
-// Adapted from mobile/frontend/src/components/ui/monoCopy.ts at bb54dbd; original remains read-only.
+// Adapted from mobile/frontend/src/components/ui/monoCopy.ts at bb54dbd (the PWA, since removed).
 export const monoCopy = {
   en: {
     home: 'Home', history: 'History', assistant: 'Assistant', help: 'Help', settings: 'Settings', connection: 'Connection', navigation: 'Main navigation',

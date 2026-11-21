@@ -56,8 +56,6 @@ const services = [
            RUSTFS_ACCESS_KEY: media.S3_ACCESS_KEY_ID, RUSTFS_SECRET_KEY: media.S3_SECRET_ACCESS_KEY } }] : []),
   // ahmadshifo's API (api.main) runs from multimedia/ with the api/.venv environment; it also reads phone streams.
   { name: 'multimedia', port: 8003, dir: 'multimedia', command: `${path.join('api', python)} -m uvicorn api.main:app --port 8003` },
-  // HTTPS on the Wi-Fi (vite.phone.config.ts) so a phone browser gets camera access.
-  { name: 'phone-web', port: 5173, dir: 'mobile/frontend', command: 'npm run dev -- --config vite.phone.config.ts', url: 'http://localhost:5173' },
   { name: 'dashboard', port: 5174, dir: 'web/dashboard', command: 'npm run dev', url: 'http://localhost:5174' },
   // The development build gets the address here, so nothing has to be typed on the phone. It keeps the terminal itself:
   // that is what makes it print the QR code and read its keys. Started without npm so Ctrl+C doesn't ask "Terminate batch job?".
