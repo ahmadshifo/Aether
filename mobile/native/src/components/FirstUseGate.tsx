@@ -1,18 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, AppState, BackHandler, Text, View, findNodeHandle } from 'react-native';
+import { AccessibilityInfo, AppState, BackHandler, Linking, Platform, Text, View, findNodeHandle } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Frame } from './Frame';
 import { Button, Card, Notice, T, useUI } from './ui';
 import { safetyCopy } from '../i18n/safetyCopy';
+import { depthCopy, googleArPrivacyUrl } from '../i18n/depthCopy';
 import { copies } from '../i18n/nativeCopy';
 import { SpeechOwner } from '../voice/speech';
 import type { Language } from '../shared/types';
 
 export const SAFETY_KEY = 'aether-safety-acknowledged-v1';
+export const ANDROID_SAFETY_KEY = 'aether-safety-arcore-acknowledged-v1';
 // Installation-level acknowledgement: shown before sign-in, independent of server/account changes.
 export function FirstUseGate({ children, changeLanguage, review = false, onDone }: { children: React.ReactNode; changeLanguage(language: Language): void; review?: boolean; onDone?(): void }) {
   const { language, colors } = useUI(), text = safetyCopy[language];
+  const android = Platform.OS === 'android', depth = depthCopy[language];
+  const noticeBody = android ? `${text.body} ${depth.arService}` : text.body;
+  const key = android ? ANDROID_SAFETY_KEY : SAFETY_KEY;
   const [status, setStatus] = useState<'loading' | 'notice' | 'accepted'>('loading');
+  const [linkFailed, setLinkFailed] = useState(false);
   const [speaking, setSpeaking] = useState(false), [error, setError] = useState<'audioError' | 'saveError'>(), [saving, setSaving] = useState(false);
   const [speech] = useState(() => new SpeechOwner());
   const generation = useRef(0), mounted = useRef(true), savingRef = useRef(false);
@@ -20,14 +26,14 @@ export function FirstUseGate({ children, changeLanguage, review = false, onDone 
   useEffect(() => {
     mounted.current = true;
     if (review) setStatus('notice');
-    else void AsyncStorage.getItem(SAFETY_KEY).then(value => { if (mounted.current) setStatus(value === 'acknowledged' ? 'accepted' : 'notice'); })
+    else void AsyncStorage.getItem(key).then(value => { if (mounted.current) setStatus(value === 'acknowledged' ? 'accepted' : 'notice'); })
       .catch(() => { if (mounted.current) setStatus('notice'); });
     return () => { mounted.current = false; generation.current++; speech.stop(); };
-  }, [speech, review]);
+  }, [speech, review, key]);
   const stop = () => { generation.current++; speech.stop(); setSpeaking(false); };
   const read = async () => {
     const token = ++generation.current; setError(undefined); setSpeaking(true);
-    const result = await speech.speak(text.body, language, () => {}).catch(() => 'error');
+    const result = await speech.speak(noticeBody, language, () => {}).catch(() => 'error');
     if (!mounted.current || token !== generation.current) return;
     setSpeaking(false); if (result === 'error') setError('audioError');
   };
@@ -44,15 +50,23 @@ export function FirstUseGate({ children, changeLanguage, review = false, onDone 
   const accept = async () => {
     if (savingRef.current) return;
     savingRef.current = true; setSaving(true); stop(); setError(undefined);
-    try { if (!review) await AsyncStorage.setItem(SAFETY_KEY, 'acknowledged'); if (mounted.current) { setStatus('accepted'); onDone?.(); } }
+    try { if (!review) await AsyncStorage.setItem(key, 'acknowledged'); if (mounted.current) { setStatus('accepted'); onDone?.(); } }
     catch { if (mounted.current) setError('saveError'); }
     finally { savingRef.current = false; if (mounted.current) setSaving(false); }
   };
   if (status === 'accepted') return <>{children}</>;
   const content = <>
     {status === 'loading' ? <T>{copies(language).u.loading}</T> : <>
-      <Card><Text ref={heading} accessible accessibilityRole="header" accessibilityLabel={`${text.title}. ${text.body}`} style={{ fontSize: 28, color: colors.ink, textAlign: language === 'ar' ? 'right' : 'left', writingDirection: language === 'ar' ? 'rtl' : 'ltr' }}>{text.title}</Text>
+      <Card><Text ref={heading} accessible accessibilityRole="header" accessibilityLabel={`${text.title}. ${noticeBody}`} style={{ fontSize: 28, color: colors.ink, textAlign: language === 'ar' ? 'right' : 'left', writingDirection: language === 'ar' ? 'rtl' : 'ltr' }}>{text.title}</Text>
         <T>{text.body}</T>
+        {android && <><T>{depth.arService}</T>
+          <T accessibilityRole="link" style={{ textDecorationLine: 'underline', minHeight: 44, paddingVertical: 10 }}
+            onPress={() => {
+              stop(); setLinkFailed(false);
+              void Linking.openURL(googleArPrivacyUrl).catch(() => { if (mounted.current) setLinkFailed(true); });
+            }}>{depth.privacy}</T>
+          {linkFailed && <Notice danger>{depth.linkError}</Notice>}
+        </>}
       </Card>
       <Button label={speaking ? text.stop : text.listen} onPress={() => { if (speaking) stop(); else void read(); }} />
       {error && <Notice danger>{text[error]}</Notice>}

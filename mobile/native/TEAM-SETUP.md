@@ -6,6 +6,20 @@ Setup was verified against `origin/main` at `72e5f0d` on `codex/mobile-french-on
 
 ## Start and view
 
+### Testing native distance on a phone
+
+Install a development build from the depth feature revision, then start the team stack from that checkout. A previous build or Expo Go can still open the app but cannot add the new native camera module. Android uses Google Play Services for AR on Depth API devices, including the Galaxy A53 5G. iOS checks for ARKit scene depth on a LiDAR-equipped device. The normal camera remains available on other phones.
+
+Start an Assistant session. In a well-lit room, keep the phone at rest between readings and aim at a large, matte object. On Android, a small sideways movement of the phone can help establish depth. With the phone at a fixed, tape-measured position, have someone move the target from beyond 2.3 meters to inside 2 meters. Listen for one nearby warning, leave the target in place, then move it away and repeat. Keep using your cane or guide dog for mobility. A silent phone cannot establish that the way ahead is clear.
+
+- Ask “How far ahead?” for the center surface. The phone measures and speaks locally. The nearby warning also works without an AI provider.
+- Center a closed door and ask “How far is the door?” The updated answer service receives one aligned image and sensor reading. It blurs detected faces and asks the configured vision provider to confirm the target. Try again while aiming beside the door. The expected response asks you to center the target when identification fails.
+- Check the same session's live video in the dashboard, turn the camera off, then stop the session. Camera-off and Stop must end proximity warnings. Settings → Nearby obstacle warnings controls automatic alerts independently of answering a distance question.
+
+The optional `depth` field on `POST /api/v1/ask` contains `timestampMs` (Unix milliseconds), `centerM` (radial meters) and `jpeg` (an upright base64 JPEG up to 480 pixels on the longest side). The answer service uses the shared YuNet model from this checkout; install its updated Python requirements or build its Dockerfile with the repository root as the context. The snapshot is transient. MySQL stores the named question and its answer through the existing History route.
+
+### Running the local services
+
 From the repository root:
 
 ```powershell

@@ -1,4 +1,5 @@
 import React from 'react';
+import { depthCopy } from '../src/i18n/depthCopy';
 import renderer, { act } from 'react-test-renderer';
 import { AppState, Dimensions, ScrollView, Switch, Vibration, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -98,6 +99,20 @@ test('manual Start greets with vibration disabled; stopping prevents any second 
   await press(tree, monoCopy.en.start);
   expect(Vibration.vibrate).not.toHaveBeenCalled(); expect(Speech.speak).toHaveBeenCalledTimes(1);
   await press(tree, monoCopy.en.stop); expect(Speech.speak).toHaveBeenCalledTimes(1); expect(mockRelease).toHaveBeenCalledTimes(1);
+  await close();
+});
+
+test('nearby warnings default on and their persisted switch is independent of vibration', async () => {
+  const { tree, close } = await setup(), m = monoCopy.en;
+  await tab(tree, m.settings);
+  const toggle = (label: string) => tree.root.findAllByType(Switch).find(item => item.props.accessibilityLabel === label)!;
+  expect(toggle(depthCopy.en.warnings).props.value).toBe(true);
+  expect(toggle(m.vibrate).props.value).toBe(false);
+  await act(async () => toggle(depthCopy.en.warnings).props.onValueChange(false));
+  await act(async () => toggle(m.vibrate).props.onValueChange(true));
+  expect(toggle(depthCopy.en.warnings).props.value).toBe(false);
+  const key = (await AsyncStorage.getAllKeys()).find(value => value.endsWith(':display'))!;
+  expect(JSON.parse((await AsyncStorage.getItem(key))!)).toMatchObject({ nearbyWarnings: false, haptics: true });
   await close();
 });
 

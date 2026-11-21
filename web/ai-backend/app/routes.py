@@ -19,7 +19,8 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import assistant
-from app.auth import ApiError, _connect, _now, signed_in_user_id
+from app.auth import ApiError, _connect, signed_in_user_id
+from app.depth import DepthSnapshot
 from app.history import get_question, record_question
 from app.history_location import HistoryLocation
 from app.memory_client import MemoryClient, MemoryUnavailable
@@ -35,6 +36,7 @@ class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     language: Literal["en", "ar", "fr"]
     location: HistoryLocation | None = None
+    depth: DepthSnapshot | None = None
 
 
 class AskResponse(BaseModel):
@@ -60,7 +62,8 @@ def _check_session_owner(session_id: str, user_id: str) -> None:
 
 @router.post("/ask", response_model=AskResponse)
 def ask(body: AskRequest, user_id: str = Depends(signed_in_user_id),
-        memory: MemoryClient = Depends(memory_client)) -> AskResponse:
+        memory: MemoryClient = Depends(memory_client), request: Request = None) -> AskResponse:
+    arrived = request.state.ask_arrival if request else datetime.now(UTC)
     session_id, question_id = str(body.session_id), str(body.question_id)
     question = body.question.strip()
     if not question:
@@ -72,8 +75,9 @@ def ask(body: AskRequest, user_id: str = Depends(signed_in_user_id),
     _check_session_owner(session_id, user_id)
 
     # The question's time is when it arrived; "what's in front of me" then waits a few seconds for newer frames.
-    asked_at, arrived = _now(), datetime.now(UTC)
-    result = assistant.answer(question, body.language, session_id, memory, asked_at=arrived, user_id=user_id)
+    asked_at = arrived.replace(tzinfo=None)
+    result = assistant.answer(question, body.language, session_id, memory, asked_at=arrived, user_id=user_id,
+                              depth=body.depth)
     record_question(user_id, session_id, question_id, question, result.text, body.language,
                     result.uncertain, result.evidence_frame_ids, asked_at=asked_at, location=body.location)
     # A concurrent retry may have won INSERT IGNORE. Return what MySQL actually kept,

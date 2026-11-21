@@ -1,0 +1,13 @@
+**
+!web/
+!web/ai-backend/
+!web/ai-backend/requirements.txt
+!web/ai-backend/app/
+!web/ai-backend/app/*.py
+!multimedia/
+!multimedia/processing/
+!multimedia/processing/__init__.py
+!multimedia/processing/face_blur.py
+!multimedia/processing/image_utils.py
+!multimedia/processing/models/
+!multimedia/processing/models/face_detection_yunet_2023mar.onnx

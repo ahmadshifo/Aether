@@ -11,6 +11,7 @@ import { Button, Card, HoldButton, Mark, Notice, Row, Sheet, T, UIContext, useUI
 import Icon from '../components/Icon';
 import { copies } from '../i18n/nativeCopy';
 import { locationCopy } from '../i18n/locationCopy';
+import { depthCopy } from '../i18n/depthCopy';
 import { HistoryLocationSource } from '../platform/historyLocation';
 import { findPlace } from '../platform/whereAmI';
 import type { AuthController, AuthSession } from '../auth/authController';
@@ -43,7 +44,7 @@ import { HelpScreen } from './HelpScreen';
 import { HistoryScreen, entryTime } from './HistoryScreen';
 import { createTeamApi } from '../services/teamApi';
 import { ProfileSettings } from '../components/ProfileSettings';
-type Preferences = { welcome?: boolean; motion?: boolean; haptics?: boolean; wake?: boolean; historyLocation?: boolean };
+type Preferences = { welcome?: boolean; motion?: boolean; haptics?: boolean; wake?: boolean; historyLocation?: boolean; nearbyWarnings?: boolean };
 export function Account({ auth, session, endpoints, saveEndpoints, changeLanguage, themeMode, changeTheme }: { auth: AuthController; session: AuthSession; endpoints: Endpoints; saveEndpoints(value: Endpoints): void; changeLanguage(language: Language): void; themeMode: ThemeMode; changeTheme(mode: ThemeMode): void }) {
   const ui = useUI(), { language, colors } = ui, { m, u, n } = copies(language), dimensions = useWindowDimensions();
   const [page, setPage] = useState<Page>('welcome'), [preferences, setPreferences] = useState<Preferences>({}), [loaded, setLoaded] = useState(false), [selected, setSelected] = useState(0), [prompt, setPrompt] = useState<number | null>(null), [notice, setNotice] = useState('');
@@ -67,6 +68,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
     }).catch(() => {});
     const controller = new SessionController({
       ask: api.ask,
+      nearbyWarningsEnabled: () => currentPrefs.current.nearbyWarnings !== false,
       preview: caps.go && __DEV__, recognitionAvailable: caps.recognition, streamingAvailable: caps.webrtc,
       allowed, uuid: () => Crypto.randomUUID(), camera: caps.webrtc ? nativeCamera : caps.go ? camera.acquire : async () => { throw Error('native_required'); },
       prepareStart: async () => { await wakeListener.current?.(); },
@@ -81,7 +83,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
         }).catch(() => {});
       },
       prepareRecognition, speak: speech.speak, stopSpeech: speech.stop,
-      location: signal => location.capture(signal),
+      location: (signal, timeoutMs) => location.capture(signal, timeoutMs),
       // With no internet, Google's online recognizer fails with "network": switch to the phone's offline one for a
       // minute, so offline questions (time, battery, "am I connected?") are still heard.
       recognition: (language, events, signal) => recognize(language, { ...events, error: code => {
@@ -131,7 +133,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
   useEffect(() => {
     void AsyncStorage.getItem(prefsKey).then(raw => {
       if (!alive.current || !auth.authorized(session.owner)) return;
-      const value = raw ? JSON.parse(raw) : {}; const safe = { welcome: value.welcome === true, motion: value.motion !== false, haptics: value.haptics === true, wake: value.wake === true, historyLocation: value.historyLocation !== false };
+      const value = raw ? JSON.parse(raw) : {}; const safe = { welcome: value.welcome === true, motion: value.motion !== false, haptics: value.haptics === true, wake: value.wake === true, historyLocation: value.historyLocation !== false, nearbyWarnings: value.nearbyWarnings !== false };
       currentPrefs.current = safe; setPreferences(safe); setPage(safe.welcome ? 'home' : 'welcome'); setLoaded(true);
     }).catch(() => { if (alive.current) setLoaded(true); });
     const lock = auth.onLock(() => { runtime.controller.stop(); runtime.historySync.cancel(); setConfirm(null); setNotice(''); });
@@ -213,6 +215,13 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
         </View>}
         {page === 'history' && <HistoryScreen repository={runtime.repository} state={{ ...history, items: syncedHistory.items }} sync={runtime.historySync} network={syncedHistory} stopSession={() => runtime.controller.stop()} replay={entry => { void runtime.controller.replay(entry); }} active={media.active} speaking={media.phase === 'speaking'} stopSpeech={() => runtime.controller.stopPlayback()} focus={focus} />}
         {page === 'settings' && <View style={{ gap: 24 }}><T variant="title">{m.settings}</T>
+          <T variant="heading">{depthCopy[language].title}</T><Card>
+            <Row><T style={{ flex: 1 }}>{depthCopy[language].warnings}</T>
+              <Switch accessibilityLabel={depthCopy[language].warnings} value={preferences.nearbyWarnings !== false}
+                trackColor={{ false: colors.muted, true: colors.ok }} thumbColor={colors.card}
+                onValueChange={nearbyWarnings => updatePrefs({ nearbyWarnings })} /></Row>
+            <T variant="small">{depthCopy[language].description}</T>
+          </Card>
           <T variant="heading">{loc.title}</T><Card><Row><T style={{ flex: 1 }}>{loc.save}</T><Switch accessibilityLabel={loc.save} value={preferences.historyLocation !== false} trackColor={{ false: colors.muted, true: colors.ok }} thumbColor={colors.card} onValueChange={value => {
             runtime.location.cancel(); updatePrefs({ historyLocation: value });
             if (value) void duringPermission(() => runtime.location.prepare()).catch(() => {});

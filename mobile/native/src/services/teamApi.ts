@@ -2,8 +2,9 @@ import { boundedFetch } from '../platform/config.ts';
 import { parseUser } from '../auth/authClient.ts';
 import type { HistoryLocation, Language } from '../shared/types.ts';
 import { parseHistoryLocation } from '../storage/historyLocation.ts';
+import type { DepthSnapshot } from '../session/depth.ts';
 
-export type AskRequest = { session_id: string; question_id: string; question: string; language: Language; location?: HistoryLocation };
+export type AskRequest = { session_id: string; question_id: string; question: string; language: Language; location?: HistoryLocation; depth?: DepthSnapshot };
 export type AskResponse = { question_id: string; answer: string; language: Language; uncertain: boolean; evidence_frame_ids: string[]; location?: HistoryLocation };
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(value);
 export function parseAnswer(value: unknown, request: AskRequest): AskResponse {

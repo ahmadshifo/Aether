@@ -32,7 +32,7 @@ export class HistoryLocationSource {
       if (!signal?.aborted) this.set(permission.granted ? 'ready' : 'permission');
     } catch { if (!signal?.aborted) this.set('unresolved'); }
   }
-  capture(signal: AbortSignal): Promise<HistoryLocation | undefined> {
+  capture(signal: AbortSignal, timeoutMs = 6000): Promise<HistoryLocation | undefined> {
     if (!this.allowed() || !this.enabled() || signal.aborted) return Promise.resolve(undefined);
     const generation = this.generation;
     const location = load();
@@ -47,7 +47,7 @@ export class HistoryLocationSource {
         resolve(keep ? value : undefined);
       };
       const abort = () => finish();
-      const timer = setTimeout(() => { if (valid()) this.set('unresolved'); finish(); }, 6000);
+      const timer = setTimeout(() => { if (valid()) this.set('unresolved'); finish(); }, timeoutMs);
       signal.addEventListener('abort', abort, { once: true });
       void (async () => {
         const permission = await location.getForegroundPermissionsAsync();

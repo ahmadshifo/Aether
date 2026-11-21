@@ -1,12 +1,14 @@
 """Member 2: FastAPI server for /api/v1/ask, /api/v1/questions and the dashboard status API."""
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.auth import ApiError, init_db, router as auth_router
+from app.depth import MAX_ASK_BYTES
 from app.history import init_history_table, router as history_router
 from app.routes import router as ask_router
 from app.alerts import router as alerts_router
@@ -27,6 +29,42 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Web AI Service", lifespan=lifespan)
+
+
+class BoundAskBody:
+    """Timestamp before reading the body/auth and bound snapshot memory, including chunked uploads."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["path"] != "/api/v1/ask" or scope["method"] != "POST":
+            return await self.app(scope, receive, send)
+        scope.setdefault("state", {})["ask_arrival"] = datetime.now(UTC)
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            chunk = message.get("body", b"")
+            if len(body) + len(chunk) > MAX_ASK_BYTES:
+                response = JSONResponse({"error": {"code": "request_too_large", "message": "Question payload too large."}},
+                                        status_code=413)
+                return await response(scope, receive, send)
+            body.extend(chunk)
+            if not message.get("more_body", False):
+                break
+
+        async def replay():
+            nonlocal body
+            if body is None:
+                return await receive()
+            message = {"type": "http.request", "body": bytes(body), "more_body": False}
+            body = None
+            return message
+        return await self.app(scope, replay, send)
+
+
+app.add_middleware(BoundAskBody)
 app.include_router(auth_router)
 app.include_router(streams_router)
 app.include_router(history_router)
