@@ -112,7 +112,16 @@ def test_actual_mysql_health_docs_and_wire_contract(stored):
     assert stored["database"].check()["mysql_version"].startswith(("8.0.", "8.4."))
     assert client.get("/health").json() == {"status": "ok", "service": "aether-multimedia", "version": "1.0.0"}
     assert client.get("/docs").status_code == 200
-    assert len(client.get("/openapi.json").json()["paths"]) == 4
+    paths = client.get("/openapi.json").json()["paths"]
+    for path, method in (
+        ("/health", "get"),
+        ("/api/v1/search", "post"),
+        ("/api/v1/frames", "get"),
+        ("/api/v1/frames/{frame_id}/image", "get"),
+        ("/api/v1/frames/keep", "post"),
+        ("/api/v1/live/state", "get"),
+    ):
+        assert method in paths[path], f"Missing {method.upper()} {path}"
     stored["embedding"].embed_query.assert_not_called()
 
 

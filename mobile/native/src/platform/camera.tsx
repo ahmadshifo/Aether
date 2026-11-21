@@ -3,6 +3,7 @@ import { CameraView, Camera } from 'expo-camera';
 import { StyleSheet } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { loadRtc } from './capabilities';
+import { openDepthCamera } from './depthCamera';
 import { nativeFetch } from './network';
 import { duringPermission } from './permissions';
 import type { CameraHandle } from '../session/controller';
@@ -47,22 +48,45 @@ export function GoCameraPreview({ camera }: { camera: GoCamera }) {
   const active = useSyncExternalStore(camera.subscribe, camera.getSnapshot);
   return active ? <CameraView ref={camera.attach} style={StyleSheet.absoluteFill} facing="back" mode="picture" onCameraReady={camera.onReady} onMountError={camera.onError} /> : null;
 }
-let acquiring: Promise<unknown> = Promise.resolve();
+let acquiring: Promise<void> = Promise.resolve();
 export function nativeCamera(signal: AbortSignal): Promise<CameraHandle> {
-  const previous = acquiring;
-  const next = (async () => {
-  await previous.catch(() => {});
-  if (signal.aborted) throw Error('cancelled');
-  const rtc = loadRtc();
-  const stream = await duringPermission(() => rtc.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'environment', width: 1280, height: 720, frameRate: 15 } }), signal);
-  let released = false;
-  const release = () => { if (released) return; released = true; stream.getTracks().forEach(track => track.stop()); stream.release(); };
-  if (signal.aborted) { release(); throw Error('cancelled'); }
-  const camera = { url: stream.toURL(), release, stream };
-  // Installed MediaStreamTrack has no frame/photo API. Do not open Expo Camera here.
-  return camera;
-  })();
-  acquiring = next;
+  const next = acquiring.then(async () => {
+    if (signal.aborted) throw Error('cancelled');
+    const rtc = loadRtc();
+    const depth = await openDepthCamera(rtc, signal);
+    const stream = depth?.stream ?? await duringPermission(() => rtc.mediaDevices.getUserMedia({
+      audio: false, video: { facingMode: 'environment', width: 1280, height: 720, frameRate: 15 },
+    }), signal);
+    let released = false;
+    const video = stream.getVideoTracks()[0];
+    let ended: (() => void) | undefined;
+    const release = () => {
+      if (released) return;
+      released = true;
+      if (ended) video?.removeEventListener('ended', ended);
+      signal.removeEventListener('abort', release);
+      try { stream.getTracks().forEach(track => track.stop()); } finally { stream.release(); }
+    };
+    if (signal.aborted) { release(); throw Error('cancelled'); }
+    signal.addEventListener('abort', release, { once: true });
+    const camera = { url: stream.toURL(), release, stream, onEnded(listener: () => void) {
+      if (released || !video) return;
+      ended = listener;
+      if (video.readyState === 'ended') listener();
+      else video.addEventListener('ended', listener);
+    } };
+    if (!depth) return camera;
+    return {
+      ...camera,
+      readDepth: () => released ? null : depth.readDepth(),
+      depthSnapshot: async () => {
+        if (released) return null;
+        const snapshot = await depth.depthSnapshot();
+        return released ? null : snapshot;
+      },
+    };
+  });
+  acquiring = next.then(() => {}, () => {});
   return next;
 }
 export function nativePublisher(camera: CameraHandle, endpoint: string, state: (value: Transport) => void) {

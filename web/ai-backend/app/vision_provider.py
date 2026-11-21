@@ -47,7 +47,8 @@ Answer rules:
   its state when it matters: a door is open, closed or half open; a chair is upright, tipped over or in the
   way; a drawer or window is open or closed; a light or screen is on or off; a cup is full or empty;
   stairs go up or down. Say "a closed door straight ahead", not just "a door".
-- Distances only as rough estimates ("about two steps", "about 2 metres"), never exact.
+- A photo alone cannot measure distance. Never give a numerical distance in metres, feet, steps or
+  other units from these pictures. For a distance question, explain that a depth reading is needed.
 - Reading: read the important text word for word. If it is too small, blurry or cut off, say so and suggest
   moving the phone closer or holding it steady.
 - Money: name the currency and the value only if the note or coin is clearly visible.
@@ -162,7 +163,7 @@ def generate(make_body, parse):
                 continue
             if error.code in (500, 502, 503, 504) and attempt < 2:
                 continue  # Google's side was busy: one quick retry
-            log.warning("Gemini answered %s: %s", error.code, detail)
+            log.warning("Gemini answered HTTP %s", error.code)
             raise VisionUnavailable("failed", f"HTTP {error.code}") from None
         except (urllib.error.URLError, OSError, ValueError) as error:
             log.warning("Gemini request failed: %s", error)

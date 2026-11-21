@@ -8,3 +8,7 @@ PyMySQL[rsa]
 # Signs and checks the short-lived login token (JWT).
 PyJWT>=2.8,<3
 python-dotenv>=1,<2
+# Decode bounded phone snapshots and apply multimedia's shared YuNet face blur before inference.
+opencv-python>=4.10,<5
+numpy>=1.26,<3
+Pillow>=10,<13

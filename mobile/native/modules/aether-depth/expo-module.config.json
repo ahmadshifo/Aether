@@ -1,0 +1,5 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": { "podspecPath": "ios/AetherDepth.podspec", "modules": [] },
+  "android": { "modules": ["expo.modules.aetherdepth.AetherDepthModule"] }
+}

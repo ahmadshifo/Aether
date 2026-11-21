@@ -8,14 +8,23 @@ import { batteryWarning, connectionWarning, warningCopy, type Warning } from '..
 import { batteryAnswer, connectionAnswer, dateAnswer, placeAnswer, timeAnswer, type Place } from '../voice/basics.ts';
 import { ContactLookupError } from '../platform/contactErrors.ts';
 import { contactCopy } from '../i18n/contactCopy.ts';
-export interface CameraHandle { url?: string; release(): void; snapshot?(): Promise<{ uri: string; capturedAt: string } | undefined> }
+import { depthCopy } from '../i18n/depthCopy.ts';
+import { NearbyDetector, distanceIntent, freshReading, measuredMeters, validDepthSnapshot, type DepthReading, type DepthSnapshot, type DepthState } from './depth.ts';
+export interface CameraHandle {
+  url?: string; release(): void;
+  onEnded?(listener: () => void): void;
+  snapshot?(): Promise<{ uri: string; capturedAt: string } | undefined>;
+  readDepth?(): DepthReading | null;
+  depthSnapshot?(): Promise<DepthSnapshot | null>;
+}
 export interface RecognitionEvents { start(): void; result(text: string, final: boolean, confidence?: number): void; end(): void; error(code: string): void }
 export interface SessionPorts {
   ask?(request: AskRequest, signal: AbortSignal): Promise<AskResponse>;
-  location?(signal: AbortSignal): Promise<HistoryLocation | undefined>;
+  location?(signal: AbortSignal, timeoutMs?: number): Promise<HistoryLocation | undefined>;
   preview: boolean; recognitionAvailable: boolean; streamingAvailable: boolean;
   uuid(): string; allowed(): boolean;
   prepareStart?(): Promise<void>;
+  nearbyWarningsEnabled?(): boolean;
   sessionOpened?(signal: AbortSignal): Promise<void>;
   prepareRecognition?(signal: AbortSignal): Promise<void>;
   camera(signal: AbortSignal): Promise<CameraHandle>;
@@ -66,7 +75,7 @@ export interface SessionPorts {
 // How often a session checks the dashboard for new caregiver messages.
 const NOTES_EVERY_MS = 6000;
 export type SosState = 'off' | 'countdown' | 'sending' | 'sent' | 'failed';
-export type SessionState = { active: boolean; id?: string; startedAt?: string; phase: Phase; camera: boolean; cameraUrl?: string; transport: Transport; registry: 'off' | 'pending' | 'registered' | 'failed'; transcript: string; answer?: Entry; error: string; cameraError: string; voiceError: string; cameraPaused: boolean; sos: SosState };
+export type SessionState = { active: boolean; id?: string; startedAt?: string; phase: Phase; camera: boolean; cameraUrl?: string; depthState?: DepthState; depthMessage?: string; transport: Transport; registry: 'off' | 'pending' | 'registered' | 'failed'; transcript: string; answer?: Entry; error: string; cameraError: string; voiceError: string; cameraPaused: boolean; sos: SosState };
 const initial: SessionState = { active: false, phase: 'idle', camera: false, transport: 'off', registry: 'off', transcript: '', error: '', cameraError: '', voiceError: '', cameraPaused: false, sos: 'off' };
 export class SessionController {
   private state = initial;
@@ -76,6 +85,8 @@ export class SessionController {
   private speechGeneration = 0;
   private recognitionGeneration = 0;
   private capture?: CameraHandle;
+  private cameraGeneration = 0;
+  private depthTimer?: ReturnType<typeof setInterval>;
   private publisher?: ReturnType<SessionPorts['publish']>;
   private publisherGeneration = 0;
   private stopRecognition?: () => Promise<void>;
@@ -170,10 +181,17 @@ export class SessionController {
     if (valid() && result === 'error') this.set({ voiceError: 'tts_failed' });
   }
   private async openCamera(g: number, id: string) {
+    const token = ++this.cameraGeneration;
+    const current = () => this.valid(g) && token === this.cameraGeneration && !this.state.cameraPaused;
     try {
       const capture = await this.ports.camera(this.request.signal);
-      if (!this.valid(g)) { capture.release(); return; }
+      if (!current()) { capture.release(); return; }
       this.capture = capture; this.set({ camera: true, cameraUrl: capture.url });
+      this.monitorDepth(g, capture);
+      capture.onEnded?.(() => {
+        if (current() && this.capture === capture) this.pauseCamera(g);
+      });
+      if (!current()) return;
       if (!this.ports.streamingAvailable) return;
       this.set({ registry: 'pending' });
       void this.ports.register('start', id).then(() => {
@@ -181,7 +199,26 @@ export class SessionController {
         else void this.ports.register('stop', id).catch(() => {});
       }).catch(() => { if (this.valid(g)) this.set({ registry: 'failed' }); });
       this.publishCamera(g, id, capture);
-    } catch { if (this.valid(g)) this.set({ camera: false, cameraError: 'camera_denied' }); }
+    } catch { if (current()) this.set({ camera: false, cameraError: 'camera_denied', depthState: 'unavailable' }); }
+  }
+  private monitorDepth(g: number, camera: CameraHandle) {
+    clearInterval(this.depthTimer);
+    const read = camera.readDepth;
+    this.set({ depthState: read ? 'waiting' : 'unavailable' });
+    if (!read) return;
+    const detector = new NearbyDetector();
+    this.depthTimer = setInterval(() => {
+      if (!this.valid(g) || this.capture !== camera) return;
+      const now = Date.now();
+      const status = detector.update(read(), now);
+      const enabled = this.ports.nearbyWarningsEnabled?.() !== false;
+      const visual = status === 'near' && !enabled ? 'measuring' : status;
+      if (visual !== this.state.depthState) this.set({ depthState: visual });
+      if (!enabled || status !== 'near' || this.state.sos === 'countdown' || this.state.sos === 'sending' || this.state.phase === 'paused') return;
+      if (detector.takeHaptic(now)) this.ports.buzz?.(2);
+      if (!['listening', 'unavailable'].includes(this.state.phase) || !detector.takeAlert(now)) return;
+      void this.say(depthCopy[this.language].near);
+    }, 200);
   }
   private publishCamera(g: number, id: string, capture: CameraHandle) {
     const p = ++this.publisherGeneration;
@@ -326,22 +363,46 @@ export class SessionController {
     if (this.state.cameraPaused) { await this.say(commandCopy[this.language].cameraOffQuestion); return; }
     const q = ++this.questionGeneration, questionId = this.ports.uuid(), lang = this.language;
     const valid = () => this.valid(g) && q === this.questionGeneration && lang === this.language;
+    const intent = distanceIntent(text);
+    this.set({ phase: 'processing', transcript: text, error: '', answer: undefined, depthMessage: undefined });
+    const copy = depthCopy[lang];
+    const local = async (reply: string) => {
+      if (!valid()) return;
+      this.set({ depthMessage: reply });
+      await this.say(reply);
+    };
+    if (intent === 'center') {
+      if (!this.capture?.readDepth) { await local(copy.unavailable); return; }
+      const reading = this.capture.readDepth();
+      await local(reading && freshReading(reading.timestampMs) && measuredMeters(reading.centerM) ? copy.measured(reading.centerM) : copy.aim);
+      return;
+    }
+    if (intent === 'target' && !this.capture?.depthSnapshot) { await local(copy.unavailable); return; }
     const request = new AbortController(); this.questionRequest = request;
-    this.set({ phase: 'processing', transcript: text, error: '', answer: undefined });
     // Capture at final question time, before speech shutdown or any answer work.
-    const frame = this.capture?.snapshot?.().catch(() => undefined);
-    const place = this.ports.location?.(request.signal).catch(() => undefined);
+    const depthFrame = intent === 'target' ? this.capture?.depthSnapshot?.().catch(() => null) : undefined;
+    const frame = intent ? undefined : this.capture?.snapshot?.().catch(() => undefined);
+    // Preserve the view at question time. Optional reverse geocoding must leave time to upload it.
+    const place = this.ports.location?.(request.signal, intent === 'target' ? 1500 : undefined).catch(() => undefined);
     await this.silenceInput();
     const snapshot = await frame;
     if (!valid()) { if (snapshot) this.ports.discardSnapshot?.(snapshot); return; }
     const photo = snapshot ? await this.ports.savePhoto?.(snapshot, valid).catch(() => undefined) : undefined;
     if (!valid()) { this.ports.discardPhoto?.(photo); return; }
+    const depth = await depthFrame;
+    if (!valid()) { this.ports.discardPhoto?.(photo); return; }
+    if (intent === 'target' && !validDepthSnapshot(depth ?? null)) {
+      request.abort();
+      if (this.questionRequest === request) this.questionRequest = undefined;
+      await local(copy.aim); return;
+    }
     const location = await place;
     if (!valid()) { this.ports.discardPhoto?.(photo); return; }
     let result: Pick<Entry, 'answer' | 'provenance' | 'uncertain' | 'evidenceFrameIds' | 'location'>;
     try {
       if (!this.ports.ask) throw Error('answers_unavailable');
-      const response = await this.ports.ask({ session_id: this.state.id!, question_id: questionId, question: text.trim(), language: lang, ...(location ? { location } : {}) }, request.signal);
+      const response = await this.ports.ask({ session_id: this.state.id!, question_id: questionId, question: text.trim(), language: lang,
+        ...(location ? { location } : {}), ...(depth ? { depth } : {}) }, request.signal);
       result = { answer: response.answer, provenance: 'server', uncertain: response.uncertain, evidenceFrameIds: response.evidence_frame_ids, ...(response.location ? { location: response.location } : {}) };
     } catch (error) {
       this.ports.discardPhoto?.(photo);
@@ -474,7 +535,8 @@ export class SessionController {
     }
     if (kind === 'repeat') {
       // Read it again: the last answer, word for word, without asking the server again.
-      if (this.state.answer) await this.play(this.state.answer, true); else await this.say(copy.nothingToRepeat);
+      if (this.state.depthMessage) await this.say(this.state.depthMessage);
+      else if (this.state.answer) await this.play(this.state.answer, true); else await this.say(copy.nothingToRepeat);
       return;
     }
     if (kind === 'cameraOff') {
@@ -517,11 +579,19 @@ export class SessionController {
   /** Camera off by voice: stops the camera and the stream, keeps the session and the microphone. */
   private pauseCamera(g: number) {
     if (!this.valid(g)) return;
+    this.cameraGeneration++;
+    const interruptedQuestion = this.state.phase === 'processing' && !!this.questionRequest;
+    if (interruptedQuestion) {
+      this.questionGeneration++;
+      this.questionRequest?.abort(); this.questionRequest = undefined;
+    }
+    clearInterval(this.depthTimer); this.depthTimer = undefined;
     this.publisherGeneration++;
     try { this.publisher?.stop(); } catch { /* Already closed. */ } this.publisher = undefined;
     try { this.capture?.release(); } catch { /* Already released. */ } this.capture = undefined;
-    this.set({ camera: false, cameraUrl: undefined, transport: 'off', cameraPaused: true });
+    this.set({ camera: false, cameraUrl: undefined, transport: 'off', cameraPaused: true, depthState: undefined, depthMessage: undefined });
     if (this.state.id) void this.ports.cameraPaused?.(this.state.id, true).catch(() => {});
+    if (interruptedQuestion) void this.say(commandCopy[this.language].cameraOffQuestion);
   }
 
   /** "I need help": warns out loud, waits SOS_DELAY_SECONDS for "cancel", then sends the alert and calls. */
@@ -583,11 +653,12 @@ export class SessionController {
     // A fast language change/Resume must still wait for wake-word microphone release.
     if (this.sessionStartup) void this.sessionStartup.then(resume); else resume();
   }
-  changeLanguage(lang: Language) { if (lang === this.language) return; this.language = lang; this.pause(); }
+  changeLanguage(lang: Language) { if (lang === this.language) return; this.language = lang; this.set({ depthMessage: undefined }); this.pause(); }
   stop(background = false) {
     const id = this.state.id, wasActive = this.state.active;
     this.generation++; this.questionGeneration++; this.speechGeneration++; this.publisherGeneration++;
     this.request.abort(); this.questionRequest?.abort(); void this.silenceInput(); this.ports.stopSpeech();
+    clearInterval(this.depthTimer); this.depthTimer = undefined;
     clearTimeout(this.sosTimer); this.sosTimer = undefined;
     this.stopBattery?.(); this.stopBattery = undefined; this.pendingWarnings = [];
     clearInterval(this.notesTimer); this.notesTimer = undefined; this.pendingNotes = [];
@@ -595,7 +666,7 @@ export class SessionController {
     try { this.publisher?.stop(); } catch { /* Continue every independent cleanup. */ } this.publisher = undefined;
     try { this.capture?.release(); } catch { /* Native resource may already be released. */ } this.capture = undefined;
     this.ports.keepAwake(false);
-    this.set({ ...initial, id, startedAt: this.state.startedAt, phase: background ? 'paused' : 'idle' });
+    this.set({ ...initial, id, startedAt: this.state.startedAt, answer: undefined, cameraUrl: undefined, depthState: undefined, depthMessage: undefined, phase: background ? 'paused' : 'idle' });
     if (wasActive && id && this.ports.streamingAvailable) void this.ports.register('stop', id).catch(() => {});
   }
   dispose() { this.stop(); this.listeners.clear(); }

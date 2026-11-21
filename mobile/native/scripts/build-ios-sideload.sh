@@ -18,6 +18,10 @@ fi
 xcodebuild -version
 node --version
 pod --version
+# Run the same C++ sampler that the ARKit capture controller compiles into the app.
+xcrun --sdk macosx clang++ -std=c++17 -Wall -Wextra -Werror \
+  modules/aether-depth/ios/tests/DepthSamplesTest.cpp -o "$out/depth-samples-test"
+"$out/depth-samples-test"
 node scripts/expo.mjs prebuild --platform ios --no-install
 
 # These overrides belong only to this development binary. The regular app config
@@ -64,6 +68,7 @@ app="$out/DerivedData/Build/Products/Debug-iphoneos/Aether.app"
 test -d "$app"
 python3 - "$app" <<'PY'
 import plistlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -76,7 +81,19 @@ assert info.get('NSMicrophoneUsageDescription'), 'Microphone permission text mis
 assert info.get('NSSpeechRecognitionUsageDescription'), 'Speech permission text missing'
 arch = subprocess.check_output(['lipo', '-archs', str(app / info['CFBundleExecutable'])], text=True)
 assert 'arm64' in arch.split(), f'Wrong device architecture: {arch}'
-print(f"Device app: {info['CFBundleIdentifier']}; architecture: {arch.strip()}")
+# Recent Xcode Debug builds put the application code in Aether.debug.dylib.
+# A stripped symbol table can omit class names; Objective-C class metadata remains.
+def contains_depth_module(binary):
+    symbols = subprocess.run(['xcrun', 'nm', '-U', '-j', str(binary)], capture_output=True).stdout
+    if b'_OBJC_CLASS_$_AetherDepth' in symbols.splitlines():
+        return True
+    metadata = subprocess.run(['xcrun', 'otool', '-ov', str(binary)], capture_output=True).stdout
+    return re.search(rb'^[ \t]*name[ \t]+0x[0-9a-fA-F]+[^\r\n]*[ \t]AetherDepth[ \t]*$',
+                     metadata, re.MULTILINE) is not None
+
+images = [*app.glob('*.debug.dylib'), app / info['CFBundleExecutable']]
+assert any(contains_depth_module(image) for image in images), 'AetherDepth native class missing from the device build'
+print(f"Device app: {info['CFBundleIdentifier']}; architecture: {arch.strip()}; AetherDepth linked.")
 PY
 mkdir "$out/Payload"
 ditto "$app" "$out/Payload/Aether.app"

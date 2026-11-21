@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Button, Card, Cassette, Field, Mark, Notice, Reveal, Row, Sheet, T, useUI } from '../components/ui';
 import { copies } from '../i18n/nativeCopy';
 import { historyStreamCopy } from '../i18n/historyStreamCopy';
+import { depthCopy } from '../i18n/depthCopy';
 import { GoCameraPreview, RtcPreview, type GoCamera } from '../platform/camera';
 import type { SessionController, SessionState } from '../session/controller';
 import type { Language } from '../shared/types';
@@ -17,7 +18,7 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
   start(): void; back(): void; changeLanguage(language: Language): void;
   backRef?: React.Ref<React.ComponentRef<typeof View>>;
 }) {
-  const { language, colors } = useUI(), { m, n } = copies(language), h = historyStreamCopy[language];
+  const { language, colors } = useUI(), { m, n } = copies(language), h = historyStreamCopy[language], d = depthCopy[language];
   const dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const [height, setHeight] = useState(dimensions.height), [details, setDetails] = useState(false), [typed, setTyped] = useState('');
   const detailsRef = useRef<React.ComponentRef<typeof View>>(null);
@@ -27,8 +28,12 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
   const errors = [...new Set([media.cameraError, media.voiceError === 'silence' ? '' : media.voiceError, media.error,
     media.transport === 'failed' ? 'transportFailed' : '', media.registry === 'failed' ? 'registry_failed' : ''].filter(Boolean))];
   const errorText = (code: string) => n[code as keyof typeof n] as string || n.error;
-  const excerpt = media.answer?.answer || media.transcript || (prompt !== null ? `${m.questions[prompt]} ${m.say}` : '');
-  const answerLabel = n.serverAnswer;
+  const localDistance = media.depthMessage;
+  const answer = localDistance ? undefined : media.answer;
+  const excerpt = localDistance || answer?.answer || media.transcript || (prompt !== null ? `${m.questions[prompt]} ${m.say}` : '');
+  const answerLabel = localDistance ? d.title : n.serverAnswer;
+  const depthStatus = media.depthState === 'waiting' ? d.aim : media.depthState === 'unavailable' ? d.unavailable :
+    media.depthState === 'near' ? d.near : media.depthState === 'measuring' ? d.measuring : '';
   return <View testID="assistant-screen" style={{ flex: 1, backgroundColor: colors.bg }} onLayout={event => setHeight(event.nativeEvent.layout.height)}>
     <StatusBar style="light" />
     <View testID="camera-viewport" style={{ height: layout.camera, overflow: 'hidden', backgroundColor: '#141414' }}>
@@ -46,28 +51,33 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
             {media.transport === 'reconnecting' && <T accessibilityLiveRegion="polite" variant="small" style={{ color: '#D0D0D0' }}>{h.reconnecting}</T>}
           </View>
         </Row>
+        {media.active && media.camera && media.depthState === 'near' && <View pointerEvents="none" style={{ backgroundColor: colors.dangerBg, padding: 12, borderRadius: 10 }}>
+          <T accessibilityLiveRegion="none" style={{ color: colors.danger }}>{d.near}</T>
+        </View>}
         {media.active && media.phase === 'paused' && <Button label={m.resume} onPress={() => controller.resume()} />}
         {!!errors.length && <Pressable accessibilityRole="button" accessibilityLabel={errorText(errors[0])} accessibilityHint={n.details} onPress={() => setDetails(true)} style={{ padding: 12, backgroundColor: colors.dangerBg, borderRadius: 10 }}><T numberOfLines={2} style={{ color: colors.danger }}>{errorText(errors[0])}</T></Pressable>}
         {media.active && media.camera && (media.transport === 'failed' || media.registry === 'failed') && <Button label={h.retryStream} onPress={() => controller.retryStream()} />}
       </View>
       <Pressable accessibilityRole="button" accessibilityLabel={excerpt ? `${answerLabel}. ${excerpt}` : answerLabel} accessibilityHint={n.details} onPress={() => setDetails(true)} style={{ position: 'absolute', bottom: 12, left: insets.left + 12, right: insets.right + 12, borderRadius: 10, padding: 12, gap: 4, backgroundColor: '#141414E8' }}>
-        <T variant="small" style={{ color: '#D0D0D0' }}>{answerLabel}{media.answer?.uncertain ? ` · ${n.uncertain}` : ''}</T>
-        {!!excerpt && <T numberOfLines={dimensions.fontScale > 1.5 ? 1 : 2} language={media.answer?.language ?? language} style={{ color: 'white' }}>{excerpt}</T>}
+        <T variant="small" style={{ color: '#D0D0D0' }}>{answerLabel}{answer?.uncertain ? ` · ${n.uncertain}` : ''}</T>
+        {!!excerpt && <T numberOfLines={dimensions.fontScale > 1.5 ? 1 : 2} language={answer?.language ?? language} style={{ color: 'white' }}>{excerpt}</T>}
       </Pressable>
     </View>
     <ScrollView testID="session-controls" style={{ height: layout.controls, flexGrow: 0 }} contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingTop: 8, paddingBottom: insets.bottom + 8, paddingLeft: insets.left + 12, paddingRight: insets.right + 12 }}>
       <Row style={{ flexWrap: 'nowrap', alignItems: 'stretch' }}>
-        <View style={{ flex: 1 }}><Button focusRef={detailsRef} label={media.answer ? m.answer : n.details} onPress={() => setDetails(true)} /></View>
+        <View style={{ flex: 1 }}><Button focusRef={detailsRef} label={localDistance || answer ? m.answer : n.details} onPress={() => setDetails(true)} /></View>
         <View style={{ flex: 1 }}><Button testID="session-toggle" danger={media.active} primary={!media.active} label={media.active ? m.stop : m.start} icon={media.active ? undefined : 'mic'} onPress={() => media.active ? controller.stop() : start()} /></View>
       </Row>
     </ScrollView>
     {details && <Sheet title={m.assistant} onClose={() => setDetails(false)} restoreFocus={restoreFocus}>
       <Row><Button label="EN" selected={language === 'en'} onPress={() => changeLanguage('en')} /><Button label="ع" selected={language === 'ar'} onPress={() => changeLanguage('ar')} /><Button label="FR" selected={language === 'fr'} onPress={() => changeLanguage('fr')} /></Row>
-      {media.answer?.uncertain && <Notice>{n.uncertain}</Notice>}
-      {!!media.answer?.evidenceFrameIds?.length && <T variant="small">{n.evidence}: {media.answer.evidenceFrameIds.length}</T>}
+      {answer?.uncertain && <Notice>{n.uncertain}</Notice>}
+      {!!answer?.evidenceFrameIds?.length && <T variant="small">{n.evidence}: {answer.evidenceFrameIds.length}</T>}
+      {media.active && !!depthStatus && depthStatus !== localDistance && <T variant="small">{depthStatus}</T>}
       {prompt !== null && <Card><T>{m.questions[prompt]}</T><T variant="small">{m.say}</T></Card>}
       {!!media.transcript && <Card><T variant="label">{m.transcript}</T><T>{media.transcript}</T></Card>}
-      {media.answer && <Reveal key={media.answer.id}><Card><T variant="heading">{m.answer}</T><T language={media.answer.language}>{media.answer.answer}</T><Cassette onReplay={() => { void controller.replay(media.answer!); }} /></Card></Reveal>}
+      {localDistance && <Card><T variant="heading">{d.title}</T><T>{localDistance}</T></Card>}
+      {answer && <Reveal key={answer.id}><Card><T variant="heading">{m.answer}</T><T language={answer.language}>{answer.answer}</T><Cassette onReplay={() => { void controller.replay(answer); }} /></Card></Reveal>}
       {media.phase === 'speaking' && <Button label={n.stopSpeech} onPress={() => controller.stopPlayback()} />}
       {(!caps.recognition || !caps.webrtc) && <Notice>{n.native_required}</Notice>}
       {caps.go && __DEV__ && media.active && <Card><Field label={n.typedLabel} value={typed} onChangeText={setTyped} /><Button label={n.typedQuestionAction} disabled={!typed.trim() || ['greeting', 'speaking', 'processing', 'paused'].includes(media.phase)} onPress={() => { void controller.typedQuestion(typed); setTyped(''); }} /></Card>}

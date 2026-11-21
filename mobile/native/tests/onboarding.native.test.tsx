@@ -1,12 +1,13 @@
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
-import { AccessibilityInfo, AppState, Text, TextInput } from 'react-native';
+import { AccessibilityInfo, AppState, Linking, Platform, Text, TextInput } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Speech from 'expo-speech';
-import { FirstUseGate, SAFETY_KEY } from '../src/components/FirstUseGate';
+import { ANDROID_SAFETY_KEY, FirstUseGate, SAFETY_KEY } from '../src/components/FirstUseGate';
 import { Button, UIContext } from '../src/components/ui';
 import { safetyCopy } from '../src/i18n/safetyCopy';
+import { depthCopy, googleArPrivacyUrl } from '../src/i18n/depthCopy';
 import { copies } from '../src/i18n/nativeCopy';
 import { AuthScreen } from '../src/screens/AuthScreen';
 import { HelpScreen } from '../src/screens/HelpScreen';
@@ -39,6 +40,24 @@ test('failed acknowledgement save keeps the notice visible; a retry succeeds', a
   const tree = await render(gate()); (AsyncStorage.setItem as jest.Mock).mockRejectedValueOnce(Error('disk full'));
   await press(tree, safetyCopy.fr.accept); expect(JSON.stringify(tree.toJSON())).toContain(safetyCopy.fr.saveError); expect(JSON.stringify(tree.toJSON())).not.toContain('PRIVATE APP');
   await press(tree, safetyCopy.fr.accept); expect(JSON.stringify(tree.toJSON())).toContain('PRIVATE APP');
+});
+
+test.each(['en', 'ar', 'fr'] as const)('returning Android installs see and hear ARCore disclosure before entering: %s', async language => {
+  jest.replaceProperty(Platform, 'OS', 'android');
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+  await AsyncStorage.setItem(SAFETY_KEY, 'acknowledged');
+  const tree = await render(gate(language));
+  const content = JSON.stringify(tree.toJSON());
+  expect(content).not.toContain('PRIVATE APP');
+  expect(content).toContain(depthCopy[language].arService);
+  expect(Speech.speak).toHaveBeenCalledWith(expect.stringContaining(depthCopy[language].arService), expect.anything());
+  const link = tree.root.findAll(item => item.props.accessibilityRole === 'link' && item.props.onPress)[0];
+  await act(async () => link.props.onPress());
+  expect(open).toHaveBeenCalledWith(googleArPrivacyUrl);
+  await press(tree, safetyCopy[language].accept);
+  expect(await AsyncStorage.getItem(ANDROID_SAFETY_KEY)).toBe('acknowledged');
+  const reopened = await render(gate(language));
+  expect(JSON.stringify(reopened.toJSON())).toContain('PRIVATE APP');
 });
 test('an acknowledged installation can review and hear the notice from Help without resetting it', async () => {
   await AsyncStorage.setItem(SAFETY_KEY, 'acknowledged');

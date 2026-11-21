@@ -17,6 +17,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from app import depth as metric_depth
 from app import history_answer, vision_provider
 from app.memory_client import MemoryClient, MemoryUnavailable
 from app.summary import topic_of
@@ -181,11 +182,16 @@ def camera_blocked(memory: MemoryClient, session_id: str) -> bool:
 
 
 def answer(question: str, language: str, session_id: str, memory: MemoryClient | None = None,
-           asked_at: datetime | None = None, wait: float | None = None, user_id: str | None = None) -> Answer:
+           asked_at: datetime | None = None, wait: float | None = None, user_id: str | None = None,
+           depth: metric_depth.DepthSnapshot | None = None) -> Answer:
     memory = memory or MemoryClient()
     # "Ask my history": a question about the past is answered from the user's own last 24 hours.
     if user_id and choose_mode(question) == "history":
         return history_answer.answer(question, language, user_id, memory)
+    if metric_depth.asks_distance(question):
+        text, uncertain = metric_depth.answer(question, language, depth, asked_at or datetime.now(UTC))
+        # The private measurement image is transient; linking a different saved frame would mislabel the evidence.
+        return Answer(text, uncertain, [], "depth")
     try:
         mode, frames = find_evidence(memory, session_id, question, asked_at or datetime.now(UTC),
                                      AFTER_SECONDS if wait is None else wait,
