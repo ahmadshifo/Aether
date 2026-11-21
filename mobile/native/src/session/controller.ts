@@ -9,7 +9,7 @@ import { batteryAnswer, connectionAnswer, dateAnswer, placeAnswer, timeAnswer, t
 import { ContactLookupError } from '../platform/contactErrors.ts';
 import { contactCopy } from '../i18n/contactCopy.ts';
 import { depthCopy } from '../i18n/depthCopy.ts';
-import { NearbyDetector, distanceIntent, freshReading, measuredMeters, validDepthSnapshot, type DepthReading, type DepthSnapshot, type DepthState } from './depth.ts';
+import { NearbyDetector, distanceIntent, sceneIntent, freshReading, measuredMeters, validDepthSnapshot, type DepthReading, type DepthSnapshot, type DepthState } from './depth.ts';
 export interface CameraHandle {
   url?: string; release(): void;
   onEnded?(listener: () => void): void;
@@ -380,7 +380,10 @@ export class SessionController {
     if (intent === 'target' && !this.capture?.depthSnapshot) { await local(copy.unavailable); return; }
     const request = new AbortController(); this.questionRequest = request;
     // Capture at final question time, before speech shutdown or any answer work.
-    const depthFrame = intent === 'target' ? this.capture?.depthSnapshot?.().catch(() => null) : undefined;
+    // A scene question ("what's in front of me?") also sends the depth snapshot when the camera has one, so the
+    // answer can say how far the object at the centre is. Without one it is asked exactly as before.
+    const scene = !intent && sceneIntent(text);
+    const depthFrame = intent === 'target' || scene ? this.capture?.depthSnapshot?.().catch(() => null) : undefined;
     const frame = intent ? undefined : this.capture?.snapshot?.().catch(() => undefined);
     // Preserve the view at question time. Optional reverse geocoding must leave time to upload it.
     const place = this.ports.location?.(request.signal, intent === 'target' ? 1500 : undefined).catch(() => undefined);
@@ -402,7 +405,7 @@ export class SessionController {
     try {
       if (!this.ports.ask) throw Error('answers_unavailable');
       const response = await this.ports.ask({ session_id: this.state.id!, question_id: questionId, question: text.trim(), language: lang,
-        ...(location ? { location } : {}), ...(depth ? { depth } : {}) }, request.signal);
+        ...(location ? { location } : {}), ...(depth && validDepthSnapshot(depth) ? { depth } : {}) }, request.signal);
       result = { answer: response.answer, provenance: 'server', uncertain: response.uncertain, evidenceFrameIds: response.evidence_frame_ids, ...(response.location ? { location: response.location } : {}) };
     } catch (error) {
       this.ports.discardPhoto?.(photo);
