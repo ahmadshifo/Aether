@@ -26,12 +26,14 @@ from app.vision_provider import VisionUnavailable
 log = logging.getLogger("ai.assistant")
 
 # Words that point back in time. Anything else is about what is in front of the user now.
+# A bare "before" or "today" is not enough: "what's before me?", "is a car coming before I cross?" and
+# "read today's menu" are about the camera now. Past questions still match "did I ...", "earlier", "ago"...
 HISTORY_WORDS = re.compile(
-    r"\b(earlier|before|today|ago|remember|this morning|yesterday|last time|previously|where (did|was)|"
+    r"\b(earlier|ago|remember|this morning|yesterday|last time|previously|where (did|was)|before (that|now)|"
     r"did i (ask|see|leave|put)|what did you (say|tell)|did you (say|tell)|have i (seen|asked|been)|"
     r"my (history|questions)|last question)\b|"
-    r"(سابق|سابقا|سابقًا|اليوم|تذكر|أين كان|من قبل|مبارح|امبارح|البارحة|شو سألت|ماذا سألت|وين حطيت|وين شفت|أين رأيت|شو قلتلي|ماذا قلت لي)|"
-    r"(tout à l'heure|plus tôt|aujourd'hui|hier|auparavant|tout a l'heure|où ai-je|qu'est-ce que j'ai|"
+    r"(سابق|سابقا|سابقًا|تذكر|أين كان|من قبل|مبارح|امبارح|البارحة|شو سألت|ماذا سألت|وين حطيت|وين شفت|أين رأيت|شو قلتلي|ماذا قلت لي)|"
+    r"(tout à l'heure|plus tôt|hier|auparavant|tout a l'heure|où ai-je|qu'est-ce que j'ai|"
     r"tu m'as dit|je t'ai demandé|j'ai demandé|ce matin)", re.IGNORECASE)
 RECENT_WORDS = re.compile(r"\b(just|passed|last|recently|a moment|behind me|went by)\b|"
                           r"(للتو|مررت|قبل قليل|خلفي|الأخير)", re.IGNORECASE)

@@ -10,7 +10,7 @@ import { useWatchedSession } from '../components/useWatchedSession.js';
 import { useCameraPaused } from '../components/useLiveSessionId.js';
 import { useQuestions } from '../components/useBackend.js';
 
-const BUTTON_STATE = { idle: 'busy', connecting: 'busy', waiting: 'busy', live: 'done' };
+const BUTTON_STATE = { idle: 'busy', connecting: 'busy', waiting: 'busy', live: 'done', paused: 'idle' };
 
 export default function LiveCamera() {
   const user = useContext(UserContext);
@@ -29,7 +29,7 @@ export default function LiveCamera() {
   const facts = [
     ['Protocol', 'WebRTC (WHEP) from MediaMTX'],
     ['Resolution', playing && size ? `${size[0]} × ${size[1]}` : '—'],
-    ['Status', !watching ? 'Not watching' : playing ? 'Receiving video' : 'Connecting'],
+    ['Status', !watching ? 'Not watching' : playing ? 'Receiving video' : streamState === 'paused' ? 'Camera paused on the phone' : 'Connecting'],
   ];
 
   return (

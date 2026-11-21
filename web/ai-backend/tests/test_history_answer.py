@@ -53,7 +53,10 @@ class HistoryAnswerTests(unittest.TestCase):
                          "what did I see yesterday", "شو سألت اليوم", "وين حطيت المفتاح",
                          "Qu'est-ce que j'ai demandé tout à l'heure ?", "Où ai-je vu mes clés ?"]:
             self.assertEqual(assistant.choose_mode(question), "history", question)
-        for question, mode in [("What's in front of me?", "latest"), ("what did I just pass", "recent")]:
+        for question, mode in [("What's in front of me?", "latest"), ("what did I just pass", "recent"),
+                               ("What's before me?", "latest"), ("Is a car coming before I cross?", "latest"),
+                               ("Read today's menu", "latest"), ("Lis le menu d'aujourd'hui", "latest"),
+                               ("What did I ask today?", "history"), ("What was here before that?", "history")]:
             self.assertEqual(assistant.choose_mode(question), mode, question)
 
     def test_the_log_has_questions_and_useful_frames_with_how_long_ago(self):
@@ -109,6 +112,19 @@ class HistoryAnswerTests(unittest.TestCase):
                 mock.patch.object(assistant, "camera_blocked", return_value=False):
             result = assistant.answer("What's in front of me?", "en", "s-1", Memory(), user_id="user-1", wait=0)
         self.assertEqual(result.text, assistant.ANSWERS["en"]["none"])
+
+
+class HistoryCursorTests(unittest.TestCase):
+    def test_the_page_cursor_keeps_milliseconds(self):
+        from app import history
+        row = {"asked_at": datetime(2026, 11, 21, 12, 0, 0, 800000), "question_id": "6f1c2a8e-1111-4222-8333-944455556666"}
+        moment, question_id = history._decode(history._cursor(row))
+        self.assertEqual(moment, row["asked_at"])  # not cut to 12:00:00
+        self.assertEqual(question_id, row["question_id"])
+        old = "2026-11-21T12:00:00Z|6f1c2a8e-1111-4222-8333-944455556666"  # cursors already handed out still work
+        import base64
+        self.assertEqual(history._decode(base64.urlsafe_b64encode(old.encode()).decode().rstrip("="))[0],
+                         datetime(2026, 11, 21, 12, 0, 0))
 
 
 if __name__ == "__main__":

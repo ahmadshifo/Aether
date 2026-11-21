@@ -107,8 +107,11 @@ def _record(row: dict) -> dict:
     }
 
 
-def _cursor(record: dict) -> str:
-    return base64.urlsafe_b64encode(f"{record['asked_at']}|{record['question_id']}".encode()).decode().rstrip("=")
+def _cursor(row: dict) -> str:
+    # The raw DATETIME(3) value, not the record's whole-second text: a question asked earlier in the same second
+    # as the last one on a page would otherwise fall between the pages.
+    moment = row["asked_at"].isoformat() if isinstance(row["asked_at"], datetime) else str(row["asked_at"])
+    return base64.urlsafe_b64encode(f"{moment}|{row['question_id']}".encode()).decode().rstrip("=")
 
 
 def _decode(cursor: str) -> tuple[datetime, str]:
@@ -149,4 +152,4 @@ def questions(session_id: str | None = None, limit: int = Query(20, ge=1, le=100
                     "ORDER BY asked_at DESC, question_id DESC LIMIT %s", (*params, limit + 1))
         rows = cur.fetchall()
     records = [_record(row) for row in rows[:limit]]
-    return {"questions": records, "next_cursor": _cursor(records[-1]) if len(rows) > limit else None, "demo": False}
+    return {"questions": records, "next_cursor": _cursor(rows[limit - 1]) if len(rows) > limit else None, "demo": False}

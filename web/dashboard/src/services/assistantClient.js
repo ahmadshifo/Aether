@@ -20,9 +20,10 @@ export const assistantClient = {
     return request(`/api/v1/questions?${params}`);
   },
 
-  // Permanently deletes this account's questions and answers. Resolves to { deleted }.
-  deleteQuestions() {
-    return request('/api/v1/questions', { method: 'DELETE' });
+  // Permanently deletes this account's questions and answers (or one session's). Resolves to { deleted }.
+  deleteQuestions({ sessionId } = {}) {
+    const query = sessionId ? `?${new URLSearchParams({ session_id: sessionId })}` : '';
+    return request(`/api/v1/questions${query}`, { method: 'DELETE' });
   },
 
   // { streaming, multimedia, ai, details, live_session } checked live by the AI backend.

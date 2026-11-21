@@ -260,15 +260,18 @@ class LiveIngestManager:
 
     def stop(self, timeout: float = 10.0):
         self._stop.set()
-        for runner in self.active.values():
+        # The watcher may be in the middle of poll_once, starting or removing a runner: let it finish first,
+        # then stop a fixed list of runners (none can be added after this, and the dict can't change under us).
+        if self._thread is not None:
+            self._thread.join(timeout)
+        runners = list(self.active.values())
+        for runner in runners:
             runner.stop("shutdown")
-        for runner in self.active.values():
+        for runner in runners:
             try:
                 runner.wait(timeout)
             except Exception:
                 pass
-        if self._thread is not None:
-            self._thread.join(timeout)
 
 
 def _on_off(enabled) -> str:

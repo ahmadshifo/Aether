@@ -253,3 +253,37 @@ def test_live_state_reports_how_long_the_camera_has_been_dark_or_frozen():
     assert state["frozen_since"] == NOW - timedelta(seconds=12)
     memory.add(SESSION, scene(9), NOW)  # the lens is uncovered
     assert memory.state(SESSION)["dark_since"] is None and memory.state(SESSION)["frozen_since"] is None
+
+
+def test_shutdown_stops_a_runner_the_watcher_starts_during_shutdown():
+    import threading
+    entered, release, started = threading.Event(), threading.Event(), []
+
+    class Runner:
+        def __init__(self, session_id):
+            self._coordinator = SimpleNamespace(is_alive=lambda: not self.stopped)
+            self.stopped = False
+            started.append(self)
+
+        def start(self):
+            return self
+
+        def stop(self, reason):
+            self.stopped = True
+
+        def wait(self, timeout):
+            pass
+
+    def slow_list():  # the watcher is mid-poll when shutdown begins
+        entered.set()
+        release.wait(5)
+        return {SESSION}
+
+    manager = LiveIngestManager(Runner, list_sessions=slow_list, poll_seconds=60).start()
+    assert entered.wait(5)
+    stopper = threading.Thread(target=manager.stop, kwargs={"timeout": 5})
+    stopper.start()
+    release.set()  # the poll now starts a runner while stop() is running
+    stopper.join(10)
+    assert not stopper.is_alive()
+    assert len(started) == 1 and started[0].stopped

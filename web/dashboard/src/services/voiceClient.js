@@ -13,7 +13,10 @@ export const voiceClient = {
       throw new Error("Can't reach the voice service. Is it running on port 8001?");
     }
     if (!response.ok) {
-      throw new Error(`Couldn't get the spoken answer (HTTP ${response.status}). Is the voice service running on port 8001?`);
+      // The voice service explains itself ({ error: { message } }), e.g. when Azure Speech isn't set up.
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.error?.message
+        ?? `Couldn't get the spoken answer (HTTP ${response.status}). Is the voice service running on port 8001?`);
     }
     return URL.createObjectURL(await response.blob());
   },
