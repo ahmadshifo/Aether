@@ -232,3 +232,49 @@ test('a failed location lookup is said honestly and the session keeps listening'
   assert.equal(h.controller.getSnapshot().phase, 'listening');
   h.controller.stop();
 });
+
+test('a location lookup that never finishes is given up after 15 seconds and the session keeps listening', async t => {
+  let signal;
+  const h = harness({ place: aborted => { signal = aborted; return new Promise(() => {}); } });
+  await h.controller.start('en'); await h.listening();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  h.events.at(-1).result('where am I', true);
+  for (let i = 0; i < 50 && !signal; i++) await Promise.resolve();
+  assert.ok(signal, 'the lookup started');
+  t.mock.timers.tick(15000);
+  t.mock.timers.reset();
+  await h.listening();
+  assert.equal(signal.aborted, true);
+  assert.match(h.spoken.at(-1), /couldn't find your location/);
+  assert.equal(h.controller.getSnapshot().phase, 'listening');
+  h.controller.stop();
+});
+
+test('repeating the same question over its answer does not leave the microphone off', async () => {
+  const h = harness();
+  await h.controller.start('en'); await h.listening();
+  h.events.at(-1).result('What is in front of me', true);
+  await settle(); await wait(50); await settle();
+  assert.equal(h.controller.getSnapshot().phase, 'speaking');
+  h.events.at(-1).result('What is in front of me', true);  // the same question again, a moment later
+  await h.listening(); await h.listening();
+  assert.equal(h.asked.length, 1);  // not asked twice
+  assert.equal(h.controller.getSnapshot().phase, 'listening');
+  h.controller.stop();
+});
+
+test('a caregiver note cut off by Stop is not marked read', async () => {
+  const read = [];
+  let finish, notes = [{ note_id: 'n1', text: 'Dinner is ready.' }];
+  const h = harness({
+    pendingNotes: async () => notes,
+    noteRead: async id => { read.push(id); notes = []; },
+    // The note keeps playing until Stop cancels it, like the real speech port.
+    speak: (text, _, start) => { start(); return text.includes('Dinner') ? new Promise(resolve => { finish = resolve; }) : Promise.resolve('done'); },
+    stopSpeech: () => { finish?.('cancelled'); finish = undefined; },
+  });
+  await h.controller.start('en'); await h.listening(); await h.listening();
+  h.controller.stop();
+  await h.listening();
+  assert.deepEqual(read, []);
+});

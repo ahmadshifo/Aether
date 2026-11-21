@@ -67,10 +67,10 @@ function useLiveClock(running) {
 export default function LiveStream({ sessionId = null, aspect = '16x9', full = false, idleText, onState, onSize, paused = false }) {
   const videoRef = useRef(null);
   const { state, setState, message } = useWhepStream(paused ? null : sessionId, videoRef);
-  const playing = Boolean(sessionId) && state === 'live';
+  const playing = Boolean(sessionId) && !paused && state === 'live';
   const clock = useLiveClock(playing);
 
-  useEffect(() => { onState?.(sessionId ? state : 'idle'); }, [sessionId, state, onState]);
+  useEffect(() => { onState?.(sessionId ? (paused ? 'paused' : state) : 'idle'); }, [sessionId, state, paused, onState]);
 
   return (
     <div className={`stage stage-${aspect}`}>

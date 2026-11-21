@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { HoldToConfirm, LogoTraceLoader, Selector, Ticket } from '../components/ui/index.js';
 import { Icon, PageHeader, StatusPill, formatShortTime } from '../components/ui.jsx';
 import { useStatus } from '../components/useBackend.js';
+import { assistantClient } from '../services/assistantClient.js';
 import LiveAlerts from '../components/LiveAlerts.jsx';
 
 const portOf = (url, fallback) => {
@@ -43,6 +44,19 @@ export default function SystemStatus() {
   const [checkKey, setCheckKey] = useState(0);
   const { status, details, liveSession, checking, check: recheck } = useStatus();
   const online = SERVICES.filter((service) => status[service.key] === 'online').length;
+  const [cleared, setCleared] = useState({ key: 0, text: '', error: '' });
+  // Deletes this session's questions and answers for real. Its frames expire on their own after 24 hours,
+  // and only the phone can stop its camera, so the card says so instead of pretending.
+  const clearSession = async () => {
+    const sessionId = liveSession?.session_id;
+    if (!sessionId) return;
+    try {
+      const { deleted } = await assistantClient.deleteQuestions({ sessionId });
+      setCleared((c) => ({ key: c.key + 1, text: `Deleted ${deleted} question${deleted === 1 ? '' : 's'} from this session.`, error: '' }));
+    } catch (error) {
+      setCleared((c) => ({ key: c.key + 1, text: '', error: error.message }));
+    }
+  };
 
   const check = () => {
     setCheckKey((n) => n + 1);
@@ -104,10 +118,15 @@ export default function SystemStatus() {
           </section>
 
           <section className="card section section-tight" aria-labelledby="end-title">
-            <h2 id="end-title" className="card-title">End this session</h2>
-            <p className="sub">Stops the stream and deletes this session’s frames and history.</p>
-            <HoldToConfirm label="Hold to end session" doneLabel="Session ended" finalLabel="Session ended · frames deleted"
-              undoMessage={(seconds) => `Session ended. Undo in ${seconds} s`} />
+            <h2 id="end-title" className="card-title">Delete this session’s history</h2>
+            <p className="sub">Deletes the questions and answers from this session. Its frames are deleted
+              automatically after 24 hours. To stop the camera, press Stop in the Aether app.</p>
+            {cleared.text && <p className="sub" aria-live="polite">{cleared.text}</p>}
+            {cleared.error && <p className="form-error" role="alert"><Icon name="alert" size={16} />{cleared.error}</p>}
+            {liveSession ? (
+              <HoldToConfirm key={cleared.key} label="Hold to delete history" doneLabel="Deleting…" finalLabel="History deleted"
+                undoMessage={(seconds) => `This session’s history will be deleted. Undo in ${seconds} s`} onCommit={clearSession} />
+            ) : <p className="sub">No live session.</p>}
           </section>
         </div>
       </div>

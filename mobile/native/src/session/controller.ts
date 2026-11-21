@@ -276,8 +276,13 @@ export class SessionController {
       ...notes.map(note => commandCopy[this.language].note.replace('{text}', note.text)),
     ].join(' ');
     this.pendingWarnings = []; this.pendingNotes = [];
-    void this.say(text).then(() => {
-      for (const note of notes) void this.ports.noteRead?.(note.id).catch(() => {});
+    void this.say(text).then(finished => {
+      // Only a note the user heard to the end is read. Cut off (Stop, background, "stop", talking over it), it
+      // stays unread on the server and is said again on the next check.
+      for (const note of notes) {
+        if (finished) void this.ports.noteRead?.(note.id).catch(() => {});
+        else this.seenNotes.delete(note.id);
+      }
     });
   }
   retryStream() {
@@ -422,11 +427,12 @@ export class SessionController {
   private play(entry: Entry, resume: boolean) { return this.speakText(entry.answer, entry.language, resume); }
   /** Says a short sentence in the session's language, then goes back to listening. */
   private say(text: string) { return this.speakText(text, this.language, true); }
-  /** Speaks with the microphone off (so the phone never hears itself), then listens again when resume is true. */
-  private async speakText(text: string, language: Language, resume: boolean) {
+  /** Speaks with the microphone off (so the phone never hears itself), then listens again when resume is true.
+   *  Resolves to true only when the whole text was spoken (not stopped, replaced or talked over). */
+  private async speakText(text: string, language: Language, resume: boolean): Promise<boolean> {
     const g = this.generation, token = ++this.speechGeneration;
     this.ports.stopSpeech(); await this.endStopListener(); await this.silenceInput();
-    if (token !== this.speechGeneration || !this.ports.allowed() || g !== this.generation) return;
+    if (token !== this.speechGeneration || !this.ports.allowed() || g !== this.generation) return false;
     let result = await this.ports.speak(text, language, () => {
       if (token !== this.speechGeneration || !this.ports.allowed()) return;
       this.set({ phase: 'speaking' });
@@ -435,19 +441,27 @@ export class SessionController {
     await this.endStopListener();
     const heard = this.interruption?.token === token ? this.interruption : undefined;
     if (heard) this.interruption = undefined;
-    if (token !== this.speechGeneration || !this.ports.allowed() || g !== this.generation) return;
+    if (token !== this.speechGeneration || !this.ports.allowed() || g !== this.generation) return false;
+    const finished = result === 'done' && this.stoppedBy !== token && !heard;
     if (this.stoppedBy === token) result = 'done';  // the user said "stop": go straight back to listening
     if (heard && resume && this.valid(g)) {
       // The user spoke over the answer: run their command or ask their question now, instead of listening again.
       this.set({ phase: 'hearing', transcript: heard.text });
-      void (heard.command ? this.command(heard.command, heard.text) : this.question(heard.text, 'speech'));
-      return;
+      void (heard.command ? this.command(heard.command, heard.text) : this.question(heard.text, 'speech')).finally(() => {
+        // Nothing came of it (the same question again within a few seconds, or a command with no reply):
+        // the microphone is already off, so listen again instead of staying in "hearing" for good.
+        if (this.valid(g) && this.state.phase === 'hearing' && this.ports.recognitionAvailable && !this.retryTimer) {
+          this.retryTimer = setTimeout(() => { this.retryTimer = undefined; if (this.valid(g)) void this.listen(g); }, 450);
+        }
+      });
+      return false;
     }
     this.set({ phase: this.state.active ? 'paused' : 'idle', ...(result === 'error' ? { voiceError: 'tts_failed' } : {}) });
     if (result === 'done' && resume && this.valid(g) && this.ports.recognitionAvailable) {
       this.buzzWhenListening = true;
       this.retryTimer = setTimeout(() => { this.retryTimer = undefined; if (this.valid(g)) void this.listen(g); }, 450);
     } else if (this.valid(g) && this.ports.preview) this.set({ phase: 'unavailable' });
+    return finished;
   }
   /**
    * While the phone is talking it keeps listening, so the user never has to wait: "stop" stops it, and a command
@@ -512,8 +526,12 @@ export class SessionController {
     if (kind === 'where') {
       // A GPS fix and the street name can take a few seconds; give up after 15 so the user isn't left waiting.
       const request = new AbortController(), timer = setTimeout(() => request.abort(), 15000);
+      // The answer comes after 15 s at the latest, even if the lookup itself never settles.
       const place: Place = this.ports.place
-        ? await this.ports.place(request.signal).catch((): Place => ({ status: 'failed' }))
+        ? await new Promise<Place>(resolve => {
+          request.signal.addEventListener('abort', () => resolve({ status: 'failed' }), { once: true });
+          this.ports.place!(request.signal).then(resolve, () => resolve({ status: 'failed' }));
+        })
         : { status: 'unavailable' };
       clearTimeout(timer);
       if (this.valid(g)) await this.say(placeAnswer(this.language, place));

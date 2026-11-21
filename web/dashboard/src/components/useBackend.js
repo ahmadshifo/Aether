@@ -45,8 +45,16 @@ export function useQuestions() {
   const reload = useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }));
     try {
-      const data = await assistantClient.questions();
-      setState({ questions: data.questions, loading: false, error: null });
+      // Follow next_cursor so counts and lists cover the whole 24 hours, not just the first page.
+      const questions = [];
+      let cursor;
+      for (let page = 0; page < 20; page += 1) {
+        const data = await assistantClient.questions({ limit: 100, cursor });
+        questions.push(...data.questions);
+        cursor = data.next_cursor;
+        if (!cursor) break;
+      }
+      setState({ questions, loading: false, error: null });
     } catch (error) {
       setState({ questions: [], loading: false, error: error.message });
     }
