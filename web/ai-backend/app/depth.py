@@ -1,4 +1,9 @@
-"""On-demand metric answers. The snapshot is transient and is never a History frame."""
+"""On-demand metric answers. The snapshot is transient and is never a History frame.
+
+Distances are said the way they are in Lebanon (metric): centimeters under one meter ("about 80 centimeters"),
+otherwise meters with one decimal ("about 1.5 meters"). A scene question ("what's in front of me?") with a
+fresh snapshot also gets the measured distance to whatever is at the exact center (assistant.py ->
+vision_provider.ask(measured=...)), so the answer can say "an open door straight ahead, about 1.5 meters away"."""
 
 import base64
 import io
@@ -85,6 +90,38 @@ def asks_distance(question: str) -> bool:
     if re.match(r"^(?:what|who) (?:is|are) (?:near|nearby|close)(?:\s|[?.!]|$)", _normalized(question)):
         return False
     return bool(DISTANCE_QUESTION.search(_normalized(question)))
+
+
+# "What's in front of me?" and similar: describe the view, plus the measured distance to its center.
+SCENE_QUESTION = re.compile(
+    r"\b(?:what(?: s| is| are|s)?(?: there)? (?:in front(?: of me)?|ahead(?: of me)?|around me|before me)|"
+    r"what (?:do|can) you see|what am i (?:looking at|facing|pointing at)|describe|is there (?:anything|something)|"
+    r"what(?: s| is|s) (?:this|that|here)|tell me what you see|look (?:ahead|around))\b|"
+    r"(?:^| )(?:قدامي|امامي|شو شايف|ماذا ترى|شو في|صف|وصف|صفلي|شو هيدا|شو هاد|ما هذا)(?: |$)|"
+    r"\b(?:devant moi|que vois tu|qu est ce que tu vois|decris|qu est ce que c est|qu y a t il|il y a quoi)\b")
+
+
+def asks_scene(question: str) -> bool:
+    text = re.sub(r"[^\w]+", " ", _normalized(question).replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")).strip()
+    return bool(SCENE_QUESTION.search(text)) and not asks_distance(question)
+
+
+def spoken_distance(meters: float, language: str) -> str:
+    """'80 centimeters' under one meter, else '1.5 meters' (one decimal), in the user's language."""
+    value = Decimal(str(meters))
+    centimeters = int((value * 10).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * 10  # nearest 10 cm
+    if centimeters < 100:
+        number = str(centimeters)
+        if language == "ar":
+            return number.translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩")) + " سنتيمتر"
+        return f"{number} centimètres" if language == "fr" else f"{number} centimeters"
+    rounded = value.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+    number = format(rounded, "f").removesuffix(".0")
+    if language == "fr":
+        return f"{number.replace('.', ',')} {'mètre' if rounded < 2 else 'mètres'}"
+    if language == "ar":
+        return number.translate(str.maketrans("0123456789.", "٠١٢٣٤٥٦٧٨٩٫")) + " متر"
+    return f"{number} {'meter' if rounded == 1 else 'meters'}"
 
 
 def wants_named_distance(question: str) -> bool:
@@ -183,13 +220,20 @@ def answer(question: str, language: str, snapshot: DepthSnapshot | None, arrival
             return RETRY[language], True
     except vision_provider.VisionUnavailable:
         return RETRY[language], True
-    meters = Decimal(str(snapshot.centerM)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
-    number = format(meters, "f").removesuffix(".0")
+    words = spoken_distance(snapshot.centerM, language)
     if language == "fr":
-        unit = "mètre" if meters < 2 else "mètres"
-        return f"Au moment de la mesure, cet objet était à environ {number.replace('.', ',')} {unit} du téléphone.", False
+        return f"Au moment de la mesure, cet objet était à environ {words} du téléphone.", False
     if language == "ar":
-        arabic = number.translate(str.maketrans("0123456789.", "٠١٢٣٤٥٦٧٨٩٫"))
-        return f"عند القياس، بلغت المسافة بين الهاتف وهذا الجسم نحو {arabic} متر.", False
-    unit = "meter" if meters == 1 else "meters"
-    return f"When measured, that object was about {number} {unit} from your phone.", False
+        return f"عند القياس، بلغت المسافة بين الهاتف وهذا الجسم نحو {words}.", False
+    return f"When measured, that object was about {words} from your phone.", False
+
+
+def measured_picture(question: str, language: str, snapshot: DepthSnapshot | None,
+                     arrival: datetime) -> tuple[bytes, str] | None:
+    """For a scene question: the face-blurred snapshot and its center distance in words, or None."""
+    if not snapshot or not snapshot.fresh_at(arrival) or not asks_scene(question):
+        return None
+    try:
+        return _private_jpeg(snapshot), spoken_distance(snapshot.centerM, language)
+    except Exception:
+        return None  # never fall back to the unblurred image

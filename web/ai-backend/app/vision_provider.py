@@ -47,8 +47,13 @@ Answer rules:
   its state when it matters: a door is open, closed or half open; a chair is upright, tipped over or in the
   way; a drawer or window is open or closed; a light or screen is on or off; a cup is full or empty;
   stairs go up or down. Say "a closed door straight ahead", not just "a door".
-- A photo alone cannot measure distance. Never give a numerical distance in metres, feet, steps or
-  other units from these pictures. For a distance question, explain that a depth reading is needed.
+- Distance: never estimate a distance from how things look. The only distance you may say is the one
+  given with a "Measured picture": the phone's depth sensor measured it from the phone to whatever is at
+  the exact centre of that picture. If one clear object or surface fills its exact centre, name it with its
+  state and that distance, using exactly the words given, like "There is a closed door straight ahead,
+  about 1.5 meters away." Give no distance for anything else, and none when the centre is empty space,
+  unclear, glass, a reflection or an opening (an open doorway or window is measured to what is behind it).
+  Without a measured picture, a distance question needs a depth reading: say so.
 - Reading: read the important text word for word. If it is too small, blurry or cut off, say so and suggest
   moving the phone closer or holding it steady.
 - Money: name the currency and the value only if the note or coin is clearly visible.
@@ -93,9 +98,15 @@ def _when(seconds: float) -> str:
     return f"about {round(seconds / 3600)} hours ago"
 
 
-def build_request(question: str, language: str, pictures: list[tuple[bytes, float]], thinking: bool = True) -> dict:
-    """The Gemini request body. pictures: (JPEG bytes, seconds since it was taken), newest first."""
+def build_request(question: str, language: str, pictures: list[tuple[bytes, float]], thinking: bool = True,
+                  measured: tuple[bytes, str] | None = None) -> dict:
+    """The Gemini request body. pictures: (JPEG bytes, seconds since it was taken), newest first.
+    measured: (face-blurred JPEG, distance in words) from the phone's depth sensor, for its exact centre."""
     parts = [{"text": f"Question: {question.strip()}"}]
+    if measured:
+        parts.append({"text": f"Measured picture, taken when the question was asked. The phone's depth sensor "
+                              f"measured about {measured[1]} from the phone to whatever is at its exact centre:"})
+        parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(measured[0]).decode()}})
     for number, (jpeg, seconds) in enumerate(pictures, start=1):
         parts.append({"text": f"Picture {number}, taken {_when(seconds)}:"})
         parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(jpeg).decode()}})
@@ -136,9 +147,10 @@ def _post(model: str, key: str, body: dict, timeout: float) -> dict:
         return json.load(response)
 
 
-def ask(question: str, language: str, pictures: list[tuple[bytes, float]]) -> tuple[str, bool]:
+def ask(question: str, language: str, pictures: list[tuple[bytes, float]],
+        measured: tuple[bytes, str] | None = None) -> tuple[str, bool]:
     """One short answer about the pictures, in the user's language."""
-    return generate(lambda thinking: build_request(question, language, pictures, thinking), parse_response)
+    return generate(lambda thinking: build_request(question, language, pictures, thinking, measured), parse_response)
 
 
 def generate(make_body, parse):

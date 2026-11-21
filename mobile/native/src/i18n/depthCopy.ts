@@ -3,6 +3,9 @@ export const googleArPrivacyUrl = 'https://policies.google.com/privacy';
 function formatMeters(value: number, locale: string) {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value);
 }
+// Metric, as in Lebanon: under one meter it is said in centimeters (nearest 10), e.g. "80 centimeters".
+const centimeters = (meters: number) => Math.round(meters * 10) * 10;
+const short = (meters: number) => centimeters(meters) < 100;
 
 export const depthCopy = {
   en: {
@@ -13,6 +16,7 @@ export const depthCopy = {
     unavailable: 'Distance readings are unavailable on this camera.',
     measuring: 'Distance sensor active.',
     measured: (meters: number) => {
+      if (short(meters)) return `The surface at the center was about ${centimeters(meters)} centimeters from your phone.`;
       const n = formatMeters(meters, 'en');
       return `The surface at the center was about ${n} ${n === '1' ? 'meter' : 'meters'} from your phone.`;
     },
@@ -27,7 +31,9 @@ export const depthCopy = {
     aim: 'Bougez légèrement le téléphone, puis centrez l’objet et tenez le téléphone immobile.',
     unavailable: 'La mesure de distance est indisponible avec cette caméra.',
     measuring: 'Le capteur de distance est actif.',
-    measured: (meters: number) => `La surface au centre était à environ ${formatMeters(meters, 'fr')} ${Math.round(meters * 10) < 20 ? 'mètre' : 'mètres'} du téléphone.`,
+    measured: (meters: number) => short(meters)
+      ? `La surface au centre était à environ ${centimeters(meters)} centimètres du téléphone.`
+      : `La surface au centre était à environ ${formatMeters(meters, 'fr')} ${Math.round(meters * 10) < 20 ? 'mètre' : 'mètres'} du téléphone.`,
     help: 'Visez l’objet et demandez « À quelle distance est la porte ? ». Pour un objet nommé, le téléphone transmet une image et la distance mesurée à Aether. Les visages détectés sont floutés avant que l’IA vérifie l’objet.',
     arService: 'Sur les téléphones Android compatibles, Aether mesure les distances avec les services Google Play pour la RA (ARCore). Google fournit ce service et traite ses données selon ses règles de confidentialité.',
     privacy: 'Règles de confidentialité de Google', linkError: 'Impossible d’ouvrir les règles de confidentialité.',
@@ -39,7 +45,9 @@ export const depthCopy = {
     aim: 'حرّك الهاتف قليلًا، ثم وجّه وسط الكاميرا نحو الجسم وثبّت الهاتف.',
     unavailable: 'قياس المسافة غير متاح بهذه الكاميرا.',
     measuring: 'مستشعر المسافة يعمل.',
-    measured: (meters: number) => `بلغت المسافة بين الهاتف والسطح في وسط الصورة نحو ${formatMeters(meters, 'ar-EG')} متر عند القياس.`,
+    measured: (meters: number) => short(meters)
+      ? `بلغت المسافة بين الهاتف والسطح في وسط الصورة نحو ${formatMeters(centimeters(meters), 'ar-EG')} سنتيمتر عند القياس.`
+      : `بلغت المسافة بين الهاتف والسطح في وسط الصورة نحو ${formatMeters(meters, 'ar-EG')} متر عند القياس.`,
     help: 'وجّه الكاميرا نحو الجسم واسأل «كم يبعد الباب؟». عندما تسأل عن جسم محدّد، يرسل هاتفك صورة واحدة وقياس المسافة إلى إيثر. تُموَّه الوجوه المكتشفة قبل أن يتحقق الذكاء الاصطناعي من الجسم.',
     arService: 'على هواتف أندرويد المدعومة، يستخدم إيثر خدمات Google Play للواقع المعزز (ARCore) لقياس المسافة. تقدّم Google هذه الخدمة وتعالج بياناتها وفق سياسة خصوصية Google.',
     privacy: 'سياسة خصوصية Google', linkError: 'تعذّر فتح سياسة الخصوصية.',

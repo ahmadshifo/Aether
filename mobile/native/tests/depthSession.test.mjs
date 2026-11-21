@@ -242,3 +242,36 @@ test('turning off automatic warnings still permits an explicit distance question
   assert.match(h.spoken[0].text, /1[.,]5/);
   assert.deepEqual(h.requests, []);
 });
+
+for (const [lang, question] of [['en', "What's in front of me?"], ['ar', 'شو قدامي؟'], ['fr', "Qu'est-ce qu'il y a devant moi ?"]]) {
+  test(`a ${lang} scene question also sends the depth snapshot so the answer can say the distance`, async t => {
+    const h = await session(t, lang);
+    await h.say(question);
+    assert.equal(h.photos(), 1);
+    assert.equal(h.requests.length, 1);
+    assert.deepEqual(h.requests[0].depth, h.picture());
+    assert.equal(h.history[0].provenance, 'server');
+  });
+}
+
+test('a scene question on a phone without depth is asked exactly as before', async t => {
+  const h = await session(t, 'en', { camera: async () => ({ release() {} }) });
+  await h.say("What's in front of me?");
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].depth, undefined);
+});
+
+test('a scene question with a stale depth snapshot sends no depth', async t => {
+  const h = await session(t);
+  h.camera.depthSnapshot = async () => ({ timestampMs: Date.now() - 10_000, centerM: 1.5, jpeg: '/9j/2Q==' });
+  await h.say("What's in front of me?");
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].depth, undefined);
+});
+
+test('an on-phone reading under one meter is said in centimeters', async t => {
+  const h = await session(t);
+  h.read({ timestampMs: Date.now(), centerM: .84, nearM: .84 });
+  await h.say('How far is it?');
+  assert.match(h.spoken.at(-1).text, /about 80 centimeters/);
+});

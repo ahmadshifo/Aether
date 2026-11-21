@@ -28,6 +28,15 @@ export function distanceIntent(text: string): 'center' | 'target' | undefined {
   return words.every(word => genericWords.has(word)) ? 'center' : 'target';
 }
 
+// "What's in front of me?" and similar: the phone also sends its depth snapshot, so the answer can say how far
+// the object at the centre is. Same list as web/ai-backend/app/depth.py SCENE_QUESTION.
+const sceneRequest = /\b(?:what(?: s| is| are|s)?(?: there)? (?:in front(?: of me)?|ahead(?: of me)?|around me|before me)|what (?:do|can) you see|what am i (?:looking at|facing|pointing at)|describe|is there (?:anything|something)|what(?: s| is|s) (?:this|that|here)|tell me what you see|look (?:ahead|around))\b|(?:^| )(?:قدامي|امامي|شو شايف|ماذا ترى|شو في|صف|وصف|صفلي|شو هيدا|شو هاد|ما هذا)(?: |$)|\b(?:devant moi|que vois tu|qu est ce que tu vois|decris|qu est ce que c est|qu y a t il|il y a quoi)\b/u;
+export function sceneIntent(text: string): boolean {
+  const normalized = text.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[أإآ]/gu, 'ا')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  return !distanceIntent(text) && sceneRequest.test(normalized);
+}
+
 const genericWords = new Set(`what whats s is are the a an how far near close away distance measure meters metres feet steps many
 to of from between it that this something object surface ahead straight front in here there me my phone please can you tell give
 a quelle quel est la le l les un une de des du au aux combien metre metres distance devant moi ici ca cet cette objet il elle c loin proche mesure mesurer

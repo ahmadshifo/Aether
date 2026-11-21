@@ -147,7 +147,7 @@ def _pictures(memory: MemoryClient, frames: list[dict], now: datetime) -> list[t
 
 
 def describe(question: str, language: str, frames: list[dict], memory: MemoryClient | None = None,
-             now: datetime | None = None) -> tuple[str, bool]:
+             now: datetime | None = None, measured: tuple[bytes, str] | None = None) -> tuple[str, bool]:
     """One short answer about the frames, or an honest message when that isn't possible."""
     copy = ANSWERS[language]
     if not frames:
@@ -162,7 +162,8 @@ def describe(question: str, language: str, frames: list[dict], memory: MemoryCli
     if not pictures:
         return copy["none"], True
     try:
-        text, uncertain = vision_provider.ask(question, language, pictures)
+        text, uncertain = vision_provider.ask(question, language, pictures, measured) if measured else \
+            vision_provider.ask(question, language, pictures)
     except VisionUnavailable as error:
         log.warning("Vision AI unavailable: %s", error)
         return copy["quota" if error.reason == "quota" else "failed"], True
@@ -203,5 +204,9 @@ def answer(question: str, language: str, session_id: str, memory: MemoryClient |
     # describing older pictures from before it was covered.
     if mode in ("latest", "recent") and camera_blocked(memory, session_id):
         return Answer(vision_provider.BLOCKED[language], True, [frame["frame_id"] for frame in frames], mode)
-    text, uncertain = describe(question, language, frames, memory)
+    # "What's in front of me?" with a fresh depth snapshot: the answer also says how far the centre object is.
+    measured = metric_depth.measured_picture(question, language, depth, asked_at or datetime.now(UTC)) \
+        if mode == "latest" else None
+    text, uncertain = describe(question, language, frames, memory, measured=measured) if measured else \
+        describe(question, language, frames, memory)
     return Answer(text, uncertain, [frame["frame_id"] for frame in frames], mode)
