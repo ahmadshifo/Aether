@@ -1,6 +1,6 @@
 # Local team stack — 2026-11-08
 
-The laptop runs the team's existing MySQL, RustFS, multimedia API, shared account/answer API, MediaMTX, dashboard, PWA and Expo code. The private configuration and launcher live under `mobile/native`; no teammate source or dashboard files were edited during this setup. This is a local copy of the stack and database, not a connection to a teammate's computer or their saved data.
+The laptop runs the team's existing MySQL, RustFS, multimedia API, shared account/answer API, MediaMTX, dashboard and Expo code. The private configuration and launcher live under `mobile/native`; no teammate source or dashboard files were edited during this setup. This is a local copy of the stack and database, not a connection to a teammate's computer or their saved data.
 
 Setup was verified against `origin/main` at `72e5f0d` on `codex/mobile-french-onboarding`. The publication includes the earlier shared-account integration, French/safety notice, account History controls, stream recovery and this RustFS setup. Existing unrelated local changes are excluded.
 
@@ -40,7 +40,6 @@ Keep that terminal open. The launcher starts missing services and preserves exis
 | MySQL | Community 8.4.13, `127.0.0.1:3307`, database `aether_multimedia_20261108` |
 | MediaMTX | 1.21.3, WHIP on 8889, LAN ICE/UDP on 8189 |
 | Expo development server | Port 8083; use the installed iPhone development build |
-| Desktop PWA | http://127.0.0.1:5173 |
 | Voice HTTP service | Port 8001; scaffold only, without speech endpoints |
 
 The phone must be on the laptop's reachable LAN. The native app's existing device STT/TTS is independent of the unfinished HTTP voice service. RustFS credentials never go to the phone, Expo public variables or Git.
@@ -49,7 +48,7 @@ The phone must be on the laptop's reachable LAN. The native app's existing devic
 
 - **RustFS 1.0.4**, official Windows release, at `C:\Users\user\rustfs\rustfs.exe`; SHA256 verified against the release. Native Windows is the project's development/testing installation option ([RustFS documentation](https://docs.rustfs.com/en/installation/windows), [release](https://github.com/rustfs/rustfs/releases/tag/1.0.4)). Docker is not needed for this local stack.
 - **Python 3.13.12**, matching the teammates' required 3.13 series. The combined launcher environment and the multimedia, backend and voice virtual environments were rebuilt using their requirements. Previous Python 3.12 environments were preserved in ignored backups. All installed dependency checks pass.
-- Native, dashboard and PWA npm dependencies were checked against the repository manifests. Dashboard and PWA builds pass. Requirements are not fully locked upstream; exact package parity between computers requires the team to publish lockfiles, not just version ranges.
+- Native and dashboard npm dependencies were checked against the repository manifests. The dashboard build passes. Requirements are not fully locked upstream; exact package parity between computers requires the team to publish lockfiles, not just version ranges.
 - The bundled **YuNet face model** loads and processes frames. OpenCV, the S3 SDK, MySQL clients and the configured provider SDKs are installed.
 - **FFmpeg 9.0.1 Essentials** is installed at `C:\Users\user\ffmpeg\ffmpeg-9.0.1-essentials_build\bin` and added to the Windows user PATH for new terminals. The archive SHA256 was verified. This is the Gyan Windows build linked by the [FFmpeg download page](https://ffmpeg.org/download.html).
 - Frame storage is now **`FRAME_STORAGE_BACKEND=s3`**, using the teammate's real `S3ImageStore` and `FrameRepository`. Accounts, login/stream sessions, questions and frame metadata remain in MySQL. New frame JPEGs go to RustFS, with no local-folder fallback.

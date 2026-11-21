@@ -125,8 +125,7 @@ try {
       await ensure(config.python, ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8001'], path.join(repo, 'mobile/voice-service'), {}, 8001);
       console.log('Voice service scaffold: http://127.0.0.1:8001. Its HTTP speech routes are not implemented; native iPhone speech works independently.');
       await ensure(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '5174', '--strictPort'], path.join(repo, 'web/dashboard'), {}, 5174);
-      await ensure(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '5173', '--strictPort'], path.join(repo, 'mobile/frontend'), { AUTH_PROXY_TARGET: backend }, 5173);
-      console.log('Dashboard: http://127.0.0.1:5174; desktop PWA: http://127.0.0.1:5173.');
+      console.log('Dashboard: http://127.0.0.1:5174.');
       if (await listening(8083)) console.log('Metro is already running on 8083. Restart it if it serves a different checkout.');
       else launch(process.execPath, ['scripts/expo.mjs', 'start', '--dev-client', '--lan', '--port', '8083'], native, { EXPO_PUBLIC_AETHER_HOST: host, EXPO_PUBLIC_AETHER_BACKEND_URL: `http://${host}:8002`, EXPO_PUBLIC_AETHER_MEDIA_URL: `http://${host}:8889`, REACT_NATIVE_PACKAGER_HOSTNAME: host }).once('exit', stop);
     }

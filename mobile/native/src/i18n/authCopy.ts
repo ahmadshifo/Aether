@@ -1,4 +1,4 @@
-// Adapted from mobile/frontend/src/authCopy.ts at bb54dbd; original remains read-only.
+// Adapted from mobile/frontend/src/authCopy.ts at bb54dbd (the PWA, since removed).
 export const authCopy = {
   en: {
     login: 'Log in', signup: 'Create account', welcome: 'Welcome to Aether', subtitle: 'Your AI visual assistant',

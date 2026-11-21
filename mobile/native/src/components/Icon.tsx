@@ -1,4 +1,4 @@
-// Adapted from mobile/frontend/src/EchoIcon.tsx at bb54dbd; native SVG primitives.
+// Adapted from mobile/frontend/src/EchoIcon.tsx at bb54dbd (the PWA, since removed); native SVG primitives.
 import type { ReactNode } from 'react'
 import Svg, { Path, Rect, Circle, type SvgProps } from 'react-native-svg'
 

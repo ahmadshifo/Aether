@@ -1,4 +1,4 @@
-// Native protocol adaptation of mobile/frontend/src/whipPublisher.ts at bb54dbd.
+// Native protocol adaptation of mobile/frontend/src/whipPublisher.ts at bb54dbd (the PWA, since removed).
 export type Transport = 'off' | 'connecting' | 'reconnecting' | 'connected' | 'failed';
 type Description = { type: 'offer' | 'answer'; sdp?: string };
 export interface Peer {
