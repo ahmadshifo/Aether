@@ -22,7 +22,7 @@ from app.auth import ApiError, _connect, _iso, _now, signed_in_user_id
 router = APIRouter(prefix="/api/v1", tags=["caregiver"])
 
 DEVICE_TABLE = """CREATE TABLE IF NOT EXISTS device_status (
-    user_id     CHAR(36)    NOT NULL PRIMARY KEY,
+    user_id     CHAR(36) CHARACTER SET ascii COLLATE ascii_bin    NOT NULL PRIMARY KEY,
     session_id  CHAR(36)    NULL,
     battery     TINYINT     NOT NULL,
     charging    BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -31,7 +31,7 @@ DEVICE_TABLE = """CREATE TABLE IF NOT EXISTS device_status (
 )"""
 NOTES_TABLE = """CREATE TABLE IF NOT EXISTS caregiver_notes (
     note_id     CHAR(36)     NOT NULL PRIMARY KEY,
-    user_id     CHAR(36)     NOT NULL,
+    user_id     CHAR(36) CHARACTER SET ascii COLLATE ascii_bin     NOT NULL,
     text        VARCHAR(300) NOT NULL,
     created_at  DATETIME(3)  NOT NULL,
     read_at     DATETIME(3)  NULL,

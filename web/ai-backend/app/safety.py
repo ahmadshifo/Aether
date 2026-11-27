@@ -28,14 +28,14 @@ router = APIRouter(prefix="/api/v1", tags=["safety"])
 log = logging.getLogger("ai.safety")
 
 SETTINGS_TABLE = """CREATE TABLE IF NOT EXISTS user_settings (
-    user_id     CHAR(36)    NOT NULL PRIMARY KEY,
+    user_id     CHAR(36) CHARACTER SET ascii COLLATE ascii_bin    NOT NULL PRIMARY KEY,
     sos_number  VARCHAR(20) NULL,
     updated_at  DATETIME(3) NOT NULL,
     CONSTRAINT user_settings_user_fk FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
 )"""
 SOS_TABLE = """CREATE TABLE IF NOT EXISTS sos_alerts (
     alert_id           CHAR(36)    NOT NULL PRIMARY KEY,
-    user_id            CHAR(36)    NOT NULL,
+    user_id            CHAR(36) CHARACTER SET ascii COLLATE ascii_bin    NOT NULL,
     session_id         CHAR(36)    NULL,
     created_at         DATETIME(3) NOT NULL,
     acknowledged_at    DATETIME(3) NULL,
@@ -45,7 +45,7 @@ SOS_TABLE = """CREATE TABLE IF NOT EXISTS sos_alerts (
 )"""
 CAMERA_TABLE = """CREATE TABLE IF NOT EXISTS camera_state (
     session_id  CHAR(36)    NOT NULL PRIMARY KEY,
-    user_id     CHAR(36)    NOT NULL,
+    user_id     CHAR(36) CHARACTER SET ascii COLLATE ascii_bin    NOT NULL,
     paused      BOOLEAN     NOT NULL DEFAULT FALSE,
     updated_at  DATETIME(3) NOT NULL,
     CONSTRAINT camera_state_user_fk FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE

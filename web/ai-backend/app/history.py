@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/v1", tags=["history"])
 
 QUESTION_TABLE = """CREATE TABLE IF NOT EXISTS questions (
     question_id        CHAR(36)     NOT NULL PRIMARY KEY,
-    user_id            CHAR(36)     NOT NULL,
+    user_id            CHAR(36) CHARACTER SET ascii COLLATE ascii_bin     NOT NULL,
     session_id         CHAR(36)     NOT NULL,
     asked_at           DATETIME(3)  NOT NULL,
     question           TEXT         NOT NULL,
