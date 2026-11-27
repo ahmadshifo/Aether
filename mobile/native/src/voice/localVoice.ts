@@ -29,12 +29,13 @@ export class LocalVoice {
   private deviceOfflineUntil = 0;
   private announced = false;
   constructor(private origin: string, private fallbackNotice: (language: Language) => void,
-    private unauthorized: () => void, private audio = memoryAudio) {}
+    private unauthorized: () => void, private audio = memoryAudio, private onRestored?: () => void) {}
   get available() { return !!this.audio; }
   private fallback(language: Language) {
     if (this.unavailableUntil <= Date.now()) this.unavailableUntil = Date.now() + 60000;
     if (!this.announced) { this.announced = true; this.fallbackNotice(language); }
   }
+  private restored() { if (this.announced) this.onRestored?.(); this.announced = false; }
   private async request(path: string, options: RequestInit, ms: number) {
     const result = await boundedFetch(`${this.origin}/api/v1/voice/${path}`, { credentials: 'include', ...options }, ms, nativeFetch);
     if (result.status === 401) this.unauthorized();
@@ -51,6 +52,7 @@ export class LocalVoice {
   };
   stopPlayback = async () => { await this.audio?.stopPlayback().catch(() => {}); };
   speak = async (text: string, language: Language, rate: number, onStart: () => void, signal: AbortSignal): Promise<'done' | 'cancelled' | null> => {
+    if (signal.aborted) return 'cancelled';
     if (!this.audio || Date.now() < this.unavailableUntil) { this.fallback(language); return null; }
     let subscription: Subscription | undefined;
     const abort = () => { void this.stopPlayback(); };
@@ -60,11 +62,12 @@ export class LocalVoice {
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, lang: language }) }, 30000);
       if (signal.aborted) return 'cancelled';
       const wav = new Uint8Array(await response.arrayBuffer());
+      if (signal.aborted) return 'cancelled';
       if (wav.length > 16 * 1024 * 1024 || !response.headers.get('content-type')?.includes('audio/wav')) throw Error('invalid_audio');
       const playbackId = `${Date.now()}-${Math.random()}`;
       subscription = this.audio.addListener('playbackStarted', event => { if (event.playback_id === playbackId && !signal.aborted) onStart(); });
       const result = await this.audio.play(encode64(wav), rate, playbackId);
-      this.announced = false;
+      if (!signal.aborted) this.restored();
       return signal.aborted ? 'cancelled' : result;
     } catch {
       if (signal.aborted) return 'cancelled';
@@ -126,7 +129,7 @@ export class LocalVoice {
         const result = await response.json();
         if (stopped || signal.aborted) return;
         if (result.lang !== language || typeof result.text !== 'string') throw Error('invalid_transcript');
-        this.announced = false;
+        this.restored();
         if (result.text.trim()) events.result(result.text, true);
         if (!stopped && !signal.aborted) events.end();
       })().catch(() => { if (!stopped) void fail(); });

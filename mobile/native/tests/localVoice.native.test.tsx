@@ -79,3 +79,19 @@ test('capture submits a bounded in-memory utterance with its language and ignore
   expect(listeners.size).toBe(0);
   await stop();
 });
+
+test('stopping while the WAV body arrives prevents delayed playback', async () => {
+  let finishBody: (value: ArrayBuffer) => void = () => {};
+  const body = new Promise<ArrayBuffer>(resolve => { finishBody = resolve; });
+  const audio: any = { play: jest.fn(), stopPlayback: jest.fn(async () => {}), addListener: jest.fn() };
+  (nativeFetch as jest.Mock).mockResolvedValue({ ok: true, status: 200,
+    headers: new Headers({ 'content-type': 'audio/wav' }), arrayBuffer: () => body });
+  const voice = new LocalVoice('http://localhost:8002', jest.fn(), jest.fn(), audio);
+  const controller = new AbortController();
+  const playing = voice.speak('hello', 'en', 1, jest.fn(), controller.signal);
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+  controller.abort();
+  finishBody(new Uint8Array([82, 73, 70, 70]).buffer);
+  expect(await playing).toBe('cancelled');
+  expect(audio.play).not.toHaveBeenCalled();
+});

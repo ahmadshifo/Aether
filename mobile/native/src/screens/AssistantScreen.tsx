@@ -12,11 +12,12 @@ import type { Language } from '../shared/types';
 import { assistantLayout } from './assistantLayout';
 import { commandCopy } from '../voice/commands';
 
-export function AssistantScreen({ media, controller, camera, caps, prompt, start, back, changeLanguage, backRef }: {
+export function AssistantScreen({ media, controller, camera, caps, prompt, start, back, changeLanguage, backRef, voiceNotice }: {
   media: SessionState; controller: SessionController; camera: GoCamera;
   caps: { go: boolean; webrtc: boolean; recognition: boolean }; prompt: number | null;
   start(): void; back(): void; changeLanguage(language: Language): void;
   backRef?: React.Ref<React.ComponentRef<typeof View>>;
+  voiceNotice?: string;
 }) {
   const { language, colors } = useUI(), { m, n } = copies(language), h = historyStreamCopy[language], d = depthCopy[language];
   const dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
@@ -49,6 +50,7 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
             {media.sos === 'countdown' && <T accessibilityLiveRegion="assertive" variant="small" style={{ color: '#FFB4AB' }}>{commandCopy[language].sosLabel}</T>}
             {media.sos === 'sent' && <T accessibilityLiveRegion="polite" variant="small" style={{ color: '#FFB4AB' }}>{commandCopy[language].sosSentLabel}</T>}
             {media.transport === 'reconnecting' && <T accessibilityLiveRegion="polite" variant="small" style={{ color: '#D0D0D0' }}>{h.reconnecting}</T>}
+            {!!voiceNotice && <T accessibilityLiveRegion="polite" variant="small" style={{ color: '#D0D0D0' }}>{voiceNotice}</T>}
           </View>
         </Row>
         {media.active && media.camera && media.depthState === 'near' && <View pointerEvents="none" style={{ backgroundColor: colors.dangerBg, padding: 12, borderRadius: 10 }}>

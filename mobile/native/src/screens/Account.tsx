@@ -60,7 +60,9 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
     const api = createTeamApi(endpoints.backend, nativeFetch, unauthorized);
     const voice = new LocalVoice(endpoints.backend, lang => {
       if (allowed()) { setNotice(localVoiceCopy[lang]); AccessibilityInfo.announceForAccessibility(localVoiceCopy[lang]); }
-    }, unauthorized);
+    }, unauthorized, undefined, () => {
+      if (allowed()) setNotice(value => Object.values(localVoiceCopy).includes(value) ? '' : value);
+    });
     const repository = new HistoryRepository(session.owner, nativeStorage, allowed), camera = new GoCamera(), speech = new SpeechOwner(voice), registry = new StreamRegistry(endpoints.backend, nativeFetch, unauthorized, allowed), caps = capabilities();
     let wakeGeneration = 0, wakeTag: string | undefined;
     // The reading speed the user chose by voice last time.
@@ -191,7 +193,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
   const Bar = glassBar ? GlassBottomBar : ClassicBottomBar;
   const footer = page !== 'welcome' && <Bar page={page} onNavigate={navigate} onStart={() => start()} />;
   return <UIContext.Provider value={{ ...ui, motion: ui.motion && preferences.motion !== false, haptics: preferences.haptics === true }}>
-    {loaded && page === 'assistant' ? <AssistantScreen media={media} controller={runtime.controller} camera={runtime.camera} caps={runtime.caps} prompt={prompt} start={() => start(prompt)} back={back} backRef={assistantBack} changeLanguage={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} /> : <Frame back={page === 'connection' ? back : undefined} languageChange={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} footer={loaded ? footer : undefined} floatingFooter={glassBar}>
+    {loaded && page === 'assistant' ? <AssistantScreen voiceNotice={Object.values(localVoiceCopy).includes(notice) ? notice : undefined} media={media} controller={runtime.controller} camera={runtime.camera} caps={runtime.caps} prompt={prompt} start={() => start(prompt)} back={back} backRef={assistantBack} changeLanguage={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} /> : <Frame back={page === 'connection' ? back : undefined} languageChange={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} footer={loaded ? footer : undefined} floatingFooter={glassBar}>
       <Text ref={heading} accessibilityRole="header" style={{ color: colors.muted, fontSize: 12 }}>{page === 'welcome' ? 'AETHER / 01' : `AETHER / ${m[page]}`}</Text>
       {!loaded ? <T>{u.loading}</T> : <>
         {page === 'welcome' && <View style={{ gap: 24 }}><View style={{ alignItems: 'center', gap: 20 }}><Mark size={130} /><T variant="title">{m.welcome}</T><T>{m.welcomeBody}</T></View>

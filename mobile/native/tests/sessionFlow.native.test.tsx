@@ -14,6 +14,7 @@ import { light, dark } from '../src/theme/tokens';
 import { monoCopy } from '../src/i18n/monoCopy';
 import { nativeCopy } from '../src/i18n/nativeCopy';
 import { sessionGreeting } from '../src/voice/sessionGreeting';
+import { localVoiceCopy } from '../src/voice/localVoice';
 import type { RecognitionEvents } from '../src/session/controller';
 import type { Language } from '../src/shared/types';
 
@@ -98,6 +99,7 @@ test('manual Start greets with vibration disabled; stopping prevents any second 
   const { tree, close } = await setup();
   await press(tree, monoCopy.en.start);
   expect(Vibration.vibrate).not.toHaveBeenCalled(); expect(Speech.speak).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(tree.toJSON())).toContain(localVoiceCopy.en);
   await press(tree, monoCopy.en.stop); expect(Speech.speak).toHaveBeenCalledTimes(1); expect(mockRelease).toHaveBeenCalledTimes(1);
   await close();
 });
