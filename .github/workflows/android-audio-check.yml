@@ -1,6 +1,11 @@
 name: Android local voice native compile
 on:
   workflow_dispatch:
+  push:
+    branches: [feat/local-docker-voice]
+    paths:
+      - .github/workflows/android-audio-check.yml
+      - mobile/native/modules/aether-audio/**
 permissions:
   contents: read
 concurrency:
