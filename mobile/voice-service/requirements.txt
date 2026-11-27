@@ -1,5 +1,6 @@
-# Member 1: Python dependencies for the voice backend; pin compatible versions before integration.
-fastapi
-uvicorn
-python-multipart
-azure-cognitiveservices-speech
+fastapi==0.165.0
+uvicorn==0.54.0
+httpx==0.29.0
+supertonic==1.3.1
+faster-whisper==1.2.1
+boto3==1.44.12

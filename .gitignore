@@ -31,6 +31,7 @@ output/
 
 # Dependencies and build output
 node_modules/
+.npm-cache/
 dist/
 
 # Logs and system files

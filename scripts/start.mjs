@@ -6,32 +6,15 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { selectLanHost, mediaLanEnvironment } from '../mobile/native/scripts/lan-host.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const python = path.join('.venv', 'Scripts', 'python');
-// ahmadshifo's multimedia code needs MySQL 8.4; it runs privately on port 3307, separate from MySQL 8.0 on 3306.
-const mysqlDir = process.env.AETHER_MYSQL_DIR ?? path.join(os.homedir(), 'mysql84');
-// RustFS keeps the multimedia frame images (S3-compatible, this PC only). Its keys come from multimedia/api/.env.
-const rustfsDir = process.env.AETHER_RUSTFS_DIR ?? path.join(os.homedir(), 'rustfs');
-function multimediaEnv() {
-  try {
-    const text = fs.readFileSync(path.join(root, 'multimedia', 'api', '.env'), 'utf8');
-    return Object.fromEntries(text.split(/\r?\n/).map(line => line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/)).filter(Boolean).map(m => [m[1], m[2]]));
-  } catch { return {}; }
+if (!fs.existsSync(path.join(root, '.env'))) {
+  console.error('Run node scripts/configure-local.mjs first. See docs/SETUP.md.'); process.exit(1);
 }
-const media = multimediaEnv();
-const useRustfs = media.FRAME_STORAGE_BACKEND === 's3' && fs.existsSync(path.join(rustfsDir, 'rustfs.exe'));
-
-// The phone needs this PC's current Wi-Fi address; home Wi-Fi addresses change.
-function wifiAddress() {
-  const interfaces = os.networkInterfaces();
-  const names = Object.keys(interfaces).sort((a, b) => /wi-?fi/i.test(b) - /wi-?fi/i.test(a));
-  for (const name of names) {
-    const found = interfaces[name].find(item => item.family === 'IPv4' && !item.internal);
-    if (found) return found.address;
-  }
-  return undefined;
-}
+// Node's parser handles quoted secrets without printing them; process settings win.
+process.loadEnvFile(path.join(root, '.env'));
 
 const isUp = port => new Promise(resolve => {
   const socket = net.connect({ host: 'localhost', port, timeout: 1000 });
@@ -42,18 +25,35 @@ const isUp = port => new Promise(resolve => {
 });
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const host = wifiAddress();
+const lan = selectLanHost(os.networkInterfaces(), process.env.AETHER_LAN_HOST || undefined);
+const host = lan.address;
+
+async function dockerReady() {
+  for (const port of [3307, 9000, 8001]) {
+    if (!await isUp(port)) continue;
+    const managed = spawnSync('docker', ['compose', 'ps', '--format', 'json'], { cwd: root, encoding: 'utf8' });
+    if (managed.status !== 0 || !managed.stdout.includes(`\"PublishedPort\":${port}`) && !managed.stdout.includes(`\"PublishedPort\": ${port}`)) {
+      throw Error(`Port ${port} is already used outside this Compose stack. Stop that service yourself before switching; its data will be kept.`);
+    }
+  }
+  console.log('Starting Docker storage and local voice. First model download can take several minutes.');
+  const result = await new Promise(resolve => {
+    const child = spawn('docker', ['compose', 'up', '-d', '--build', '--wait', '--wait-timeout', '2400'], { cwd: root, stdio: 'inherit' });
+    child.once('error', () => resolve(1)); child.once('exit', resolve);
+  });
+  if (result !== 0) throw Error('Docker services are not healthy. Check Docker Desktop and docker compose logs.');
+  const init = spawnSync(path.join(root, 'multimedia/api', python), ['-m', 'database.connection', '--init'], {
+    cwd: path.join(root, 'multimedia'), stdio: 'inherit', env: process.env,
+  });
+  if (init.status !== 0) throw Error('Schema readiness failed. Install multimedia dependencies and review its diagnostic. Existing rows were not deleted.');
+}
+try { await dockerReady(); } catch (error) { console.error(error.message); process.exit(1); }
 
 const services = [
-  { name: 'mysql', port: 3307, dir: mysqlDir, command: `${path.join('mysql-8.4.13-winx64', 'bin', 'mysqld.exe')} --defaults-file=my.ini --console`, waitFor: true },
   // MTX_API turns on MediaMTX's stream list on this PC only; the interfaces list keeps video on the Wi-Fi
   // instead of the virtual WSL/Hyper-V adapters, which dropped the stream. Neither edits mediamtx.yml.
-  { name: 'video', port: 8889, dir: 'mobile/streaming', command: `${path.join('mediamtx-local', 'mediamtx.exe')} mediamtx.yml`, env: { MTX_API: 'yes', MTX_APIADDRESS: '127.0.0.1:9997', MTX_WEBRTCIPSFROMINTERFACESLIST: 'WiFi' } },
-  { name: 'voice', port: 8001, dir: 'mobile/voice-service', command: `${python} -m uvicorn app.main:app --port 8001` },
+  { name: 'video', port: 8889, dir: 'mobile/streaming', command: `${path.join('mediamtx-local', 'mediamtx.exe')} mediamtx.yml`, env: mediaLanEnvironment(host) },
   { name: 'backend', port: 8002, dir: 'web/ai-backend', command: `${python} -m uvicorn app.main:app --host 0.0.0.0 --port 8002` },
-  ...(useRustfs ? [{ name: 'rustfs', port: 9000, dir: rustfsDir, command: '.\\rustfs.exe server data', waitFor: true, // .\ : some terminals don't run programs from the current folder
-    env: { RUSTFS_ADDRESS: '127.0.0.1:9000', RUSTFS_CONSOLE_ENABLE: 'true', RUSTFS_CONSOLE_ADDRESS: '127.0.0.1:9001',
-           RUSTFS_ACCESS_KEY: media.S3_ACCESS_KEY_ID, RUSTFS_SECRET_KEY: media.S3_SECRET_ACCESS_KEY } }] : []),
   // ahmadshifo's API (api.main) runs from multimedia/ with the api/.venv environment; it also reads phone streams.
   { name: 'multimedia', port: 8003, dir: 'multimedia', command: `${path.join('api', python)} -m uvicorn api.main:app --port 8003` },
   { name: 'dashboard', port: 5174, dir: 'web/dashboard', command: 'npm run dev', url: 'http://localhost:5174' },
@@ -94,7 +94,7 @@ function run(service) {
 }
 
 function stopAll() {
-  console.log('Stopping everything...');
+  console.log('Stopping app processes. Docker data and voice stay available; docker compose stop stops them safely.');
   for (const child of running.values()) spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' });
   process.exit(0);
 }

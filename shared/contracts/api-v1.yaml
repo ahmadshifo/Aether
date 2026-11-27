@@ -15,40 +15,80 @@ paths:
       responses:
         '200':
           description: Service is responding.
-  /api/v1/voice/transcribe:
+  /api/v1/voice/health:
+    get:
+      summary: Local model readiness (authenticated through backend; internal port 8001 is loopback-only).
+      responses:
+        '200':
+          description: TTS and STT models ready; languages en, ar, fr; audio_storage memory_only.
+        '503':
+          description: Models loading or unavailable.
+  /api/v1/voice/tts:
     post:
-      summary: Member 1 transcribes a short user audio recording.
+      summary: Supertonic 3 speech synthesized entirely in memory.
       requestBody:
         required: true
         content:
+          application/json:
+            schema:
+              type: object
+              required: [text, lang]
+              additionalProperties: false
+              properties:
+                text: {type: string, minLength: 1, maxLength: 2000}
+                lang: {type: string, enum: [en, ar, fr]}
+                speed: {type: number, minimum: 0.7, maximum: 2, default: 1}
+      responses:
+        '200':
+          description: Mono PCM16 WAV; Cache-Control no-store.
+          content:
+            audio/wav:
+              schema: {type: string, format: binary}
+        '401': {description: Sign in through the backend first.}
+        '422': {description: 'Invalid request; error contains code and message.'}
+        '429': {description: 'Model busy; error contains code and message.'}
+        '503': {description: 'Voice unavailable; use explicit device fallback.'}
+  /api/v1/voice/stt:
+    post:
+      summary: Faster-whisper multilingual transcription, up to 20 seconds and 2 MiB; RAM only.
+      parameters:
+        - in: query
+          name: lang
+          schema: {type: string, enum: [en, ar, fr], default: en}
+          description: Used for raw audio bodies; multipart uses its own lang field.
+      requestBody:
+        required: true
+        content:
+          audio/wav:
+            schema: {type: string, format: binary}
           multipart/form-data:
             schema:
               type: object
-              required: [audio, language]
+              required: [audio, lang]
               properties:
-                audio:
-                  type: string
-                  format: binary
-                language:
-                  type: string
-                  enum: [en, ar]
+                audio: {type: string, format: binary}
+                lang: {type: string, enum: [en, ar, fr]}
       responses:
         '200':
-          description: Transcription result.
+          description: Final transcription; empty text means no confident speech, not a question.
           content:
             application/json:
               schema:
                 type: object
-                required: [text, language]
+                required: [text, lang]
                 properties:
-                  text:
-                    type: string
-                  language:
-                    type: string
-                    enum: [en, ar]
+                  text: {type: string}
+                  lang: {type: string, enum: [en, ar, fr]}
+        '401': {description: Sign in through the backend first.}
+        '413': {description: 'Body or duration too large; error contains code and message.'}
+        '415': {description: 'Unsupported content type; error contains code and message.'}
+        '422': {description: 'Invalid audio or language; error contains code and message.'}
+        '429': {description: 'Model busy; error contains code and message.'}
+        '503': {description: 'Voice unavailable; use explicit device fallback.'}
   /api/v1/voice/synthesize:
     post:
-      summary: Member 1 synthesizes spoken audio using Azure Speech.
+      deprecated: true
+      summary: Compatibility alias for old dashboards; now returns WAV with the correct MIME type.
       requestBody:
         required: true
         content:
@@ -57,19 +97,15 @@ paths:
               type: object
               required: [text, language]
               properties:
-                text:
-                  type: string
-                language:
-                  type: string
-                  enum: [en, ar]
+                text: {type: string, minLength: 1, maxLength: 2000}
+                language: {type: string, enum: [en, ar, fr]}
       responses:
         '200':
-          description: Synthesized MP3 audio.
+          description: PCM WAV audio.
           content:
-            audio/mpeg:
-              schema:
-                type: string
-                format: binary
+            audio/wav:
+              schema: {type: string, format: binary}
+
   /api/v1/ask:
     post:
       summary: Member 2 uses retrieved visual evidence to answer recognized question text.

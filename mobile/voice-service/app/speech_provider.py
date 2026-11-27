@@ -1,78 +1,91 @@
-"""Member 1: wrap the Azure Speech API for English, Lebanese Arabic and French speech synthesis.
-
-Used by POST /api/v1/voice/synthesize (app/routes.py), which the dashboard's AI History player calls to read an
-answer aloud. It calls Azure's text-to-speech REST endpoint directly (no SDK needed) and returns MP3 bytes.
-
-Settings (mobile/voice-service/.env, never committed):
-- AZURE_SPEECH_KEY     the Speech resource key
-- AZURE_SPEECH_REGION  its region, e.g. westeurope
-
-Speech recognition is done on the phone itself (expo-speech-recognition), so there is no transcribe call here.
-"""
-
+"""Local inference. Only model weights are persisted; audio stays in RAM."""
+import io
 import os
-import urllib.error
-import urllib.request
-from pathlib import Path
-from xml.sax.saxutils import escape
+import threading
+import wave
+import numpy as np
 
-ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
-# Neural voices per app language; ar-LB is Lebanese Arabic.
-VOICES = {"en": ("en-US", "en-US-JennyNeural"), "ar": ("ar-LB", "ar-LB-LaylaNeural"), "fr": ("fr-FR", "fr-FR-DeniseNeural")}
-OUTPUT_FORMAT = "audio-24khz-48kbitrate-mono-mp3"
-TIMEOUT_SECONDS = 15
+class VoiceError(Exception):
+    def __init__(self, code, message, status=503):
+        self.code, self.message, self.status = code, message, status
 
+class LocalVoice:
+    def __init__(self):
+        self.role = os.getenv("VOICE_ROLE", "tts")
+        self.model = None
+        self.lock = threading.Lock()
+        self.failed = False
 
-class SpeechUnavailable(RuntimeError):
-    """reason: "not_configured" (no key/region) or "failed" (Azure refused or could not be reached)."""
+    def load(self):
+        try:
+            if self.role == "tts":
+                from supertonic import TTS
+                model = TTS(model="supertonic-3", auto_download=True,
+                    intra_op_num_threads=int(os.getenv("VOICE_THREADS", "4")), inter_op_num_threads=1)
+                self.style = model.get_voice_style(os.getenv("TTS_VOICE", "F1"))
+            else:
+                from faster_whisper import WhisperModel
+                model = WhisperModel(os.getenv("STT_MODEL", "small"),
+                    device=os.getenv("STT_DEVICE", "cpu"), compute_type=os.getenv("STT_COMPUTE_TYPE", "int8"),
+                    cpu_threads=int(os.getenv("VOICE_THREADS", "4")), num_workers=1, download_root="/models/whisper")
+            self.model = model
+        except Exception as error:
+            self.model = None
+            self.failed = True
+            print(f"Local {self.role} model initialization failed ({type(error).__name__}). Check download access and cache permissions.", flush=True)
 
-    def __init__(self, reason: str, detail: str = ""):
-        super().__init__(f"{reason}: {detail}" if detail else reason)
-        self.reason = reason
+    def ready(self):
+        if self.model is None:
+            raise VoiceError("voice_unavailable", "Local voice model is downloading or unavailable.")
+        if not self.lock.acquire(blocking=False):
+            raise VoiceError("voice_busy", "Local voice is busy. Please try again.", 429)
 
+    def tts(self, text, lang, speed):
+        self.ready()
+        try:
+            samples, _ = self.model.synthesize(text, voice_style=self.style, lang=lang,
+                                               speed=speed, total_steps=8, verbose=False)
+            pcm = (np.clip(samples.flatten(), -1, 1) * 32767).astype("<i2").tobytes()
+            output = io.BytesIO()
+            with wave.open(output, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(self.model.sample_rate)
+                wav.writeframes(pcm)
+            return output.getvalue()
+        finally:
+            self.lock.release()
 
-def _settings() -> tuple[str, str]:
-    """(key, region) from the environment, or else from the service's own .env file."""
-    values = {name: os.getenv(name, "").strip() for name in ("AZURE_SPEECH_KEY", "AZURE_SPEECH_REGION")}
-    if not all(values.values()) and ENV_FILE.exists():
-        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
-            name, _, value = line.partition("=")
-            if name.strip() in values and not values[name.strip()]:
-                values[name.strip()] = value.strip().strip('"').strip("'")
-    return values["AZURE_SPEECH_KEY"], values["AZURE_SPEECH_REGION"]
+    def stt(self, audio, lang):
+        import av
+        chunks, count = [], 0
+        try:
+            with av.open(io.BytesIO(audio)) as container:
+                resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+                for frame in container.decode(audio=0):
+                    for converted in resampler.resample(frame):
+                        data = converted.to_ndarray().flatten()
+                        count += data.size
+                        if count > 320000:
+                            raise VoiceError("audio_too_long", "Record up to 20 seconds at a time.", 413)
+                        chunks.append(data)
+                for frame in resampler.resample(None):
+                    chunks.append(frame.to_ndarray().flatten())
+            if not chunks:
+                raise ValueError("empty")
+            samples = np.concatenate(chunks).astype(np.float32) / 32768
+            if len(samples) > 320000:
+                raise VoiceError("audio_too_long", "Record up to 20 seconds at a time.", 413)
+        except VoiceError:
+            raise
+        except Exception:
+            raise VoiceError("invalid_audio", "Send a valid short audio recording.", 422) from None
+        self.ready()
+        try:
+            segments, _ = self.model.transcribe(samples, language=lang, beam_size=3,
+                vad_filter=True, condition_on_previous_text=False, vad_parameters={"min_silence_duration_ms": 300})
+            return " ".join(segment.text.strip() for segment in segments).strip()
+        finally:
+            self.lock.release()
 
-
-def configured() -> bool:
-    return all(_settings())
-
-
-def ssml(text: str, language: str) -> str:
-    locale, voice = VOICES[language]
-    return (f"<speak version='1.0' xml:lang='{locale}'><voice xml:lang='{locale}' name='{voice}'>"
-            f"{escape(text)}</voice></speak>")
-
-
-def _post(url: str, key: str, body: bytes) -> bytes:
-    request = urllib.request.Request(url, data=body, method="POST", headers={
-        "Ocp-Apim-Subscription-Key": key, "Content-Type": "application/ssml+xml",
-        "X-Microsoft-OutputFormat": OUTPUT_FORMAT, "User-Agent": "aether-voice-service",
-    })
-    with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-        return response.read()
-
-
-def synthesize(text: str, language: str) -> bytes:
-    """MP3 audio of the text read in the language's voice. Raises SpeechUnavailable."""
-    key, region = _settings()
-    if not key or not region:
-        raise SpeechUnavailable("not_configured")
-    url = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
-    try:
-        audio = _post(url, key, ssml(text, language).encode("utf-8"))
-    except urllib.error.HTTPError as error:
-        raise SpeechUnavailable("failed", f"HTTP {error.code}") from None  # never echo the key or the body
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
-        raise SpeechUnavailable("failed", type(error).__name__) from None
-    if not audio:
-        raise SpeechUnavailable("failed", "empty audio")
-    return audio
+provider = LocalVoice()
