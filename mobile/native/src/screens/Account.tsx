@@ -28,7 +28,7 @@ import { GoCamera, nativeCamera, nativePublisher } from '../platform/camera';
 import { buzz, sessionHaptics } from '../platform/sessionHaptics';
 import { AssistantScreen } from './AssistantScreen';
 import { SessionController } from '../session/controller';
-import { prepareRecognition, recognize } from '../voice/recognition';
+import { LocalVoice, localVoiceCopy } from '../voice/localVoice';
 import { listenForWakeWord } from '../voice/wakeWord';
 import { SPEECH_RATE, SpeechOwner } from '../voice/speech';
 
@@ -58,9 +58,11 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
     const unauthorized = () => { if (allowed()) auth.external('changed'); };
     const location = new HistoryLocationSource(allowed, () => currentPrefs.current.historyLocation !== false);
     const api = createTeamApi(endpoints.backend, nativeFetch, unauthorized);
-    const repository = new HistoryRepository(session.owner, nativeStorage, allowed), camera = new GoCamera(), speech = new SpeechOwner(), registry = new StreamRegistry(endpoints.backend, nativeFetch, unauthorized, allowed), caps = capabilities();
+    const voice = new LocalVoice(endpoints.backend, lang => {
+      if (allowed()) { setNotice(localVoiceCopy[lang]); AccessibilityInfo.announceForAccessibility(localVoiceCopy[lang]); }
+    }, unauthorized);
+    const repository = new HistoryRepository(session.owner, nativeStorage, allowed), camera = new GoCamera(), speech = new SpeechOwner(voice), registry = new StreamRegistry(endpoints.backend, nativeFetch, unauthorized, allowed), caps = capabilities();
     let wakeGeneration = 0, wakeTag: string | undefined;
-    let offlineUntil = 0;
     // The reading speed the user chose by voice last time.
     void AsyncStorage.getItem(SPEECH_RATE_KEY).then(value => {
       const rate = Number(value);
@@ -69,7 +71,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
     const controller = new SessionController({
       ask: api.ask,
       nearbyWarningsEnabled: () => currentPrefs.current.nearbyWarnings !== false,
-      preview: caps.go && __DEV__, recognitionAvailable: caps.recognition, streamingAvailable: caps.webrtc,
+      preview: caps.go && __DEV__, recognitionAvailable: voice.available || caps.recognition, streamingAvailable: caps.webrtc,
       allowed, uuid: () => Crypto.randomUUID(), camera: caps.webrtc ? nativeCamera : caps.go ? camera.acquire : async () => { throw Error('native_required'); },
       prepareStart: async () => { await wakeListener.current?.(); },
       sessionOpened: async signal => {
@@ -82,14 +84,9 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
           if (!signal.aborted && allowed()) return duringPermission(prepareEmergencyCall, signal);
         }).catch(() => {});
       },
-      prepareRecognition, speak: speech.speak, stopSpeech: speech.stop,
+      prepareRecognition: voice.prepare, speak: speech.speak, stopSpeech: speech.stop,
       location: (signal, timeoutMs) => location.capture(signal, timeoutMs),
-      // With no internet, Google's online recognizer fails with "network": switch to the phone's offline one for a
-      // minute, so offline questions (time, battery, "am I connected?") are still heard.
-      recognition: (language, events, signal) => recognize(language, { ...events, error: code => {
-        if (code === 'network' || code === 'server') offlineUntil = Date.now() + 60000;
-        events.error(code);
-      } }, signal, { onDevice: Date.now() < offlineUntil }),
+      recognition: voice.recognize,
       publish: (handle, id, state) => nativePublisher(handle, `${endpoints.media}/live/${id}/whip`, state), register: (action, id) => registry.request(action, id),
       keepAwake: active => {
         const g = ++wakeGeneration;

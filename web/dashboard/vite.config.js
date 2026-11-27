@@ -18,7 +18,7 @@ const proxy = {
   '/api/v1/settings': 'http://localhost:8002',
   '/api/v1/summary': 'http://localhost:8002',
   '/api/v1/frames': 'http://127.0.0.1:8003',
-  '/api/v1/voice': 'http://localhost:8001',
+  '/api/v1/voice': 'http://localhost:8002',
   '/v3': 'http://127.0.0.1:9997',
 };
 

@@ -17,6 +17,7 @@ from app.safety import init_safety_tables, router as safety_router
 from app.status import router as status_router
 from app.streams import router as streams_router
 from app.summary import router as summary_router
+from app.voice import router as voice_router
 
 
 @asynccontextmanager
@@ -74,6 +75,7 @@ app.include_router(safety_router)
 app.include_router(summary_router)
 app.include_router(alerts_router)
 app.include_router(caregiver_router)
+app.include_router(voice_router)
 
 
 @app.exception_handler(ApiError)

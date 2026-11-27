@@ -1,19 +1,19 @@
-// Member 2: asks Member 1's voice service to read an answer aloud; Vite forwards /api/v1/voice to it on :8001.
+// Authenticated backend proxy forwards voice to the local Docker service.
 export const voiceClient = {
-  // Resolves to an object URL for the MP3; the caller revokes it when done.
+  // Resolves to an in-memory WAV object URL; the caller revokes it when done.
   async synthesize(text, language) {
     let response;
     try {
-      response = await fetch('/api/v1/voice/synthesize', {
+      response = await fetch('/api/v1/voice/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, language }),
+        body: JSON.stringify({ text, lang: language }),
       });
     } catch {
       throw new Error("Can't reach the voice service. Is it running on port 8001?");
     }
     if (!response.ok) {
-      // The voice service explains itself ({ error: { message } }), e.g. when Azure Speech isn't set up.
+      // Loading models and unavailable services use the shared error shape.
       const body = await response.json().catch(() => null);
       throw new Error(body?.error?.message
         ?? `Couldn't get the spoken answer (HTTP ${response.status}). Is the voice service running on port 8001?`);
