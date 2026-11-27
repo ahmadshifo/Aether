@@ -28,7 +28,7 @@ class AetherAudioModule : Module() {
     AsyncFunction("prepare") {
       appContext.reactContext?.let { ContextCompat.checkSelfPermission(it, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED } ?: false
     }
-    AsyncFunction("startCapture") {
+    AsyncFunction("startCapture") { captureId: String ->
       stopCapture()
       val minimum = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
       val record = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, 16000,
@@ -43,21 +43,21 @@ class AetherAudioModule : Module() {
         try {
           while (captureGeneration.get() == generation) {
             val count = record.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
-            if (count <= 0) break
+            if (count <= 0) throw IllegalStateException("audio_capture")
             val bytes = ByteBuffer.allocate(count * 2).order(ByteOrder.LITTLE_ENDIAN)
             var energy = 0.0
             for (i in 0 until count) { bytes.putShort(buffer[i]); val value = buffer[i] / 32768.0; energy += value * value }
             if (captureGeneration.get() == generation) sendEvent("audio", mapOf(
-              "pcm" to Base64.encodeToString(bytes.array(), Base64.NO_WRAP), "rms" to sqrt(energy / count), "samples" to count))
+              "capture_id" to captureId, "pcm" to Base64.encodeToString(bytes.array(), Base64.NO_WRAP), "rms" to sqrt(energy / count), "samples" to count))
           }
         } catch (_: Exception) {
-          if (captureGeneration.get() == generation) sendEvent("captureError", mapOf("code" to "audio-capture"))
+          if (captureGeneration.get() == generation) sendEvent("captureError", mapOf("capture_id" to captureId, "code" to "audio-capture"))
         }
       }
     }
     AsyncFunction("stopCapture") { stopCapture() }
     AsyncFunction("stopPlayback") { stopPlayback() }
-    AsyncFunction("play") { encoded: String, rate: Double, promise: Promise ->
+    AsyncFunction("play") { encoded: String, rate: Double, playbackId: String, promise: Promise ->
       stopPlayback()
       val generation = playGeneration.get()
       thread(name = "Aether playback") {
@@ -88,7 +88,7 @@ class AetherAudioModule : Module() {
           player = track
           track.playbackParams = PlaybackParams().setSpeed(rate.coerceIn(0.5, 1.55).toFloat())
           track.play()
-          sendEvent("playbackStarted", emptyMap<String, Any>())
+          sendEvent("playbackStarted", mapOf("playback_id" to playbackId))
           var written = 0
           while (written < size && playGeneration.get() == generation) {
             val count = track.write(wav, start + written, minOf(4096, size - written), AudioTrack.WRITE_BLOCKING)

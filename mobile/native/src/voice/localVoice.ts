@@ -11,11 +11,11 @@ import { decode64, encode64, UtteranceBuffer } from './pcm';
 type Subscription = { remove(): void };
 interface MemoryAudio {
   prepare(): Promise<boolean>;
-  startCapture(): Promise<void>;
+  startCapture(captureId: string): Promise<void>;
   stopCapture(): Promise<void>;
-  play(wav: string, rate: number): Promise<'done' | 'cancelled'>;
+  play(wav: string, rate: number, playbackId: string): Promise<'done' | 'cancelled'>;
   stopPlayback(): Promise<void>;
-  addListener(name: string, listener: (event: { pcm: string; rms: number }) => void): Subscription;
+  addListener(name: string, listener: (event: { pcm: string; rms: number; capture_id?: string; playback_id?: string }) => void): Subscription;
 }
 export const memoryAudio = requireOptionalNativeModule<MemoryAudio>('AetherAudio');
 export const localVoiceCopy = {
@@ -61,8 +61,9 @@ export class LocalVoice {
       if (signal.aborted) return 'cancelled';
       const wav = new Uint8Array(await response.arrayBuffer());
       if (wav.length > 16 * 1024 * 1024 || !response.headers.get('content-type')?.includes('audio/wav')) throw Error('invalid_audio');
-      subscription = this.audio.addListener('playbackStarted', () => { if (!signal.aborted) onStart(); });
-      const result = await this.audio.play(encode64(wav), rate);
+      const playbackId = `${Date.now()}-${Math.random()}`;
+      subscription = this.audio.addListener('playbackStarted', event => { if (event.playback_id === playbackId && !signal.aborted) onStart(); });
+      const result = await this.audio.play(encode64(wav), rate, playbackId);
       this.announced = false;
       return signal.aborted ? 'cancelled' : result;
     } catch {
@@ -87,6 +88,7 @@ export class LocalVoice {
     }
     if (signal.aborted) return async () => {};
     const audio = this.audio, buffer = new UtteranceBuffer();
+    const captureId = `${Date.now()}-${Math.random()}`;
     const pending = new AbortController();
     let stopped = false, processing = false, fallbackStop: (() => Promise<void>) | undefined;
     let idle: ReturnType<typeof setTimeout> | undefined;
@@ -109,9 +111,9 @@ export class LocalVoice {
       try { fallbackStop = await device(); if (stopped) await fallbackStop(); }
       catch { if (!stopped) events.error('audio-capture'); }
     };
-    subscriptions.push(audio.addListener('captureError', () => { if (!processing) void fail(); }));
+    subscriptions.push(audio.addListener('captureError', event => { if (event.capture_id === captureId && !processing) void fail(); }));
     subscriptions.push(audio.addListener('audio', event => {
-      if (stopped || processing || signal.aborted) return;
+      if (event.capture_id !== captureId || stopped || processing || signal.aborted) return;
       let wav: Uint8Array | null;
       try { wav = buffer.push(decode64(event.pcm), event.rms); } catch { void fail(); return; }
       if (!wav) return;
@@ -130,7 +132,7 @@ export class LocalVoice {
       })().catch(() => { if (!stopped) void fail(); });
     }));
     try {
-      await audio.startCapture();
+      await audio.startCapture(captureId);
       if (stopped || signal.aborted) { await audio.stopCapture(); return stop; }
       events.start();
       idle = setTimeout(() => { if (!processing && !stopped) { void release().then(() => { if (!stopped) events.end(); }); } }, 18000);

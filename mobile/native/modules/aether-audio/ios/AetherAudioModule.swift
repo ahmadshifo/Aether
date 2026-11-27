@@ -14,7 +14,7 @@ public class AetherAudioModule: Module {
     AsyncFunction("prepare") { (promise: Promise) in
       AVAudioSession.sharedInstance().requestRecordPermission { granted in promise.resolve(granted) }
     }
-    AsyncFunction("startCapture") { (promise: Promise) in
+    AsyncFunction("startCapture") { (captureId: String, promise: Promise) in
       do {
         self.stopCapture()
         let session = AVAudioSession.sharedInstance()
@@ -44,7 +44,7 @@ public class AetherAudioModule: Module {
           var sum = 0.0
           for i in 0..<count { let value = Double(samples[i]) / 32768; sum += value * value }
           let data = Data(bytes: samples, count: count * 2)
-          self.sendEvent("audio", ["pcm": data.base64EncodedString(), "rms": sqrt(sum / Double(count)), "samples": count])
+          self.sendEvent("audio", ["capture_id": captureId, "pcm": data.base64EncodedString(), "rms": sqrt(sum / Double(count)), "samples": count])
         }
         self.engine = engine
         try engine.start()
@@ -55,7 +55,7 @@ public class AetherAudioModule: Module {
       }
     }.runOnQueue(.main)
     AsyncFunction("stopCapture") { self.stopCapture() }.runOnQueue(.main)
-    AsyncFunction("play") { (base64: String, rate: Double, promise: Promise) in
+    AsyncFunction("play") { (base64: String, rate: Double, playbackId: String, promise: Promise) in
       self.stopPlayback()
       do {
         guard let data = Data(base64Encoded: base64), data.count <= 16 * 1024 * 1024 else {
@@ -70,7 +70,7 @@ public class AetherAudioModule: Module {
         self.player = player
         self.playbackPromise = promise
         guard player.play() else { throw NSError(domain: "audio", code: 1) }
-        self.sendEvent("playbackStarted", [:])
+        self.sendEvent("playbackStarted", ["playback_id": playbackId])
         self.playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
           guard let self = self else { return }
           if self.player?.isPlaying != true {
@@ -80,6 +80,7 @@ public class AetherAudioModule: Module {
           }
         }
       } catch {
+        self.playbackPromise = nil
         self.stopPlayback()
         promise.reject("audio_playback", "WAV playback could not start.")
       }
