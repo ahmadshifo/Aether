@@ -1,5 +1,6 @@
 *
 !Dockerfile
+!Dockerfile.gpu
 !requirements.txt
 !app/
 !app/**

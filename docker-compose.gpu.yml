@@ -1,0 +1,12 @@
+services:
+  voice-stt:
+    image: aether-local-voice-gpu:1
+    build:
+      context: ./mobile/voice-service
+      dockerfile: Dockerfile.gpu
+    gpus: all
+    environment:
+      STT_DEVICE: cuda
+      STT_COMPUTE_TYPE: float16
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/v1/voice/health', timeout=4)"]

@@ -29,7 +29,7 @@ const lan = selectLanHost(os.networkInterfaces(), process.env.AETHER_LAN_HOST ||
 const host = lan.address;
 
 async function dockerReady() {
-  for (const port of [3307, 9000, 8001]) {
+  for (const port of [Number(process.env.MYSQL_PORT || 3307), 9000, 8001]) {
     if (!await isUp(port)) continue;
     const managed = spawnSync('docker', ['compose', 'ps', '--format', 'json'], { cwd: root, encoding: 'utf8' });
     if (managed.status !== 0 || !managed.stdout.includes(`\"PublishedPort\":${port}`) && !managed.stdout.includes(`\"PublishedPort\": ${port}`)) {
