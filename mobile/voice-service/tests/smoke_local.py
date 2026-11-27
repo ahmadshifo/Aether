@@ -26,3 +26,4 @@ for lang, text in samples.items():
     assert result["lang"] == lang and result["text"].strip(), result
     print(json.dumps({"lang": lang, "tts_ms": tts_ms, "stt_ms": round((time.perf_counter() - start) * 1000),
         "audio_seconds": seconds, "source_text": text, "recognized_text": result["text"]}, ensure_ascii=False), flush=True)
+    assert {"en": "door", "ar": "باب", "fr": "porte"}[lang] in result["text"].lower(), "Expected keyword missing; review the language quality."

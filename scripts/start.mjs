@@ -38,10 +38,30 @@ async function dockerReady() {
   }
   console.log('Starting Docker storage and local voice. First model download can take several minutes.');
   const result = await new Promise(resolve => {
-    const child = spawn('docker', ['compose', 'up', '-d', '--build', '--wait', '--wait-timeout', '2400'], { cwd: root, stdio: 'inherit' });
+    const args = ['compose', 'up', '-d', ...(process.argv.includes('--build-services') ? ['--build'] : [])];
+    const child = spawn('docker', args, { cwd: root, stdio: 'inherit', windowsHide: true });
     child.once('error', () => resolve(1)); child.once('exit', resolve);
   });
-  if (result !== 0) throw Error('Docker services are not healthy. Check Docker Desktop and docker compose logs.');
+  if (result !== 0) throw Error('Docker services could not start. Check Docker Desktop and docker compose logs.');
+  // Compose --wait treats a successful one-shot initializer as an exited service.
+  // Check it separately from the four long-running healthchecks.
+  const deadline = Date.now() + 2400000;
+  for (;;) {
+    const status = spawnSync('docker', ['compose', 'ps', '--all', '--format', 'json'], { cwd: root, encoding: 'utf8', windowsHide: true });
+    if (status.status !== 0) throw Error('Could not inspect Docker healthchecks.');
+    const raw = status.stdout.trim();
+    const entries = raw.startsWith('[') ? JSON.parse(raw) : raw.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
+    const states = new Map(entries.map(item => [item.Service, item]));
+    const init = states.get('storage-init');
+    const workers = ['mysql', 'rustfs', 'voice-stt', 'voice-tts'].map(name => states.get(name));
+    if (init?.State === 'exited' && init.ExitCode !== 0 || workers.some(item => item?.Health === 'unhealthy' || item?.State === 'exited')) {
+      throw Error('A Docker worker or storage initializer failed. Inspect docker compose logs.');
+    }
+    if (init?.State === 'exited' && init.ExitCode === 0 && workers.every(item => item?.Health === 'healthy')) break;
+    if (Date.now() > deadline) throw Error('Model startup exceeded 40 minutes. Downloads remain running; inspect logs and retry after they finish.');
+    console.log('Waiting for Docker model/storage healthchecks...');
+    await sleep(15000);
+  }
   const init = spawnSync(path.join(root, 'multimedia/api', python), ['-m', 'database.connection', '--init'], {
     cwd: path.join(root, 'multimedia'), stdio: 'inherit', env: process.env,
   });
@@ -76,7 +96,7 @@ function labelled(name, stream, output) {
 const running = new Map();
 function run(service) {
   const child = spawn(service.command, {
-    cwd: path.resolve(root, service.dir), shell: true,
+    cwd: path.resolve(root, service.dir), shell: true, windowsHide: true,
     stdio: service.ownsTerminal ? 'inherit' : ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, ...service.env },
   });

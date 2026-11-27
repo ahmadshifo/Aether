@@ -1,9 +1,9 @@
 # Optional NVIDIA STT worker. CPU remains the default in docker-compose.yml.
-FROM nvidia/cuda:12.3.2-cudnn9-runtime-ubuntu22.04
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip ca-certificates && rm -rf /var/lib/apt/lists/*
+FROM python:3.12-slim
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/models HF_HOME=/models/huggingface
 COPY requirements.txt ./
-RUN python3 -m pip install --no-cache-dir -r requirements.txt
+RUN python3 -m pip install --no-cache-dir -r requirements.txt nvidia-cublas-cu12==12.9.3.13 nvidia-cudnn-cu12==9.28.1.4
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib
 COPY app/ ./app/
 CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--no-access-log"]

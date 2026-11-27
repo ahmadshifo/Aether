@@ -1,0 +1,38 @@
+name: Android local voice native compile
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-audio-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: mobile/native
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      EXPO_NO_DOTENV: '1'
+      AETHER_LAN_HOST: any
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          sparse-checkout: mobile/native
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - name: Select Java 17
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+      - run: npm ci --no-audit --no-fund
+      - name: Generate Android development project
+        run: npx expo prebuild --platform android --no-install
+      - name: Compile the native audio module
+        run: ./gradlew :aether-audio:compileDebugKotlin --no-daemon --stacktrace
+        working-directory: mobile/native/android
