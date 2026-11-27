@@ -1,6 +1,30 @@
 <!-- All members: tracks approved interface changes so an individual teammate never silently breaks compatibility. -->
 # Architecture Decision Log
 
+## 2026-11-27 - Proposed Docker storage and local multilingual voice
+
+- Branch `feat/local-docker-voice`; no merge to main until owner/device review.
+- MySQL 8.4 on loopback 3307 and official `rustfs/rustfs:1.0.7` on loopback 9000
+  use named volumes. Private bucket initialization refuses existing bucket policies.
+  Credentials stay in root .env; old native data is preserved and migration is manual.
+- Replace cloud speech with pinned Supertonic 1.3.1 (Supertonic 3 weights) and
+  faster-whisper 1.2.1, multilingual small/int8 CPU. The small model favors Arabic
+  accuracy over tiny/base latency. Separate workers permit recognition during TTS.
+- Add `/api/v1/voice/tts`, `/stt`, `/health`; use snake_case, en/ar/fr and standard
+  errors. `/synthesize` stays as a deprecated dashboard alias, now MIME-correct WAV.
+  The old `/transcribe` placeholder was never implemented; new clients use `/stt`.
+- Audio stays in RAM on phone and server. Only model weights persist. Native
+  AetherAudio requires fresh iOS/Android builds. Active sessions prefer local voice;
+  missing/unreachable/busy services show device fallback. Wake and pre-login safety
+  speech remain on-device. Existing command/haptic controller behavior is retained.
+- Supertonic upstream is archived; code is MIT, weights OpenRAIL-M. Team review
+  must assess the pinned dependency and license before distribution.
+- Gemini vision is unchanged. `multimedia/` edits need ahmadshifo's approval and
+  `mobile/` edits need Hassan's. Neither approval is implied by this branch.
+- Sources: [RustFS Docker](https://docs.rustfs.com/en/installation/container/docker),
+  [Supertonic Python](https://github.com/supertone-oss-archive/supertonic-py),
+  [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
+
 ## v1.0 - 2026-10-27
 
 - Three independent owners: Mobile (1), Web and AI (2), Multimedia (3).

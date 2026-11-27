@@ -1,4 +1,4 @@
-// `npm start`: runs every Aether service inside this one terminal. Ctrl+C stops them all; so does closing the terminal.
+// `npm start`: starts Docker dependencies and app services. Ctrl+C stops owned app processes; Docker persists.
 // Anything already running is left alone, so it is safe to run this again.
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -138,4 +138,4 @@ for (const service of services) {
 
 for (const url of toOpen) spawn(`start "" ${url}`, { shell: true, stdio: 'ignore' });
 if (!running.size) { console.log('\nEverything is already running in another terminal. Press Ctrl+C there to stop it.'); process.exit(0); }
-console.log(host ? `\nPhone: scan the QR code Expo prints, or open exp://${host}:8083. Press Ctrl+C to stop everything.` : '\nNo Wi-Fi address found: connect this PC to Wi-Fi, then run npm start again.');
+console.log(host ? `\nPhone: scan Expo's QR code or enter http://${host}:8083 in the development launcher. Ctrl+C stops app services; docker compose stop stops Docker services.` : '\nNo Wi-Fi address found: connect this PC to Wi-Fi, then run npm start again.');

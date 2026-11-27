@@ -3,7 +3,7 @@
 openapi: 3.0.3
 info:
   title: Multimedia Visual Assistant - Shared API
-  version: 1.0.0
+  version: 1.1.0
   description: API shapes shared across the independently developed Mobile, Web AI and Multimedia services.
 servers:
   - url: http://localhost:8002
@@ -32,11 +32,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [text, lang]
+              required: [text]
               additionalProperties: false
               properties:
                 text: {type: string, minLength: 1, maxLength: 2000}
-                lang: {type: string, enum: [en, ar, fr]}
+                lang: {type: string, enum: [en, ar, fr], default: en}
                 speed: {type: number, minimum: 0.7, maximum: 2, default: 1}
       responses:
         '200':
@@ -64,13 +64,13 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [audio, lang]
+              required: [audio]
               properties:
                 audio: {type: string, format: binary}
-                lang: {type: string, enum: [en, ar, fr]}
+                lang: {type: string, enum: [en, ar, fr], default: en}
       responses:
         '200':
-          description: Final transcription; empty text means no confident speech, not a question.
+          description: Final transcription; empty text means no speech was transcribed and must not be submitted as a question.
           content:
             application/json:
               schema:
@@ -95,10 +95,10 @@ paths:
           application/json:
             schema:
               type: object
-              required: [text, language]
+              required: [text]
               properties:
                 text: {type: string, minLength: 1, maxLength: 2000}
-                language: {type: string, enum: [en, ar, fr]}
+                language: {type: string, enum: [en, ar, fr], default: en}
       responses:
         '200':
           description: PCM WAV audio.
@@ -233,14 +233,14 @@ components:
         session_id: {type: string, format: uuid}
         question_id: {type: string, format: uuid}
         question: {type: string}
-        language: {type: string, enum: [en, ar]}
+        language: {type: string, enum: [en, ar, fr]}
     AskResponse:
       type: object
       required: [question_id, answer, language, uncertain, evidence_frame_ids]
       properties:
         question_id: {type: string, format: uuid}
         answer: {type: string}
-        language: {type: string, enum: [en, ar]}
+        language: {type: string, enum: [en, ar, fr]}
         uncertain: {type: boolean}
         evidence_frame_ids:
           type: array
@@ -281,4 +281,4 @@ components:
         asked_at: {type: string, format: date-time}
         question: {type: string}
         answer: {type: string}
-        language: {type: string, enum: [en, ar]}
+        language: {type: string, enum: [en, ar, fr]}
