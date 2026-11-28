@@ -14,7 +14,7 @@ const proxy = {
   '/api/v1/sos': 'http://localhost:8002',
   '/api/v1/alerts': 'http://localhost:8002',
   '/api/v1/device': 'http://localhost:8002',
-  '/api/v1/notes': 'http://localhost:8002',
+  '/api/v1/live-voice': { target: 'http://localhost:8002', ws: true },
   '/api/v1/settings': 'http://localhost:8002',
   '/api/v1/summary': 'http://localhost:8002',
   '/api/v1/frames': 'http://127.0.0.1:8003',

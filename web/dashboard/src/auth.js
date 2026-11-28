@@ -10,7 +10,7 @@ async function call(path, body, method = body ? 'POST' : 'GET') {
       method,
       credentials: 'same-origin',
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
+      ...(body && method !== 'GET' && method !== 'HEAD' ? { body: JSON.stringify(body) } : {}),
     });
   } catch {
     throw new Error(OFFLINE);

@@ -3,11 +3,7 @@
 - Battery: during a session the phone reports its battery level and whether it is charging
   (POST /api/v1/device); the dashboard shows it next to the live camera (GET /api/v1/device), and a low
   battery becomes a camera alert (app/alerts.py).
-- Caregiver notes: the caregiver types a short message on the dashboard (POST /api/v1/notes); the phone
-  checks for new ones during a session (GET /api/v1/notes/pending), reads each aloud when it is not busy
-  answering, and marks it read (POST /api/v1/notes/{note_id}/read), so the dashboard can show "Read aloud at ...".
-
-Each account only ever sees its own phone and notes. Notes are kept for 24 hours, like everything else.
+Legacy note rows are preserved; text messaging endpoints have been retired.
 """
 
 import uuid
@@ -97,61 +93,3 @@ def device_status(user_id: str) -> dict | None:
 @router.get("/device")
 def read_device(user_id: str = Depends(signed_in_user_id)) -> dict:
     return {"device": device_status(user_id)}
-
-
-# ---------- caregiver notes ----------
-
-class NoteBody(BaseModel):
-    text: str = Field(min_length=1, max_length=300)
-
-
-def _note(row: dict) -> dict:
-    return {"note_id": row["note_id"], "text": row["text"], "created_at": _iso(row["created_at"]),
-            "read_at": _iso(row["read_at"]) if row["read_at"] else None}
-
-
-def clean_note(text: str) -> str:
-    """One line of plain text, so the phone reads it as it was typed."""
-    cleaned = " ".join(text.split())
-    if not cleaned:
-        raise ApiError(400, "empty_note", "The message is empty.")
-    return cleaned
-
-
-@router.post("/notes", status_code=status.HTTP_201_CREATED)
-def send_note(body: NoteBody, user_id: str = Depends(signed_in_user_id)) -> dict:
-    """The caregiver's message; the phone reads it aloud during the next or current session."""
-    row = {"note_id": str(uuid.uuid4()), "text": clean_note(body.text), "created_at": _now(), "read_at": None}
-    with closing(_connect()) as conn, conn.cursor() as cur:
-        cur.execute("INSERT INTO caregiver_notes (note_id, user_id, text, created_at) VALUES (%s, %s, %s, %s)",
-                    (row["note_id"], user_id, row["text"], row["created_at"]))
-    return {"note": _note(row)}
-
-
-@router.get("/notes")
-def list_notes(user_id: str = Depends(signed_in_user_id)) -> dict:
-    """This account's messages from the last 24 hours, newest first (for the dashboard)."""
-    with closing(_connect()) as conn, conn.cursor() as cur:
-        cur.execute("SELECT note_id, text, created_at, read_at FROM caregiver_notes WHERE user_id = %s AND created_at >= %s "
-                    "ORDER BY created_at DESC LIMIT 50", (user_id, _now() - NOTES_WINDOW))
-        rows = cur.fetchall()
-    return {"notes": [_note(row) for row in rows]}
-
-
-@router.get("/notes/pending")
-def pending_notes(user_id: str = Depends(signed_in_user_id)) -> dict:
-    """Messages the phone hasn't read aloud yet, oldest first (for the phone)."""
-    with closing(_connect()) as conn, conn.cursor() as cur:
-        cur.execute("SELECT note_id, text, created_at, read_at FROM caregiver_notes WHERE user_id = %s AND read_at IS NULL "
-                    "AND created_at >= %s ORDER BY created_at LIMIT 10", (user_id, _now() - NOTES_WINDOW))
-        rows = cur.fetchall()
-    return {"notes": [_note(row) for row in rows]}
-
-
-@router.post("/notes/{note_id}/read")
-def mark_read(note_id: str, user_id: str = Depends(signed_in_user_id)) -> dict:
-    """The phone read this message aloud."""
-    with closing(_connect()) as conn, conn.cursor() as cur:
-        cur.execute("UPDATE caregiver_notes SET read_at = %s WHERE note_id = %s AND user_id = %s AND read_at IS NULL",
-                    (_now(), note_id, user_id))
-    return {"ok": True}

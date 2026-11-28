@@ -1,7 +1,7 @@
 // Member 2: every question and answer, filterable by "not sure" and language, with the spoken answer and its evidence frames.
 // Loads GET /api/v1/questions from the AI backend; evidence images come from the multimedia service.
 import { useCallback, useEffect, useState } from 'react';
-import { CassettePlayer, ScrollFadeList, Segmented, Stamp } from '../components/ui/index.js';
+import { CassettePlayer, ScrollFadeList, Segmented } from '../components/ui/index.js';
 import { PageHeader, formatTime } from '../components/ui.jsx';
 import { assistantClient } from '../services/assistantClient.js';
 

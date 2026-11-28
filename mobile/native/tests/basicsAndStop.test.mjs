@@ -117,21 +117,17 @@ test('speed changes are said, the limit is said, and buzzes mark listening and a
   h.controller.stop();
 });
 
-test('the battery is sent to the dashboard when it changes, and caregiver notes are read aloud once', async () => {
-  const reports = [], read = [];
-  let battery, notes = [{ note_id: 'n1', text: 'Dinner is ready.' }];
-  const h = harness({
-    watchBattery: listener => { battery = listener; return () => {}; },
-    reportBattery: async (id, level, charging) => { reports.push([Math.round(level), charging]); },
-    pendingNotes: async () => notes,
-    noteRead: async id => { read.push(id); notes = notes.filter(note => note.note_id !== id); },
-  });
-  await h.controller.start('en'); await h.listening();
-  battery(0.64, false); battery(0.641, false); battery(0.64, true);
-  assert.deepEqual(reports, [[64, false], [64, true]]);  // same whole percent: not sent again
-  await h.listening(); await h.listening();
-  assert.equal(h.spoken.filter(text => text === 'Message from your caregiver: Dinner is ready.').length, 1);
-  assert.deepEqual(read, ['n1']);
+test('battery updates still work during live caregiver voice', async () => {
+  const reports=[];let battery;
+  const h=harness({watchBattery: fn => {battery=fn;return () => {};},reportBattery: async (id,level,charging) => reports.push([Math.round(level),charging])});
+  await h.controller.start('en');await h.listening();
+  assert.equal(await h.controller.beginLiveVoice(async () => {}),true);
+  battery(.64,false);battery(.641,false);battery(.64,true);
+  assert.deepEqual(reports,[[64,false],[64,true]]);
+  h.events.at(-1).result('What is in front of me',true);await settle();
+  assert.equal(h.asked.length,0);
+  h.events.at(-1).result('end live call',true);await settle();
+  assert.equal(h.controller.getSnapshot().liveCall,false);
   h.controller.stop();
 });
 
@@ -263,18 +259,9 @@ test('repeating the same question over its answer does not leave the microphone 
   h.controller.stop();
 });
 
-test('a caregiver note cut off by Stop is not marked read', async () => {
-  const read = [];
-  let finish, notes = [{ note_id: 'n1', text: 'Dinner is ready.' }];
-  const h = harness({
-    pendingNotes: async () => notes,
-    noteRead: async id => { read.push(id); notes = []; },
-    // The note keeps playing until Stop cancels it, like the real speech port.
-    speak: (text, _, start) => { start(); return text.includes('Dinner') ? new Promise(resolve => { finish = resolve; }) : Promise.resolve('done'); },
-    stopSpeech: () => { finish?.('cancelled'); finish = undefined; },
-  });
-  await h.controller.start('en'); await h.listening(); await h.listening();
-  h.controller.stop();
-  await h.listening();
-  assert.deepEqual(read, []);
+test('Stop closes a caregiver call and resumes no delayed announcement', async () => {
+  const h=harness();await h.controller.start('en');await h.listening();
+  let finish;const starting=h.controller.beginLiveVoice(() => new Promise(resolve => {finish=resolve;}));
+  await settle();h.controller.stop();finish();
+  assert.equal(await starting,false);assert.equal(h.controller.getSnapshot().active,false);
 });

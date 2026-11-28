@@ -1,3 +1,4 @@
+import { liveCopy } from '../voice/liveVoice';
 import React, { useCallback, useRef, useState } from 'react';
 import { AccessibilityInfo, findNodeHandle, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -50,6 +51,7 @@ export function AssistantScreen({ media, controller, camera, caps, prompt, start
             {media.sos === 'countdown' && <T accessibilityLiveRegion="assertive" variant="small" style={{ color: '#FFB4AB' }}>{commandCopy[language].sosLabel}</T>}
             {media.sos === 'sent' && <T accessibilityLiveRegion="polite" variant="small" style={{ color: '#FFB4AB' }}>{commandCopy[language].sosSentLabel}</T>}
             {media.transport === 'reconnecting' && <T accessibilityLiveRegion="polite" variant="small" style={{ color: '#D0D0D0' }}>{h.reconnecting}</T>}
+            {media.liveCall && <Button label={liveCopy[language].end} onPress={() => controller.endLiveVoice()} />}
             {!!voiceNotice && <T accessibilityLiveRegion="polite" variant="small" style={{ color: '#D0D0D0' }}>{voiceNotice}</T>}
           </View>
         </Row>

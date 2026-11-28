@@ -10,7 +10,7 @@ import { useWatchedSession } from '../components/useWatchedSession.js';
 import { useCameraPaused } from '../components/useLiveSessionId.js';
 import DailySummary from '../components/DailySummary.jsx';
 import PhoneBattery from '../components/PhoneBattery.jsx';
-import CaregiverNotes from '../components/CaregiverNotes.jsx';
+import TalkToUser from '../components/TalkToUser.jsx';
 import { useQuestions, useRecentFrames, useStatus } from '../components/useBackend.js';
 import { memoryClient } from '../services/memoryClient.js';
 
@@ -116,7 +116,7 @@ export default function Overview() {
 
         <div className="stack">
           <DailySummary />
-          <CaregiverNotes />
+          <TalkToUser />
 
           <section className="card section section-tight" aria-labelledby="answer-title">
             <div className="card-head">

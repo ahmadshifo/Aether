@@ -68,14 +68,9 @@ export interface SessionPorts {
   buzz?(times: 1 | 2): void;
   /** Sends the battery (0..100) to the dashboard. */
   reportBattery?(sessionId: string, battery: number, charging: boolean): Promise<void>;
-  /** Caregiver messages from the dashboard not read aloud yet, and marking one as read. */
-  pendingNotes?(): Promise<{ note_id: string; text: string }[]>;
-  noteRead?(noteId: string): Promise<void>;
 }
-// How often a session checks the dashboard for new caregiver messages.
-const NOTES_EVERY_MS = 6000;
 export type SosState = 'off' | 'countdown' | 'sending' | 'sent' | 'failed';
-export type SessionState = { active: boolean; id?: string; startedAt?: string; phase: Phase; camera: boolean; cameraUrl?: string; depthState?: DepthState; depthMessage?: string; transport: Transport; registry: 'off' | 'pending' | 'registered' | 'failed'; transcript: string; answer?: Entry; error: string; cameraError: string; voiceError: string; cameraPaused: boolean; sos: SosState };
+export type SessionState = { liveCall?: boolean; active: boolean; id?: string; startedAt?: string; phase: Phase; camera: boolean; cameraUrl?: string; depthState?: DepthState; depthMessage?: string; transport: Transport; registry: 'off' | 'pending' | 'registered' | 'failed'; transcript: string; answer?: Entry; error: string; cameraError: string; voiceError: string; cameraPaused: boolean; sos: SosState };
 const initial: SessionState = { active: false, phase: 'idle', camera: false, transport: 'off', registry: 'off', transcript: '', error: '', cameraError: '', voiceError: '', cameraPaused: false, sos: 'off' };
 export class SessionController {
   private state = initial;
@@ -110,11 +105,7 @@ export class SessionController {
   private stoppedBy = 0;
   private interruption?: { token: number; text: string; command: Command | null };
   private buzzWhenListening = false;
-  // Caregiver messages waiting to be read aloud (said like warnings: only while listening), and the ones already
-  // queued or read this session, so a message is never read twice.
-  private pendingNotes: { id: string; text: string }[] = [];
-  private seenNotes = new Set<string>();
-  private notesTimer?: ReturnType<typeof setInterval>;
+  liveHangup?: () => void;
   private lastBattery = '';  // one buzz when listening starts again after the phone has spoken
   private linkConnected = false;  // the video link has been connected since the camera started
   private lostSaid = false;  // "I lost the connection" was said and "Connected again" hasn't been yet
@@ -136,17 +127,13 @@ export class SessionController {
     this.set({ ...initial, active: true, id, startedAt: new Date().toISOString(), phase: 'starting' });
     this.ports.keepAwake(true);
     this.warned = new Set(); this.pendingWarnings = []; this.linkConnected = false; this.lostSaid = false;
-    this.pendingNotes = []; this.seenNotes = new Set(); this.lastBattery = '';
+    this.lastBattery = '';
     this.stopBattery = this.ports.watchBattery?.((level, charging) => {
       if (!this.valid(g)) return;
       this.reportBattery(level, charging);
       const warning = batteryWarning(level, charging, this.warned);
       if (warning) this.warn(warning);
     });
-    if (this.ports.pendingNotes) {
-      void this.checkNotes(g);
-      this.notesTimer = setInterval(() => { void this.checkNotes(g); }, NOTES_EVERY_MS);
-    }
     const pending = this.openSession(g, id, token);
     this.sessionStartup = pending;
     try { await pending; } finally { if (this.sessionStartup === pending) this.sessionStartup = undefined; }
@@ -247,17 +234,24 @@ export class SessionController {
     this.lastBattery = key;
     void this.ports.reportBattery?.(this.state.id, level * 100, charging).catch(() => { this.lastBattery = ''; });
   }
-  /** New caregiver messages are queued and read aloud the next time the phone is just listening. */
-  private async checkNotes(g: number) {
-    const notes = await this.ports.pendingNotes?.().catch(() => []) ?? [];
-    if (!this.valid(g)) return;
-    for (const note of notes) {
-      if (this.seenNotes.has(note.note_id)) continue;
-      this.seenNotes.add(note.note_id);
-      this.pendingNotes.push({ id: note.note_id, text: note.text.trim() });
-    }
-    if (this.pendingNotes.length && this.state.phase === 'listening') this.sayWarnings();
+  async beginLiveVoice(announce: () => Promise<void>) {
+    const g = this.generation;
+    if (!this.valid(g) || this.state.sos === 'countdown' || this.state.sos === 'sending') return false;
+    this.questionGeneration++; this.questionRequest?.abort(); this.speechGeneration++;
+    this.ports.stopSpeech(); await this.endStopListener(); await this.silenceInput();
+    if (!this.valid(g)) return false;
+    this.set({ liveCall: true, phase: 'greeting' });
+    await announce();
+    if (!this.valid(g) || !this.state.liveCall) return false;
+    await this.listen(g); return true;
   }
+  finishLiveVoice() {
+    if (!this.state.liveCall) return;
+    this.set({ liveCall: false });
+    this.ports.stopSpeech();
+    if (this.state.active) void this.listen(this.generation);
+  }
+  endLiveVoice() { this.liveHangup?.(); this.finishLiveVoice(); }
   /** Says a warning now if the phone is just listening; otherwise as soon as it is listening again. */
   private warn(warning: Warning) {
     // A newer connection warning replaces an older one that wasn't said yet ("lost" then "back" = nothing to say).
@@ -269,21 +263,9 @@ export class SessionController {
     if (this.state.phase === 'listening') this.sayWarnings();
   }
   private sayWarnings() {
-    if ((!this.pendingWarnings.length && !this.pendingNotes.length) || this.state.sos === 'countdown' || this.state.sos === 'sending') return;
-    const notes = this.pendingNotes;
-    const text = [
-      ...this.pendingWarnings.map(warning => warningCopy[this.language][warning]),
-      ...notes.map(note => commandCopy[this.language].note.replace('{text}', note.text)),
-    ].join(' ');
-    this.pendingWarnings = []; this.pendingNotes = [];
-    void this.say(text).then(finished => {
-      // Only a note the user heard to the end is read. Cut off (Stop, background, "stop", talking over it), it
-      // stays unread on the server and is said again on the next check.
-      for (const note of notes) {
-        if (finished) void this.ports.noteRead?.(note.id).catch(() => {});
-        else this.seenNotes.delete(note.id);
-      }
-    });
+    if (this.state.liveCall || !this.pendingWarnings.length || this.state.sos === 'countdown' || this.state.sos === 'sending') return;
+    const text=this.pendingWarnings.map(warning => warningCopy[this.language][warning]).join(' ');
+    this.pendingWarnings=[]; void this.say(text);
   }
   retryStream() {
     const g = this.generation, id = this.state.id;
@@ -310,7 +292,7 @@ export class SessionController {
         start: () => {
           if (!valid()) return;
           this.set({ phase: 'listening' });
-          if (this.buzzWhenListening && !this.pendingWarnings.length && !this.pendingNotes.length) { this.buzzWhenListening = false; this.ports.buzz?.(1); }
+          if (this.buzzWhenListening && !this.pendingWarnings.length) { this.buzzWhenListening = false; this.ports.buzz?.(1); }
           this.sayWarnings();
         },
         result: (text, final, confidence) => {
@@ -318,10 +300,12 @@ export class SessionController {
           this.set({ transcript: text, phase: 'hearing' });
           if (!final) return;
           // Spoken commands (SOS, cancel, camera off/on, read it again) are handled here, never sent as questions.
+          if (this.state.liveCall && /^(stop|end (?:live )?(?:voice|call)|hang up|أوقف المكالمة|انهاء المكالمة|أنهِ المكالمة|arrête|raccroche|terminer l'appel)[.!؟?]*$/i.test(text.trim())) { this.endLiveVoice(); return; }
           const command = detectCommand(text);
           if (command) { this.retries = 0; void this.command(command, text); return; }
           // While an SOS countdown runs, only "cancel" is listened to.
           if (this.state.sos === 'countdown') return;
+          if (this.state.liveCall) { this.retries = 0; return; }
           if (validTranscript(text, confidence)) { this.retries = 0; void this.question(text, 'speech'); }
         },
         end: () => { if (valid() && ['starting', 'listening', 'hearing'].includes(this.state.phase)) this.retry(g); },
@@ -360,6 +344,7 @@ export class SessionController {
   async typedQuestion(text: string) { if (this.ports.preview) await this.question(text, 'typed'); }
   private async question(text: string, input: 'speech' | 'typed') {
     const g = this.generation;
+    if (this.state.liveCall) return;
     if (!this.valid(g) || ['greeting', 'processing', 'speaking', 'paused'].includes(this.state.phase) || !validTranscript(text)) return;
     const normalized = text.toLocaleLowerCase().replace(/\s+/g, ' ').trim();
     if (normalized === this.lastQuestion && Date.now() - this.lastAt < 4500) return;
@@ -430,6 +415,7 @@ export class SessionController {
   /** Speaks with the microphone off (so the phone never hears itself), then listens again when resume is true.
    *  Resolves to true only when the whole text was spoken (not stopped, replaced or talked over). */
   private async speakText(text: string, language: Language, resume: boolean): Promise<boolean> {
+    if (this.state.liveCall) { if (resume) void this.listen(this.generation); return false; }
     const g = this.generation, token = ++this.speechGeneration;
     this.ports.stopSpeech(); await this.endStopListener(); await this.silenceInput();
     if (token !== this.speechGeneration || !this.ports.allowed() || g !== this.generation) return false;
@@ -507,6 +493,7 @@ export class SessionController {
     if (!this.valid(g)) return;
     const copy = commandCopy[this.language];
     this.set({ transcript: '' });
+    if (this.state.liveCall && (kind === 'sos' || kind === 'call')) this.endLiveVoice();
     if (kind === 'sos') { this.sosName = sosContactName(text); await this.startSos(g); return; }
     if (kind === 'call') { await this.callByName(g, callContactName(text) ?? ''); return; }
     if (kind === 'examples') { await this.say(copy.examples); return; }
@@ -676,13 +663,14 @@ export class SessionController {
   }
   changeLanguage(lang: Language) { if (lang === this.language) return; this.language = lang; this.set({ depthMessage: undefined }); this.pause(); }
   stop(background = false) {
+    this.liveHangup?.();
     const id = this.state.id, wasActive = this.state.active;
     this.generation++; this.questionGeneration++; this.speechGeneration++; this.publisherGeneration++;
     this.request.abort(); this.questionRequest?.abort(); void this.silenceInput(); this.ports.stopSpeech();
     clearInterval(this.depthTimer); this.depthTimer = undefined;
     clearTimeout(this.sosTimer); this.sosTimer = undefined;
     this.stopBattery?.(); this.stopBattery = undefined; this.pendingWarnings = [];
-    clearInterval(this.notesTimer); this.notesTimer = undefined; this.pendingNotes = [];
+
     void this.endStopListener();
     try { this.publisher?.stop(); } catch { /* Continue every independent cleanup. */ } this.publisher = undefined;
     try { this.capture?.release(); } catch { /* Native resource may already be released. */ } this.capture = undefined;

@@ -1,3 +1,4 @@
+import { LiveVoiceReceiver, liveChime, liveCopy } from '../voice/liveVoice';
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { AccessibilityInfo, AppState, BackHandler, Platform, Pressable, ScrollView, Switch, Text, View, findNodeHandle, useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -119,13 +120,24 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
       cameraPaused: (id, paused) => api.setCamera(id, paused, new AbortController().signal),
       // Optional calls: a server or API client without them leaves the session working as before.
       reportBattery: async (id, battery, charging) => { await api.device?.(id, battery, charging, new AbortController().signal); },
-      pendingNotes: async () => await api.pendingNotes?.(new AbortController().signal) ?? [],
-      noteRead: async id => { await api.noteRead?.(id, new AbortController().signal); },
     });
     const historySync = new HistorySync(repository, createHistoryApi(endpoints.backend, nativeFetch, unauthorized), allowed);
     return { repository, camera, controller, caps, api, historySync, location, speech };
   });
   const media = useSyncExternalStore(runtime.controller.subscribe, runtime.controller.getSnapshot), history = useSyncExternalStore(runtime.repository.subscribe, runtime.repository.getSnapshot);
+  const callLanguage = useRef(language); callLanguage.current = language;
+  useEffect(() => {
+    if (!media.active || !media.id) return;
+    const receiver = new LiveVoiceReceiver(endpoints.backend, media.id, () => callLanguage.current,
+      () => runtime.controller.beginLiveVoice(async () => {
+        await liveChime();
+        const lang=callLanguage.current;
+        await runtime.speech.speak(liveCopy[lang].speaking,lang,() => {});
+      }), () => runtime.controller.finishLiveVoice(), setNotice);
+    runtime.controller.liveHangup=receiver.end;
+    receiver.start();
+    return () => { receiver.stop(); runtime.controller.liveHangup=undefined; };
+  },[media.active,media.id,endpoints.backend,runtime]);
   const syncedHistory = useSyncExternalStore(runtime.historySync.subscribe, runtime.historySync.getSnapshot);
   const locationStatus = useSyncExternalStore(runtime.location.subscribe, runtime.location.getSnapshot), loc = locationCopy[language];
   const prefsKey = `${runtime.repository.key}:display`;
@@ -193,7 +205,7 @@ export function Account({ auth, session, endpoints, saveEndpoints, changeLanguag
   const Bar = glassBar ? GlassBottomBar : ClassicBottomBar;
   const footer = page !== 'welcome' && <Bar page={page} onNavigate={navigate} onStart={() => start()} />;
   return <UIContext.Provider value={{ ...ui, motion: ui.motion && preferences.motion !== false, haptics: preferences.haptics === true }}>
-    {loaded && page === 'assistant' ? <AssistantScreen voiceNotice={Object.values(localVoiceCopy).includes(notice) ? notice : undefined} media={media} controller={runtime.controller} camera={runtime.camera} caps={runtime.caps} prompt={prompt} start={() => start(prompt)} back={back} backRef={assistantBack} changeLanguage={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} /> : <Frame back={page === 'connection' ? back : undefined} languageChange={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} footer={loaded ? footer : undefined} floatingFooter={glassBar}>
+    {loaded && page === 'assistant' ? <AssistantScreen voiceNotice={notice || undefined} media={media} controller={runtime.controller} camera={runtime.camera} caps={runtime.caps} prompt={prompt} start={() => start(prompt)} back={back} backRef={assistantBack} changeLanguage={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} /> : <Frame back={page === 'connection' ? back : undefined} languageChange={lang => { runtime.controller.changeLanguage(lang); changeLanguage(lang); }} footer={loaded ? footer : undefined} floatingFooter={glassBar}>
       <Text ref={heading} accessibilityRole="header" style={{ color: colors.muted, fontSize: 12 }}>{page === 'welcome' ? 'AETHER / 01' : `AETHER / ${m[page]}`}</Text>
       {!loaded ? <T>{u.loading}</T> : <>
         {page === 'welcome' && <View style={{ gap: 24 }}><View style={{ alignItems: 'center', gap: 20 }}><Mark size={130} /><T variant="title">{m.welcome}</T><T>{m.welcomeBody}</T></View>

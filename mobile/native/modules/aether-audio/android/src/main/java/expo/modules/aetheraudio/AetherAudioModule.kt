@@ -21,10 +21,20 @@ class AetherAudioModule : Module() {
   @Volatile private var recorder: AudioRecord? = null
   @Volatile private var player: AudioTrack? = null
   private var echo: AcousticEchoCanceler? = null
+  private var previousMode: Int? = null
+  private var previousSpeaker = false
+
+  private fun routeSpeaker(enabled: Boolean) {
+    val manager = appContext.reactContext?.getSystemService(android.content.Context.AUDIO_SERVICE) as? AudioManager ?: return
+    if (enabled && previousMode == null) { previousMode = manager.mode; previousSpeaker = manager.isSpeakerphoneOn }
+    if (enabled) { manager.mode = AudioManager.MODE_IN_COMMUNICATION; manager.isSpeakerphoneOn = true }
+    else if (previousMode != null) { manager.isSpeakerphoneOn = previousSpeaker; manager.mode = previousMode!!; previousMode = null }
+  }
 
   override fun definition() = ModuleDefinition {
     Name("AetherAudio")
     Events("audio", "captureError", "playbackStarted")
+    AsyncFunction("routeSpeaker") { enabled: Boolean -> routeSpeaker(enabled) }
     AsyncFunction("prepare") {
       appContext.reactContext?.let { ContextCompat.checkSelfPermission(it, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED } ?: false
     }
@@ -106,8 +116,8 @@ class AetherAudioModule : Module() {
       }
       Unit
     }
-    OnActivityEntersBackground { stopCapture(); stopPlayback() }
-    OnDestroy { stopCapture(); stopPlayback() }
+    OnActivityEntersBackground { stopCapture(); stopPlayback(); routeSpeaker(false) }
+    OnDestroy { stopCapture(); stopPlayback(); routeSpeaker(false) }
   }
 
   private fun stopCapture() {

@@ -11,6 +11,14 @@ public class AetherAudioModule: Module {
   public func definition() -> ModuleDefinition {
     Name("AetherAudio")
     Events("audio", "captureError", "playbackStarted")
+    AsyncFunction("routeSpeaker") { (enabled: Bool) in
+      let session = AVAudioSession.sharedInstance()
+      if enabled {
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
+        try session.setActive(true)
+      }
+      try session.overrideOutputAudioPort(enabled ? .speaker : .none)
+    }.runOnQueue(.main)
     AsyncFunction("prepare") { (promise: Promise) in
       AVAudioSession.sharedInstance().requestRecordPermission { granted in promise.resolve(granted) }
     }
@@ -86,13 +94,16 @@ public class AetherAudioModule: Module {
       }
     }.runOnQueue(.main)
     AsyncFunction("stopPlayback") { self.stopPlayback() }.runOnQueue(.main)
-    OnAppEntersBackground { self.stopCapture(); self.stopPlayback() }
-    OnDestroy { self.stopCapture(); self.stopPlayback() }
+    OnAppEntersBackground { self.stopCapture(); self.stopPlayback(); self.releaseSpeaker() }
+    OnDestroy { self.stopCapture(); self.stopPlayback(); self.releaseSpeaker() }
   }
 
   private func stopCapture() {
     if let engine = engine { engine.inputNode.removeTap(onBus: 0); engine.stop() }
     engine = nil
+  }
+  private func releaseSpeaker() {
+    try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.none)
   }
   private func stopPlayback() {
     playbackTimer?.invalidate(); playbackTimer = nil

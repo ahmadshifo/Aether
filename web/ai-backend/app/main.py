@@ -1,6 +1,8 @@
 """Member 2: FastAPI server for /api/v1/ask, /api/v1/questions and the dashboard status API."""
 
 from contextlib import asynccontextmanager
+import asyncio
+from contextlib import suppress
 from datetime import UTC, datetime
 
 from fastapi import FastAPI, Request
@@ -18,6 +20,7 @@ from app.status import router as status_router
 from app.streams import router as streams_router
 from app.summary import router as summary_router
 from app.voice import router as voice_router
+from app.live_voice import router as live_voice_router, init_calls, maintain_calls, calls, end
 
 
 @asynccontextmanager
@@ -26,7 +29,16 @@ async def lifespan(_: FastAPI):
     init_history_table()
     init_safety_tables()
     init_caregiver_tables()
-    yield
+    init_calls()
+    maintenance = asyncio.create_task(maintain_calls())
+    try:
+        yield
+    finally:
+        maintenance.cancel()
+        with suppress(asyncio.CancelledError):
+            await maintenance
+        for call in list(calls.values()):
+            await end(call, 'server_stopped')
 
 
 app = FastAPI(title="Web AI Service", lifespan=lifespan)
@@ -76,6 +88,7 @@ app.include_router(summary_router)
 app.include_router(alerts_router)
 app.include_router(caregiver_router)
 app.include_router(voice_router)
+app.include_router(live_voice_router)
 
 
 @app.exception_handler(ApiError)

@@ -3,7 +3,7 @@
 import { useContext, useEffect, useState } from 'react';
 import LiveStream from '../components/LiveStream.jsx';
 import PhoneBattery from '../components/PhoneBattery.jsx';
-import CaregiverNotes from '../components/CaregiverNotes.jsx';
+import TalkToUser from '../components/TalkToUser.jsx';
 import { DynamicButton, ScrambleText } from '../components/ui/index.js';
 import { Icon, PageHeader, UserContext, formatShortTime } from '../components/ui.jsx';
 import { useWatchedSession } from '../components/useWatchedSession.js';
@@ -84,7 +84,7 @@ export default function LiveCamera() {
             </dl>
           </section>
 
-          <CaregiverNotes />
+          <TalkToUser />
         </div>
       </div>
     </>

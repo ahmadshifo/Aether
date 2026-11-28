@@ -10,6 +10,7 @@ import { decode64, encode64, UtteranceBuffer } from './pcm';
 
 type Subscription = { remove(): void };
 interface MemoryAudio {
+  routeSpeaker?(enabled: boolean): Promise<void>;
   prepare(): Promise<boolean>;
   startCapture(captureId: string): Promise<void>;
   stopCapture(): Promise<void>;
