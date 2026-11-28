@@ -23,7 +23,7 @@ faster-whisper -> question text -> existing answer API -> Supertonic 3 -> WAV in
 phone memory. The dashboard uses the same authenticated voice proxy.
 
 Root Compose runs MySQL 8.4 (:3307), RustFS (:9000, console :9001), a private-bucket
-initializer and two CPU voice workers. Storage and voice ports bind to loopback.
+initializer, two CPU voice workers and PaddleOCR (:8004). Storage, OCR and voice ports bind to loopback.
 The TTS gateway forwards STT to an internal worker. Separate workers allow speech
 recognition while an answer is synthesized. Each worker accepts one inference at
 a time; busy requests return 429 and the phone uses explicit device fallback.
@@ -40,6 +40,24 @@ network failures produce a translated fallback notice and device voice. Stop,
 repeat, speech-rate and vibration logic remain in the session controller.
 
 ## Contracts and deployment
+
+Read-text questions select their frame and requested language, then send the image
+to local PaddleOCR. EN uses en_PP-OCRv5_mobile_rec, FR uses latin_PP-OCRv5_mobile_rec,
+and AR uses arabic_PP-OCRv5_mobile_rec, with a shared mobile detector. Low-confidence
+results produce a translated move-closer response; no language model completes text.
+Other scene questions retain Gemini. Background frame OCR uses OCR_DEFAULT_LANGUAGE.
+
+Dashboard microphone -> direct DTLS-SRTP WebRTC -> native phone speaker. The backend
+exchanges SDP/ICE over authenticated WebSocket tickets but never receives call audio.
+The existing same-account ownership check links a dashboard to its active phone.
+Only call metadata goes to MySQL. One backend worker is required because tickets
+and active calls live in process memory. A restart ends calls; it cannot resume them.
+
+Phone TTS pauses after the chime and caregiver announcement. End live voice and
+end-call voice commands stop the connection; Stop session/background/logout also
+close it. SOS ends the call before speaking. Camera controls still work. There is
+no maximum call length, but disconnects require an explicit new Start. LAN host ICE
+is the current deployment; cross-network calls need a separately configured TURN relay.
 
 Use `shared/contracts/api-v1.yaml` for HTTP shapes and `media-v1.yaml` for stream
 paths. UUID session IDs and UTC timestamps remain unchanged. Do not directly

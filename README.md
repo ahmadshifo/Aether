@@ -16,9 +16,18 @@ npm.cmd start
 ```
 
 The first start downloads local Supertonic 3 TTS and multilingual faster-whisper
-small/int8 weights. Later voice inference needs no speech API key. A new phone
+small/int8 and PaddleOCR English/Arabic/French weights. Later speech and OCR
+inference need no API key. A new phone
 development build includes memory-only microphone/WAV support; old binaries
 show a device-voice fallback notice. Gemini vision stays unchanged.
+
+This branch replaces typed caregiver notes with **Talk to user** live audio.
+Use the same Aether account on the dashboard and phone, start a phone session,
+then allow the dashboard microphone on localhost or HTTPS. A new native build is
+required for speaker routing. Calls need a reachable LAN; no TURN relay is configured.
+The setup guide covers installation, both phone platforms, tests and troubleshooting.
+See [the OCR and live voice test report](docs/OCR-AND-LIVE-VOICE-VALIDATION.md)
+for measured results, build links and the remaining physical-phone checks.
 
 Do not delete old native database/storage files. The setup guide provides a
 manual, non-destructive migration procedure and exact fallback locations.

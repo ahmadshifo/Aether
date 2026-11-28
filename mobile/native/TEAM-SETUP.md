@@ -1,5 +1,9 @@
 # Local team stack — 2026-11-08
 
+For the current Docker voice/OCR/live-call branch, use [the root setup guide](../../docs/SETUP.md)
+and `npm.cmd start` from the repository root. The native launcher below is the
+historical native-MySQL setup and does not start the new Docker services.
+
 The laptop runs the team's existing MySQL, RustFS, multimedia API, shared account/answer API, MediaMTX, dashboard and Expo code. The private configuration and launcher live under `mobile/native`; no teammate source or dashboard files were edited during this setup. This is a local copy of the stack and database, not a connection to a teammate's computer or their saved data.
 
 Setup was verified against `origin/main` at `72e5f0d` on `codex/mobile-french-onboarding`. The publication includes the earlier shared-account integration, French/safety notice, account History controls, stream recovery and this RustFS setup. Existing unrelated local changes are excluded.
@@ -75,7 +79,7 @@ Private settings: `mobile/native/.runtime/team-integration/local.json`. Database
 | Backend teammate | Add French to Ask request/response validation, answer text, History writes and temporal question routing. The current server accepts only `en` and `ar`; mobile UI/device speech already supports `fr`. |
 | Backend teammate | Preserve milliseconds in History records/cursors. Current `_iso()` truncation can skip answers at a page boundary. See `HISTORY-STREAMING.md` for the reproduction. |
 | Backend teammate | Fix the History bootstrap foreign-key collation to match `users.user_id`. The mobile launcher currently adapts creation of a missing questions table without altering existing tables. |
-| Multimedia teammate / configuration | Supply OpenAI and Mistral credentials through a private local configuration or approved shared backend. The pipeline needs both for its implemented vision/OCR/embedding path; live AI analysis remains off until configured. Then validate actual provider outputs, costs and failure behavior. |
+| Multimedia teammate / configuration | Use the Docker OCR service without a key. Supply the existing vision credentials privately. See docs/SETUP.md for the supported Docker launcher and model checks. |
 | Multimedia teammate | Update the stale four-route integration assertion to the agreed current API contract. Publish locked Python dependencies for reproducible team environments. |
 | Mobile, with a reachable protected image API | Add authenticated server evidence images to native History. Evidence IDs/counts already arrive; the current native UI does not download those RustFS-backed JPEGs. Use a protected API route/proxy, never direct bucket credentials. The dashboard already has an image proxy. |
 | Mobile + backend, if incremental answers are required | Agree and implement an SSE/WebSocket answer protocol, cancellation and incremental speech. Current answers arrive as complete JSON responses; camera video streaming is a separate working path. |

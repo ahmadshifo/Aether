@@ -1,6 +1,34 @@
 <!-- All members: constraints for a camera assistant serving visually impaired people and handling sensitive recordings. -->
 # Safety and Privacy Rules
 
+## Local OCR
+
+PaddleOCR receives an existing selected frame in memory, with bounded body size
+and resolution. It writes no extra images, results or debug visualizations. Model
+weights alone are cached. Existing saved-frame policies remain unchanged. The
+language model is never asked to fill missing letters. A score below 0.85 in any
+detected line suppresses all candidate text and asks the user to move closer.
+OCR confidence is not a correctness guarantee; show uncertainty and verify important text.
+
+## Live caregiver voice
+
+Live voice uses direct encrypted WebRTC audio and is not recorded. No call audio,
+transcript, SDP or ICE is stored in MySQL, RustFS or logs. Signaling tickets are
+single use, expire after 20 seconds and travel in the first WebSocket frame,
+never URL query strings. MySQL stores call ID, owning account, caller name,
+phone session ID, start/end timestamps and end reason. An hourly task removes
+ended call metadata older than 24 hours while the backend runs. Old typed-note
+rows are preserved; the retired note routes are unavailable.
+
+The current authorization model requires the same signed-in Aether account on
+dashboard and phone. It does not implement separate caregiver invitations or roles.
+Calls require an active foreground phone session. The phone announces the caregiver
+before receiving audio, pauses assistant TTS, and provides an End live voice button
+and voice commands. SOS ends the live call first. Stop session, backgrounding or
+logout closes media. Microphone permission is requested only after Start talking.
+Disconnect releases tracks and requires the caregiver to deliberately restart.
+Use consenting participants; device speaker routing and echo behavior need physical tests.
+
 ## Local voice audio
 
 The phone's AetherAudio module and local voice services keep microphone PCM,

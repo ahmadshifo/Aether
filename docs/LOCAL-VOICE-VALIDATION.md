@@ -1,5 +1,10 @@
 # Local Docker voice validation — 2026-11-27
 
+This is the earlier voice-only validation record. The live-call extension now
+requires iPhone build 14; build 13 below does not include its speaker routing.
+See [the 28 November OCR and live voice report](OCR-AND-LIVE-VOICE-VALIDATION.md)
+for current checks and native build links.
+
 Feature branch: `feat/local-docker-voice`, based on main `4312b8b` after fetching
 and fast-forwarding the checkout. No merge or push to main is authorized.
 

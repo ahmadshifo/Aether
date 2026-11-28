@@ -1,6 +1,31 @@
 <!-- All members: tracks approved interface changes so an individual teammate never silently breaks compatibility. -->
 # Architecture Decision Log
 
+## 2026-11-28 - Proposed local OCR and live caregiver voice
+
+- PaddleOCR 3.7.0 and PaddlePaddle 3.3.1 use explicit PP-OCRv5 mobile detection
+  with English, Latin and Arabic recognizers. A low-scoring line makes the result
+  unclear; there is no generative completion. OCRResult keeps its existing fields
+  with additive status/confidence in contract 1.2.0. Gemini handles other vision.
+- Transport choice: reuse browser and react-native-webrtc peer connections for direct encrypted audio.
+  Reuse the authenticated backend for one-use WebSocket signaling tickets; it never receives audio.
+  This avoids public unauthenticated MediaMTX audio paths; LAN works without an extra relay.
+- The existing authorization boundary is the same signed-in Aether account on
+  dashboard and phone. No separate caregiver role/invitation system exists.
+  A different account cannot start/join/end calls. Run one backend worker.
+- Typed notes UI/endpoints/phone polling are retired. Historical DB rows remain.
+  The new caregiver_calls table stores account/name/session/start/end/reason only.
+  Ended call metadata expires after 24 hours on an hourly sweep; no audio or SDP is stored.
+- Chime and translated caregiver announcement precede playback. Phone users end
+  via the End live voice button or a voice command. Normal speech during a call
+  is ignored by the assistant; SOS and camera controls remain. New native builds
+  are required. Disconnect releases resources; the caregiver restarts deliberately.
+- TURN and cross-network ICE are not configured. Localhost/HTTPS is required for
+  browser mic access. HTTP ngrok does not relay WebRTC UDP audio or camera video.
+- Review multimedia changes with ahmadshifo and mobile changes with Hassan before merge.
+- Sources: [PaddleOCR installation](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/installation.en.md),
+  [multilingual models](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/algorithm/PP-OCRv5/PP-OCRv5_multi_languages.en.md).
+
 ## 2026-11-27 - Proposed Docker storage and local multilingual voice
 
 - Branch `feat/local-docker-voice`; no merge to main until owner/device review.
@@ -121,8 +146,7 @@ Record the date, owner, affected services, reason, and approved new contract ver
   still saved.
 - Search vectors stay off: the `frames` table only accepts OpenAI's `text-embedding-3-small`. Frames without a
   vector are now saved instead of failing the pipeline. A free embedding model needs a schema change (Member 3).
-- `MULTIMEDIA_OCR=off` turns text reading off while keeping the Mistral key (its free plan allows 0 OCR requests,
-  and a failed OCR request stopped periodic frames from being saved). A free local OCR is planned.
+- Historical OCR quota problems led to the `MULTIMEDIA_OCR=off` switch. This was superseded by the local PaddleOCR integration on 2026-11-28; no OCR key is needed.
 - Affected: multimedia only, no API or database change. Needs ahmadshifo's approval.
 
 ## 2026-11-19 - Where am I, Ask my history (Member 2)
