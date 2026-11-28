@@ -30,7 +30,7 @@ NOW = datetime(2026, 11, 7, tzinfo=UTC)
 def no_network():
     with patch("pymysql.connect", side_effect=AssertionError("No MySQL")), \
          patch("openai.OpenAI", side_effect=AssertionError("No provider")), \
-         patch("processing.ocr_service.Mistral", side_effect=AssertionError("No provider")):
+         patch("processing.ocr_service.httpx.Client", side_effect=AssertionError("No provider")):
         yield
 
 

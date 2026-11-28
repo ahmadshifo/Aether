@@ -76,7 +76,7 @@ try {
     serverEnv.MULTIMEDIA_API_URL = 'http://127.0.0.1:8003';
     serverEnv.FRAME_STORAGE_BACKEND = config.FRAME_STORAGE_BACKEND ?? 'local';
     serverEnv.MULTIMEDIA_AI_ANALYSIS = config.MULTIMEDIA_AI_ANALYSIS ?? 'off';
-    for (const key of ['OPENAI_API_KEY', 'MISTRAL_API_KEY', 'S3_ENDPOINT_URL', 'S3_BUCKET', 'S3_REGION', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY']) {
+    for (const key of ['OPENAI_API_KEY', 'OCR_SERVICE_URL', 'S3_ENDPOINT_URL', 'S3_BUCKET', 'S3_REGION', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY']) {
       if (config[key]) serverEnv[key] = String(config[key]);
     }
     if (serverEnv.FRAME_STORAGE_BACKEND === 's3') {

@@ -103,7 +103,7 @@ def test_a_captioned_frame_is_saved_without_a_search_vector():
 
 def test_analysis_services_use_gemini_for_captions_without_an_openai_key(monkeypatch):
     from processing import live_service
-    keys = {"GEMINI_API_KEY": "g", "OPENAI_API_KEY": "", "MISTRAL_API_KEY": ""}
+    keys = {"GEMINI_API_KEY": "g", "OPENAI_API_KEY": "", "OCR_SERVICE_URL": ""}
     monkeypatch.setattr(live_service, "setting", lambda name, default: keys.get(name, default))
     ocr, vision, embedding, real = live_service.analysis_services()
     assert isinstance(vision, GeminiVisionService) and isinstance(embedding, NoAIEmbedding) and real
@@ -111,8 +111,8 @@ def test_analysis_services_use_gemini_for_captions_without_an_openai_key(monkeyp
     assert isinstance(live_service.analysis_services()[1], live_service.NoAIVision)
 
 
-def test_reading_text_can_be_switched_off_while_keeping_the_mistral_key(monkeypatch):
+def test_reading_text_can_be_switched_off_while_keeping_the_local_ocr_key(monkeypatch):
     from processing import live_service
-    keys = {"MISTRAL_API_KEY": "m", "MULTIMEDIA_OCR": "off"}
+    keys = {"OCR_SERVICE_URL": "m", "MULTIMEDIA_OCR": "off"}
     monkeypatch.setattr(live_service, "setting", lambda name, default: keys.get(name, default))
     assert isinstance(live_service.analysis_services()[0], NoAIOCR)

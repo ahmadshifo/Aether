@@ -207,7 +207,7 @@ def test_valid_embedding_and_existing_task_results(mocked_repository, image):
     from processing.object_detector import VisionResult
     from processing.embedding_service import EmbeddingResult
     repository, _, _ = mocked_repository
-    ocr = OCRResult("ROOM 205", "mistral-ocr-latest", True, "ROOM 205")
+    ocr = OCRResult("ROOM 205", "paddleocr-PP-OCRv5", True, "ROOM 205")
     vision = VisionResult(["door", "sign"], "A door.", "gpt-5.4-mini", False)
     embedding = EmbeddingResult(EMBEDDING_MODEL, 1536, "A door.", np.linspace(-0.5, 0.5, 1536).tolist())
     identifier = save(repository, image, ocr_text=ocr.text, objects=vision.objects, caption=vision.caption,

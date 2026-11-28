@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from app import depth as metric_depth
-from app import history_answer, vision_provider
+from app import history_answer, vision_provider, local_ocr
 from app.memory_client import MemoryClient, MemoryUnavailable
 from app.summary import topic_of
 from app.vision_provider import VisionUnavailable
@@ -154,7 +154,7 @@ def describe(question: str, language: str, frames: list[dict], memory: MemoryCli
     copy = ANSWERS[language]
     if not frames:
         return copy["none"], True
-    if memory is None or not vision_provider.configured():
+    if memory is None or (not local_ocr.is_reading(question) and not vision_provider.configured()):
         return copy["frames"], True
     try:
         pictures = _pictures(memory, frames, now or datetime.now(UTC))
@@ -163,6 +163,8 @@ def describe(question: str, language: str, frames: list[dict], memory: MemoryCli
         return copy["offline"], True
     if not pictures:
         return copy["none"], True
+    if local_ocr.is_reading(question):
+        return local_ocr.read(pictures[0][0], language)
     try:
         text, uncertain = vision_provider.ask(question, language, pictures, measured) if measured else \
             vision_provider.ask(question, language, pictures)

@@ -329,7 +329,7 @@ analysis. Real MySQL/JPEG integration was tested here with such mocked AI.
 
 ## 7. Small explicitly paid real-provider test
 
-Only after verifying private Mistral/OpenAI credentials, billing and an
+After checking local OCR readiness, optional OpenAI credentials/billing and an
 authorized stream, replace mocked AI with real integrations:
 
 ```powershell

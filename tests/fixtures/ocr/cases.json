@@ -1,0 +1,101 @@
+{
+  "font": "arial.ttf",
+  "cases": [
+    {
+      "file": "en-clean.png",
+      "lang": "en",
+      "condition": "clean",
+      "text": "EXIT 24"
+    },
+    {
+      "file": "en-small.png",
+      "lang": "en",
+      "condition": "small",
+      "text": "EXIT 24"
+    },
+    {
+      "file": "en-rotated.png",
+      "lang": "en",
+      "condition": "rotated",
+      "text": "EXIT 24"
+    },
+    {
+      "file": "en-blurred.png",
+      "lang": "en",
+      "condition": "blurred",
+      "text": "EXIT 24"
+    },
+    {
+      "file": "en-low_contrast.png",
+      "lang": "en",
+      "condition": "low_contrast",
+      "text": "EXIT 24"
+    },
+    {
+      "file": "fr-clean.png",
+      "lang": "fr",
+      "condition": "clean",
+      "text": "Sortie numéro 24"
+    },
+    {
+      "file": "fr-small.png",
+      "lang": "fr",
+      "condition": "small",
+      "text": "Sortie numéro 24"
+    },
+    {
+      "file": "fr-rotated.png",
+      "lang": "fr",
+      "condition": "rotated",
+      "text": "Sortie numéro 24"
+    },
+    {
+      "file": "fr-blurred.png",
+      "lang": "fr",
+      "condition": "blurred",
+      "text": "Sortie numéro 24"
+    },
+    {
+      "file": "fr-low_contrast.png",
+      "lang": "fr",
+      "condition": "low_contrast",
+      "text": "Sortie numéro 24"
+    },
+    {
+      "file": "ar-clean.png",
+      "lang": "ar",
+      "condition": "clean",
+      "text": "الباب رقم ٢٤"
+    },
+    {
+      "file": "ar-small.png",
+      "lang": "ar",
+      "condition": "small",
+      "text": "الباب رقم ٢٤"
+    },
+    {
+      "file": "ar-rotated.png",
+      "lang": "ar",
+      "condition": "rotated",
+      "text": "الباب رقم ٢٤"
+    },
+    {
+      "file": "ar-blurred.png",
+      "lang": "ar",
+      "condition": "blurred",
+      "text": "الباب رقم ٢٤"
+    },
+    {
+      "file": "ar-low_contrast.png",
+      "lang": "ar",
+      "condition": "low_contrast",
+      "text": "الباب رقم ٢٤"
+    },
+    {
+      "file": "no-text.png",
+      "lang": "en",
+      "condition": "blank",
+      "text": ""
+    }
+  ]
+}

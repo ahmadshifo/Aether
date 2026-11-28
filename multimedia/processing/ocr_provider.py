@@ -1,1 +1,1 @@
-"""Member 3: submit selected images to the Mistral OCR API and normalize extracted sign text."""
+"""Member 3: submit selected images to the local OCR OCR API and normalize extracted sign text."""

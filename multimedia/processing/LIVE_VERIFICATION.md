@@ -202,7 +202,7 @@ development examples use 8000. The guide explains selecting one port consistentl
 without silently rewriting teammate configuration. Account ownership and cookie
 forwarding remain necessary. Do not treat CORS or knowing a UUID as authorization.
 
-Paid Mistral/OpenAI requests were NOT executed. The guide provides an explicit
+Paid local OCR/OpenAI requests were NOT executed. The guide provides an explicit
 small `--live --execute --max-accepted-frames 2` test; its success depends on
 private credentials, quota, billing and actual provider availability. A live
 dry-run still incurs provider calls. No real camera imagery was used in these

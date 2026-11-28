@@ -271,7 +271,7 @@ Compose configuration is unchanged.
 ## Verification
 
 Run these from multimedia/ with the virtual environment active. All data is
-synthetic; tests make no OpenAI or Mistral calls. Offline mocks check validation,
+synthetic; tests make no OpenAI or local OCR calls. Offline mocks check validation,
 query construction and failure recovery; they do not establish server support.
 The original 15 real frame-storage tests are retained. Eight additional real
 authentication tests verify signup, password hashing, login/logout, refresh,

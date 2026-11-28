@@ -1,0 +1,4 @@
+# Build the CPU image first. This optional image replaces its inference engine.
+FROM aether-local-ocr:1
+RUN pip uninstall -y paddlepaddle && pip install --no-cache-dir paddlepaddle-gpu==3.3.1 --index-url https://www.paddlepaddle.org.cn/packages/stable/cu126/
+ENV OCR_DEVICE=gpu:0

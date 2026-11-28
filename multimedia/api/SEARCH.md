@@ -278,7 +278,7 @@ python -m pytest tests/ -v --basetemp "$pytestTemp" -p no:cacheprovider
 For a full real-database regression use that last pytest command inside the
 RUN_MYSQL_TESTS try/finally block. The earlier authentication tests also require
 the existing web/ai-backend dependencies installed in the test environment.
-No search unit test needs MySQL, OpenAI, Mistral, a camera or image fixtures.
+No search unit test needs MySQL, OpenAI, local OCR, a camera or image fixtures.
 
 ## Limits and verification boundaries
 

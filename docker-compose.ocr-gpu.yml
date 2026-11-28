@@ -1,0 +1,9 @@
+services:
+  ocr:
+    image: aether-local-ocr-gpu:1
+    build:
+      context: ./multimedia/ocr-service
+      dockerfile: Dockerfile.gpu
+    gpus: all
+    environment:
+      OCR_DEVICE: gpu:0

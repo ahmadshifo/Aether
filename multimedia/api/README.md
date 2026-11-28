@@ -394,7 +394,7 @@ $pytestTemp = Join-Path $env:TEMP ("aether-pytest-" + [guid]::NewGuid().ToString
 
 For a full real-MySQL regression, put that last pytest command inside the same
 RUN_MYSQL_TESTS try/finally block. No offline test requires MySQL, OpenAI keys,
-Mistral, streaming or image fixtures. Integration tests use generated emails,
+local OCR, streaming or image fixtures. Integration tests use generated emails,
 account/session/frame UUIDs and only remove their own synthetic data. The
 database-outage test intentionally overrides a dependency; other integration
 cases actually use MySQL. No paid request is made during tests.

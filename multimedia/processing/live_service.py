@@ -70,8 +70,7 @@ class NoAIEmbedding:
 
 
 def ai_available() -> bool:
-    return (switch("MULTIMEDIA_AI_ANALYSIS") and bool(setting("OPENAI_API_KEY", ""))
-            and bool(setting("MISTRAL_API_KEY", "")))
+    return switch("MULTIMEDIA_AI_ANALYSIS") and bool(setting("OPENAI_API_KEY", ""))
 
 
 def gemini_captions_available() -> bool:
@@ -79,15 +78,13 @@ def gemini_captions_available() -> bool:
 
 
 def ocr_available() -> bool:
-    # MULTIMEDIA_OCR=off: no text reading even with a Mistral key (its free plan allows 0 OCR requests, and a
-    # failed OCR request would stop the frame from being saved).
-    return (switch("MULTIMEDIA_AI_ANALYSIS") and switch("MULTIMEDIA_OCR")
-            and bool(setting("MISTRAL_API_KEY", "")))
+    return switch("MULTIMEDIA_AI_ANALYSIS") and switch("MULTIMEDIA_OCR")
+
 
 
 def analysis_services():
-    """(ocr, vision, embedding, real). Each pretrained service is on when its own key is configured:
-    reading text (OCR) needs only the Mistral key; captions/objects and search vectors need the OpenAI key.
+    """(ocr, vision, embedding, real). Local OCR needs no key; cloud services use configured keys:
+    reading text (OCR) uses the local Docker service; captions/objects and search vectors need the OpenAI key.
     Without the OpenAI key, captions/objects come from Gemini when GEMINI_API_KEY is set (no search vectors:
     the frames table only accepts OpenAI's text-embedding-3-small). real is True when any of them is real."""
     ocr = vision = embedding = None

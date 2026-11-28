@@ -93,7 +93,7 @@ No private URL/credential appeared in the response. This probe modified no rows
 and was stopped afterward. Thus process liveness was verified separately from
 actual database readiness instead of assuming one implies the other.
 
-No paid OpenAI, Mistral, OCR or Vision requests were made. Semantic HTTP tests
+No paid OpenAI, local OCR, OCR or Vision requests were made. Semantic HTTP tests
 used deterministic mocked query embeddings while retaining real MySQL rows,
 actual Task 11 ranking and real repository calls. The unavailable-database test
 inside the integration suite deliberately overrides a dependency; the native

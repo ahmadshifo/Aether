@@ -34,7 +34,7 @@ database models/schema, requirements, or the private environment files.
 ## Implementation and component reuse
 
 The sequence is existing VideoReader through FrameExtractor, FrameSelector
-(quality and duplicate rules once), Mistral OCR, combined OpenAI Vision plus
+(quality and duplicate rules once), local OCR OCR, combined OpenAI Vision plus
 caption access, Task 9 description/embedding, Task 10 validation and private
 JPEG/MySQL repository persistence. Rejected frames trigger no downstream calls
 or persistence. No provider or sampling implementation is duplicated.
@@ -140,7 +140,7 @@ The periodic worker's reporting, stop-event behavior, Ctrl+C handling and
 coordination failure exit were tested offline. A permanent worker was not left
 running, and no claim is made that cleanup continues after the process stops.
 
-Live Mistral/OpenAI requests were **not executed**. The pipeline's integration
+Live local OCR/OpenAI requests were **not executed**. The pipeline's integration
 uses the actual existing service interfaces, with deterministic mocked outputs
 in tests. Live keys, quota, billing and provider availability remain to be
 verified using the small explicit `--live --execute --max-frames 2` procedure

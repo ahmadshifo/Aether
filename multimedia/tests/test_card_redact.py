@@ -91,11 +91,11 @@ def test_saved_text_is_redacted_with_the_image():
     assert "0999" not in inner.kwargs["ocr_text"]
 
 
-def test_reading_text_needs_only_the_mistral_key(monkeypatch):
+def test_reading_text_needs_no_cloud_key(monkeypatch):
     from processing import live_service
-    keys = {"MISTRAL_API_KEY": "m", "OPENAI_API_KEY": ""}
+    keys = {"OCR_SERVICE_URL": "m", "OPENAI_API_KEY": ""}
     monkeypatch.setattr(live_service, "setting", lambda name, default: keys.get(name, default))
     ocr, vision, embedding, real = live_service.analysis_services()
     assert type(ocr).__name__ == "OCRService" and isinstance(vision, live_service.NoAIVision) and real
-    keys["MISTRAL_API_KEY"] = ""
+    keys["MULTIMEDIA_OCR"] = "off"
     assert isinstance(live_service.analysis_services()[0], live_service.NoAIOCR)

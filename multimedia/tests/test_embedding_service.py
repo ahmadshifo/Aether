@@ -291,7 +291,7 @@ def test_numpy_vectors_preserved():
 def test_existing_ocr_and_vision_results_are_accepted_unchanged(client):
     from processing.ocr_service import OCRResult
     from processing.object_detector import VisionResult
-    ocr = OCRResult("الغرفة ٢٠٥", "mistral-ocr-latest", True, "الغرفة ٢٠٥")
+    ocr = OCRResult("الغرفة ٢٠٥", "paddleocr-PP-OCRv5", True, "الغرفة ٢٠٥")
     vision = VisionResult(["Door", "sign", "door"], "A door in a corridor.", "gpt-5.4-mini", False)
     originals = asdict(ocr), asdict(vision)
     result = EmbeddingService(client=client).embed_frame(ocr.text, vision.objects, vision.caption)
@@ -380,7 +380,7 @@ def test_private_env_ignored_and_template_has_no_credentials():
                              capture_output=True, text=True)
     assert ignored.returncode == 0 and tracked.returncode == 0 and not tracked.stdout.strip()
     config = dotenv_values(root / "multimedia" / "api" / ".env.example")
-    if config.get("OPENAI_API_KEY") or config.get("MISTRAL_API_KEY"):
+    if config.get("OPENAI_API_KEY"):
         pytest.fail("Keep credentials out of .env.example; use only the ignored private .env.")
 
 

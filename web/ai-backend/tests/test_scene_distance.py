@@ -75,7 +75,7 @@ class SceneDistanceTests(unittest.TestCase):
 
     def test_without_a_fresh_snapshot_it_is_asked_as_before(self):
         for value, question in [(None, "What's in front of me?"), (snapshot(age_ms=60_000), "What's in front of me?"),
-                                (snapshot(), "Read the sign")]:
+                                (snapshot(), "What colour is the door?")]:
             sent = []
             with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "test-key", "AI_PROVIDER": "gemini"}), \
                     mock.patch.object(vision_provider, "_post", lambda m, k, body, t: sent.append(body) or reply("ok")), \

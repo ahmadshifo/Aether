@@ -18,8 +18,7 @@ def test_required_libraries():
         "fastapi",
         "uvicorn",
         "openai",
-        "mistralai",
-        "psycopg",
+                "psycopg",
         "pgvector",
         "sqlalchemy",
         "dotenv",
@@ -44,7 +43,7 @@ def test_environment_example():
 
     required = [
         "OPENAI_API_KEY",
-        "MISTRAL_API_KEY",
+        "OCR_SERVICE_URL",
         "DATABASE_URL",
         "FRAME_STORAGE_PATH",
         "MULTIMEDIA_API_PORT",

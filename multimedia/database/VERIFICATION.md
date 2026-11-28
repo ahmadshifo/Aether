@@ -58,7 +58,7 @@ application account has been seeded.
 | Git diff whitespace check | Passed |
 
 The full run reported one upstream Starlette TestClient deprecation warning
-about httpx. No runtime/test failures resulted. No live OpenAI or Mistral calls
+about httpx. No runtime/test failures resulted. No live OpenAI or local OCR calls
 were made. Tests exercise the existing ASGI authentication API with a real
 MySQL database, not a mocked database or SQLite substitute. They do not claim
 browser, live camera, or live AI end-to-end verification.

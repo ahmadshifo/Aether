@@ -578,150 +578,13 @@ $pytestTemp = Join-Path $env:TEMP ("aether-pytest-" + [guid]::NewGuid().ToString
 python -m pytest tests/ -v --basetemp "$pytestTemp" -p no:cacheprovider
 ```
 
-## Task 7: explicit single-image Mistral OCR
+## Local OCR
 
-`processing/ocr_service.py` exposes `OCRService.extract_text(image)`. It accepts
-the same uint8 grayscale, BGR and BGRA arrays as the other filters and validates
-them through `image_utils.validate_image`. BGRA is converted to BGR, dropping
-alpha; color BGR images remain in color. OpenCV encodes JPEG bytes in memory,
-which become `data:image/jpeg;base64,...`. No temporary upload file or public
-image URL is used. Source pixels and extracted-frame metadata remain unchanged.
-
-The implementation was verified against installed official `mistralai` 2.10.1,
-including its `mistralai.client.Mistral`, `client.ocr.process`, `OCRResponse`,
-and page `markdown` fields. `api/requirements.txt` now requires that verified
-SDK version or a later compatible 2.x release. See the official
-[OCR guide](https://docs.mistral.ai/studio/document-processing/basic_ocr) and
-[API reference](https://docs.mistral.ai/api/endpoint/ocr).
-
-Each explicit `extract_text` call makes one request using the configured model,
-an `image_url` document containing the data URL, `include_image_base64=False`,
-a default SDK timeout of 30 seconds, and `retries=None`. Automatic retries are
-disabled, including for 429 responses. Python callers may configure
-`timeout_seconds` from 0.001 to 300. No requests happen on import or service
-construction. SDK clients created by the service are closed after each call;
-injected clients remain owned by their caller.
-
-`OCRResult` has `text`, `model`, `has_text`, and `raw_markdown`. `model` is the
-model identifier reported by the provider, which can be a resolved version
-rather than the requested alias. Page markdown is combined in provider order
-with a blank line between pages. `text` trims outer whitespace only; Markdown,
-Arabic, accents, numbers, and internal line breaks are otherwise retained.
-`raw_markdown` keeps the joined content without trimming. No translation,
-guessed corrections, Markdown-to-text library, or confidence score is added.
-
-A valid response with no text returns `text=""`, `has_text=False`. This is
-different from an API failure: missing configuration, authentication/access,
-network, timeout, rate-limit and malformed-response failures raise named
-`OCRServiceError` subclasses. Billing and other HTTP failures raise
-`OCRServiceError`. Invalid images raise TypeError/ValueError; JPEG failures
-raise `ImageEncodingError`. Provider exception bodies and exception chains
-are suppressed in public errors, so they cannot print keys or authenticated
-requests. No Base64 data, keys, or OCR content is logged by the service.
-The explicit CLI displays the requested OCR text as its intended output.
-
-Configuration uses only `multimedia/api/.env` for an optional local file.
-Existing process environment variables take precedence. The service reads
-this file without modifying the global environment or interpolating values.
-Model precedence is explicit `model=`/`--model`, then `MISTRAL_OCR_MODEL` from
-the environment or local file, then `mistral-ocr-latest` when absent. Empty
-model values are configuration errors. The key is `MISTRAL_API_KEY` and is
-required before any non-injected request. No `.env` is created automatically.
-
-Offline verification uses fake SDK clients and `httpx.MockTransport` with real
-SDK response types; real HTTP transport is forbidden within the OCR tests.
-No real key, network, or API credits are needed. Run all tests from
-`multimedia/`: earlier CLI subprocess tests depend on that working directory.
-
-```powershell
-cd "C:\Users\Technoline\Desktop\multimedia-project"
-.\multimedia\.venv\Scripts\Activate.ps1
-cd multimedia
-
-$pytestTemp = Join-Path $env:TEMP ("aether-pytest-" + [guid]::NewGuid().ToString("N"))
-python -m pytest tests/test_ocr_service.py -v --basetemp "$pytestTemp" -p no:cacheprovider
-
-$pytestTemp = Join-Path $env:TEMP ("aether-pytest-" + [guid]::NewGuid().ToString("N"))
-python -m pytest tests/ -v --basetemp "$pytestTemp" -p no:cacheprovider
-
-# Generate known sign and blank images locally. This sends no OCR request.
-python -m scripts.generate_ocr_samples
-
-# Test invalid paths without a cloud request.
-python -m processing.ocr_service --image "missing.png"
-```
-
-For the separate optional REAL API test, configure your key locally. Never
-paste it into chat or put it in `.env.example`. From `multimedia/`, preserve
-an existing private configuration and create it only if absent:
-
-```powershell
-if (-not (Test-Path "api/.env")) { Copy-Item "api/.env.example" "api/.env" }
-code "api/.env"
-
-# Verify the private file is ignored and is not already tracked.
-git check-ignore "api/.env"
-git ls-files -- "api/.env"
-```
-
-In the local editor, fill in `MISTRAL_API_KEY` and keep
-`MISTRAL_OCR_MODEL=mistral-ocr-latest`; preserve other configuration values.
-`git check-ignore` should print `api/.env`, and `git ls-files` should print
-nothing. Both conditions were verified for the repository's established path.
-Do not proceed with a real key if the file is tracked. An environment variable
-already set in PowerShell overrides values in this file, including a blank key.
-
-Only run the following cloud commands when you want to send these synthetic
-images to Mistral. Each command makes one request and may incur a charge:
-
-```powershell
-# Explicit real request 1: compare returned text with the known ROOM 205 sign.
-python -m processing.ocr_service --image "output/ocr_samples/sign.png"
-
-# Optional real request 2: blank-image behavior.
-python -m processing.ocr_service --image "output/ocr_samples/blank.png"
-
-# Optional model override (another real request if run).
-python -m processing.ocr_service --image "output/ocr_samples/sign.png" --model "mistral-ocr-latest"
-
-# Optional Arabic test: use an existing suitable image and inspect exact text.
-python -m processing.ocr_service --image "C:\Images\arabic-sign.jpg"
-```
-
-The sample generator uses OpenCV's Latin font for `ROOM 205`; it does not
-pretend to render Arabic with an unsupported font. Use a suitable local Arabic
-image only if available. The offline suite separately verifies Arabic Unicode
-preservation. Real recognition accuracy can vary and requires manual review.
-
-A successful sign analysis prints `Recognized text:`, its actual returned
-content, and `OCR completed successfully.` The expected sign content is
-`ROOM 205`. A successful blank analysis should normally print `No text detected.`
-Provider mistakes remain possible; the service does not fabricate an empty
-success when a request fails. Success, including no text, returns exit code 0.
-Failures print a sanitized `Error: ...` and return 1; invalid CLI syntax returns 2.
-Missing-key errors identify the required configuration variable; authentication
-or access errors suggest checking credentials/permissions; billing errors
-suggest checking credits; rate-limit/quota errors suggest waiting or checking
-account limits; network and timeout errors identify connectivity or timing.
-The service never retries these automatically.
-
-For later explicit use with Task 6, pass the original frame's image:
-
-```python
-from processing.ocr_service import OCRService
-
-service = OCRService()  # No request here.
-# Given one extracted frame and its existing selection decision:
-if selection.accepted:
-    ocr_result = service.extract_text(frame.frame)  # Explicit cloud request.
-    ocr_text = ocr_result.text
-```
-
-This is a usage example only. OCR is not wired into video selection, directory
-scanning, API routes, or the full pipeline. No database, captions, embeddings,
-OCR caching, model training, or later task is implemented. Real Mistral access
-must be validated separately with your configured credentials; offline tests
-cannot verify account access, credits, network access, or recognition accuracy.
+PaddleOCR now runs in Docker on loopback port 8004. See [setup](../docs/SETUP.md).
+`OCRService.extract_text(image, language="ar")` accepts one BGR image in memory.
+Its existing `text`, `model`, `has_text`, `raw_markdown` fields remain; `status`
+and `confidence` describe uncertain/no-text results. No speech or image generation
+is used to fill missing text. No OCR provider key is required.
 
 ## Task 8: one-call object labels and scene captions
 
@@ -801,7 +664,7 @@ Configuration follows Task 7: `multimedia/api/.env` is the only optional local
 file, process environment variables take precedence, and no global dotenv
 mutation occurs. Vision uses `OPENAI_API_KEY` and
 `OPENAI_VISION_MODEL=gpt-5.4-mini`. Explicit `model=` or CLI `--model` overrides
-the configured model. Mistral's key/model remain independent. No real `.env`
+the configured model. Local OCR runs independently without a key. No real `.env`
 is created or altered by the implementation, and no API request happens on
 module import or service construction.
 
@@ -846,7 +709,7 @@ git ls-files -- "api/.env"
 ```
 
 Set `OPENAI_API_KEY` locally and add/retain
-`OPENAI_VISION_MODEL=gpt-5.4-mini`, preserving Mistral and other variables.
+`OPENAI_VISION_MODEL=gpt-5.4-mini`, preserving local OCR and other variables.
 `git check-ignore` must print the path and `git ls-files` must print nothing;
 these conditions are verified for the established repository path. Existing
 PowerShell environment variables override `.env`, including blank values.
@@ -1147,7 +1010,7 @@ endpoints (login cookie + session ownership required), the API now reads phone s
 4. `POST /api/v1/frames/keep` (new, logged in docs/decision-log.md) saves the frames an answer used.
 
 Images go to local disk or RustFS (`FRAME_STORAGE_BACKEND=s3`, `database/object_storage.py`). The
-retention worker deletes from either. Without OpenAI and Mistral keys (or `MULTIMEDIA_AI_ANALYSIS=off`)
+retention worker deletes from either. With `MULTIMEDIA_AI_ANALYSIS=off`
 "no-AI" services store frames with empty text and an uncertain empty caption instead of stopping the
 fail-closed pipeline. Switches: `MULTIMEDIA_INGEST`, `MULTIMEDIA_FACE_BLUR`, `MULTIMEDIA_AI_ANALYSIS`,
 `LIVE_SAVE_EVERY_SECONDS`, `MEDIAMTX_API_URL` (see api/.env.example).

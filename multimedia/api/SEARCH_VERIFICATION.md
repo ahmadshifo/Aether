@@ -87,7 +87,7 @@ bulk unrelated deletes and paid AI calls were not performed.
   SEARCH.md provides the separate optional command and explains charges,
   model compatibility and the limits of comparing synthetic vectors.
 
-No live OpenAI, Mistral, OCR or Vision request was made by Task 11 tests or demos.
+No live OpenAI, local OCR, OCR or Vision request was made by Task 11 tests or demos.
 Real natural-language retrieval quality and a useful production threshold still
 need labeled real frame/query embeddings from the same configured model.
 

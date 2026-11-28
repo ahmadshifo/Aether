@@ -189,7 +189,7 @@ def test_missing_key_lazy_client_and_owned_cleanup(vision_image, monkeypatch, vi
 def test_environment_and_model_override(tmp_path, monkeypatch, vision_client):
     env = tmp_path / "config.env"
     env.write_text("OPENAI_API_KEY=offline-key\nOPENAI_VISION_MODEL=file-model\n"
-                   "MISTRAL_API_KEY=other-key\nMISTRAL_OCR_MODEL=other-model\n", encoding="utf-8")
+                   "OCR_SERVICE_URL=http://127.0.0.1:8004\nOCR_DEFAULT_LANGUAGE=fr\n", encoding="utf-8")
     monkeypatch.setattr(object_detector, "ENV_FILE", env)
     assert VisionService(client=vision_client).model == "file-model"
     monkeypatch.setenv("OPENAI_VISION_MODEL", "environment-model")
@@ -276,13 +276,9 @@ def test_real_sdk_rate_limit_has_no_automatic_retry(vision_image):
 
 def test_selected_frame_and_ocr_coexistence(tmp_path, monkeypatch, vision_client):
     from processing import ocr_service
-    from mistralai.client.models import OCRResponse, OCRUsageInfo
     from scripts.generate_selection_video import main as generate_video
-    monkeypatch.setattr(ocr_service, "ENV_FILE", tmp_path / "absent.env")
-    monkeypatch.delenv("MISTRAL_OCR_MODEL", raising=False)
     ocr_client = Mock()
-    ocr_client.ocr.process.return_value = OCRResponse(pages=[], model="mistral-ocr-latest",
-                                                    usage_info=OCRUsageInfo(pages_processed=0))
+    ocr_client.post.return_value = httpx.Response(200,json={"text":"","status":"no_text","confidence":0,"model":"paddleocr-PP-OCRv5"})
     ocr = ocr_service.OCRService(client=ocr_client)
     vision = VisionService(client=vision_client)
     path = tmp_path / "selected.avi"
@@ -293,13 +289,13 @@ def test_selected_frame_and_ocr_coexistence(tmp_path, monkeypatch, vision_client
             pixels = frame.frame.copy()
             assert FrameSelector().evaluate(frame).accepted
             vision.analyze_image(frame.frame)
-            ocr_client.ocr.process.assert_not_called()
+            ocr_client.post.assert_not_called()
             ocr.extract_text(frame.frame)
             assert before == (frame.source_video, frame.frame_index, frame.timestamp_ms, frame.captured_at)
             np.testing.assert_array_equal(pixels, frame.frame)
-    assert vision.model == DEFAULT_MODEL and ocr.model == "mistral-ocr-latest"
+    assert vision.model == DEFAULT_MODEL and ocr.model == "paddleocr-PP-OCRv5"
     vision_client.responses.create.assert_called_once()
-    ocr_client.ocr.process.assert_called_once()
+    ocr_client.post.assert_called_once()
 
 
 def test_cli_invalid_path_and_missing_key(tmp_path, vision_image, capsys):

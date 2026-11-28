@@ -29,14 +29,14 @@ const lan = selectLanHost(os.networkInterfaces(), process.env.AETHER_LAN_HOST ||
 const host = lan.address;
 
 async function dockerReady() {
-  for (const port of [Number(process.env.MYSQL_PORT || 3307), 9000, 8001]) {
+  for (const port of [Number(process.env.MYSQL_PORT || 3307), 9000, 8001, 8004]) {
     if (!await isUp(port)) continue;
     const managed = spawnSync('docker', ['compose', 'ps', '--format', 'json'], { cwd: root, encoding: 'utf8' });
     if (managed.status !== 0 || !managed.stdout.includes(`\"PublishedPort\":${port}`) && !managed.stdout.includes(`\"PublishedPort\": ${port}`)) {
       throw Error(`Port ${port} is already used outside this Compose stack. Stop that service yourself before switching; its data will be kept.`);
     }
   }
-  console.log('Starting Docker storage and local voice. First model download can take several minutes.');
+  console.log('Starting Docker storage, local voice and OCR. First model download can take several minutes.');
   const result = await new Promise(resolve => {
     const args = ['compose', 'up', '-d', ...(process.argv.includes('--build-services') ? ['--build'] : [])];
     const child = spawn('docker', args, { cwd: root, stdio: 'inherit', windowsHide: true });
@@ -44,8 +44,8 @@ async function dockerReady() {
   });
   if (result !== 0) throw Error('Docker services could not start. Check Docker Desktop and docker compose logs.');
   // Compose --wait treats a successful one-shot initializer as an exited service.
-  // Check it separately from the four long-running healthchecks.
-  const deadline = Date.now() + 2400000;
+  // Check it separately from the five long-running healthchecks.
+  const deadline = Date.now() + 4500000;
   for (;;) {
     const status = spawnSync('docker', ['compose', 'ps', '--all', '--format', 'json'], { cwd: root, encoding: 'utf8', windowsHide: true });
     if (status.status !== 0) throw Error('Could not inspect Docker healthchecks.');
@@ -53,12 +53,12 @@ async function dockerReady() {
     const entries = raw.startsWith('[') ? JSON.parse(raw) : raw.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
     const states = new Map(entries.map(item => [item.Service, item]));
     const init = states.get('storage-init');
-    const workers = ['mysql', 'rustfs', 'voice-stt', 'voice-tts'].map(name => states.get(name));
+    const workers = ['mysql', 'rustfs', 'voice-stt', 'voice-tts', 'ocr'].map(name => states.get(name));
     if (init?.State === 'exited' && init.ExitCode !== 0 || workers.some(item => item?.Health === 'unhealthy' || item?.State === 'exited')) {
       throw Error('A Docker worker or storage initializer failed. Inspect docker compose logs.');
     }
     if (init?.State === 'exited' && init.ExitCode === 0 && workers.every(item => item?.Health === 'healthy')) break;
-    if (Date.now() > deadline) throw Error('Model startup exceeded 40 minutes. Downloads remain running; inspect logs and retry after they finish.');
+    if (Date.now() > deadline) throw Error('Model startup exceeded 75 minutes. Downloads remain running; inspect logs and retry after they finish.');
     console.log('Waiting for Docker model/storage healthchecks...');
     await sleep(15000);
   }
@@ -73,7 +73,7 @@ const services = [
   // MTX_API turns on MediaMTX's stream list on this PC only; the interfaces list keeps video on the Wi-Fi
   // instead of the virtual WSL/Hyper-V adapters, which dropped the stream. Neither edits mediamtx.yml.
   { name: 'video', port: 8889, dir: 'mobile/streaming', command: `${path.join('mediamtx-local', 'mediamtx.exe')} mediamtx.yml`, env: mediaLanEnvironment(host) },
-  { name: 'backend', port: 8002, dir: 'web/ai-backend', command: `${python} -m uvicorn app.main:app --host 0.0.0.0 --port 8002` },
+  { name: 'backend', port: 8002, dir: 'web/ai-backend', command: `${python} -m uvicorn app.main:app --host 0.0.0.0 --port 8002 --ws-max-size 65536` },
   // ahmadshifo's API (api.main) runs from multimedia/ with the api/.venv environment; it also reads phone streams.
   { name: 'multimedia', port: 8003, dir: 'multimedia', command: `${path.join('api', python)} -m uvicorn api.main:app --port 8003` },
   { name: 'dashboard', port: 5174, dir: 'web/dashboard', command: 'npm run dev', url: 'http://localhost:5174' },

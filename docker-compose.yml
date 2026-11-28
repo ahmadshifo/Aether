@@ -1,5 +1,20 @@
 name: aether-local
 services:
+  ocr:
+    build: ./multimedia/ocr-service
+    image: aether-local-ocr:1
+    restart: unless-stopped
+    ports: ["127.0.0.1:8004:8004"]
+    environment:
+      OCR_MIN_CONFIDENCE: ${OCR_MIN_CONFIDENCE:-0.85}
+    volumes: ["ocr_models:/models"]
+    tmpfs: ["/tmp:size=128m"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 60m
   mysql:
     image: mysql:8.4
     restart: unless-stopped
@@ -84,6 +99,7 @@ services:
       retries: 12
       start_period: 30m
 volumes:
+  ocr_models:
   mysql_data:
   rustfs_data:
   voice_models:

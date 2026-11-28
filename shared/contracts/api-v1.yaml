@@ -3,12 +3,126 @@
 openapi: 3.0.3
 info:
   title: Multimedia Visual Assistant - Shared API
-  version: 1.1.0
+  version: 1.2.0
   description: API shapes shared across the independently developed Mobile, Web AI and Multimedia services.
 servers:
   - url: http://localhost:8002
     description: Illustrative development host; service origins are configured separately.
 paths:
+  /api/v1/ocr:
+    post:
+      summary: Internal memory-only PaddleOCR on loopback port 8004.
+      description: Use the requested language model. Never expose this worker directly to phones or the Internet.
+      parameters:
+        - in: query
+          name: lang
+          schema: {type: string, enum: [en, ar, fr], default: en}
+      requestBody:
+        required: true
+        content:
+          image/jpeg:
+            schema: {type: string, format: binary}
+          image/png:
+            schema: {type: string, format: binary}
+      responses:
+        '200':
+          description: Existing OCRResult fields plus status and confidence. Unclear or no_text always has empty text.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OCRResult'}
+        '413': {description: Image exceeds 4 MiB.}
+        '422': {description: Invalid image or language.}
+        '429': {description: OCR busy.}
+        '503': {description: OCR unavailable or models loading.}
+  /api/v1/live-voice/start:
+    post:
+      summary: Start a caregiver call to a live phone session owned by the signed-in account.
+      description: Requires the existing session cookie. Separate caregiver roles do not exist in this version.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_id]
+              properties:
+                session_id: {type: string, format: uuid}
+      responses:
+        '200':
+          description: One-use dashboard signaling ticket, valid for 20 seconds.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LiveCallTicket'}
+        '401': {description: Login required.}
+        '403': {description: Phone session not active or owned by this account.}
+        '409': {description: This account already has a call.}
+  /api/v1/live-voice/pending:
+    get:
+      summary: Phone polls for its own pending call.
+      parameters:
+        - in: query
+          name: session_id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: A call descriptor or null.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [call]
+                properties:
+                  call:
+                    type: object
+                    nullable: true
+                    properties:
+                      call_id: {type: string, format: uuid}
+                      caller_name: {type: string}
+        '401': {description: Login required.}
+  /api/v1/live-voice/{call_id}/join:
+    post:
+      summary: Obtain a one-use phone signaling ticket for an owned call.
+      parameters:
+        - in: path
+          name: call_id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: One-use phone ticket, valid for 20 seconds.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LiveCallTicket'}
+        '401': {description: Login required.}
+        '404': {description: Call missing or belongs to another account.}
+  /api/v1/live-voice/{call_id}/end:
+    post:
+      summary: End an owned call and close both signaling peers.
+      parameters:
+        - in: path
+          name: call_id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200': {description: 'JSON ok true.'}
+        '401': {description: Login required.}
+        '404': {description: Call missing or belongs to another account.}
+  /api/v1/live-voice/signal:
+    get:
+      summary: WebSocket upgrade for authenticated signaling only.
+      description: >-
+        First JSON frame is LiveCallTicket, never put the ticket in the URL.
+        A consumed or expired ticket closes with 4401; duplicate role closes 4409.
+        Server sends ready when both peers attach. Dashboard sends offer with sdp;
+        phone sends answer with sdp; both exchange ice with candidate object.
+        Clients send ping every 10 seconds; server replies pong. Missing heartbeat
+        or a disconnected peer ends both sides. There is no maximum live duration.
+        Audio is direct DTLS-SRTP WebRTC, not a WebSocket recording. Single backend
+        worker only; no TURN configuration in this LAN-first version.
+        The retired /api/v1/notes endpoints return 404; old database rows remain.
+      responses:
+        '101': {description: WebSocket established; first-frame authentication required.}
   /health:
     get:
       summary: Each backend provides a basic health check.
@@ -223,6 +337,23 @@ paths:
                   ai: {$ref: '#/components/schemas/ServiceStatus'}
 components:
   schemas:
+    OCRResult:
+      type: object
+      required: [text, model, has_text, raw_markdown, status, confidence]
+      properties:
+        text: {type: string}
+        raw_markdown: {type: string}
+        model: {type: string}
+        has_text: {type: boolean}
+        status: {type: string, enum: [ok, unclear, no_text]}
+        confidence: {type: number, minimum: 0, maximum: 1}
+    LiveCallTicket:
+      type: object
+      required: [call_id, caller_name, ticket]
+      properties:
+        call_id: {type: string, format: uuid}
+        caller_name: {type: string}
+        ticket: {type: string, description: 'One use; 20 seconds; never log or persist.'}
     ServiceStatus:
       type: string
       enum: [online, connecting, offline, error]
